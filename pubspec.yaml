@@ -16,6 +16,31 @@ dependencies:
   # Cupertino icons (optional, included by default)
   cupertino_icons: ^1.0.6
 
+  # Real-time Location Extraction
+  geolocator: ^13.0.2
+
+  # Reverse Geocoding (Coordinates to human-readable address)
+  geocoding: ^2.1.1
+
+  # Direct SMS Dispatch
+  telephony: ^0.2.0
+
+  # Audio Player for Emergency Loud Siren
+  audioplayers: ^6.1.0
+
+  # Permission Handling
+  permission_handler: ^11.3.1
+
+  # Local Persistent Storage
+  shared_preferences: ^2.2.2
+
+  # Native Intent Launcher for Phone Calls & SMS
+  url_launcher: ^6.2.5
+
+  # Interactive Map Engine (OpenStreetMap tiles)
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -24,9 +49,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  # Add any local assets here in the future, e.g.:
-  # assets:
-  #   - assets/images/
+  assets:
+    - assets/
+    - assets/sounds/
+    - assets/data/
 
 flutter_launcher_icons:
   android: true

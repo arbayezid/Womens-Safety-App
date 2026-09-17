@@ -1,0 +1,46 @@
+id,name,type,latitude,longitude,address,contact_number,is_verified,operating_hours,notes
+pol_banani,Banani Police Station,police,23.7925,90.4078,"Road 11, Block D, Banani, Dhaka",+8801713373155,True,24/7,Fast-response patrol unit active
+pol_gulshan,Gulshan Model Police Station,police,23.7892,90.4178,"Road 36, Gulshan-2, Dhaka",+8801713373156,True,24/7,Diplomatic zone 24/7 security control
+pol_tejgaon_ind,Tejgaon Industrial Police Station,police,23.7598,90.3905,"Tejgaon Industrial Area, Dhaka",+8801713373160,True,24/7,Industrial belt security division
+pol_tejgaon_model,Tejgaon Model Police Station,police,23.7548,90.3912,"Farmgate, Tejgaon, Dhaka",+8801713373161,True,24/7,Near Farmgate Metro & bus terminal
+pol_dhanmondi,Dhanmondi Model Police Station,police,23.7465,90.376,"Road 27, Dhanmondi, Dhaka",+8801713373157,True,24/7,Near Dhanmondi Lake & educational hub
+pol_uttara_east,Uttara East Police Station,police,23.8728,90.3984,"Sector 3, Uttara, Dhaka",+8801713373158,True,24/7,Near Airport Railway & Dhaka Airport
+pol_uttara_west,Uttara West Police Station,police,23.8711,90.3842,"Sector 11, Uttara, Dhaka",+8801713373162,True,24/7,Near Sector 11 women & children zone
+pol_mirpur,Mirpur Model Police Station,police,23.8071,90.3686,"Section 2, Mirpur, Dhaka",+8801713373159,True,24/7,Beside Mirpur Stadium & Metro 10
+pol_shahbagh,Shahbagh Police Station,police,23.7381,90.3957,"Shahbagh Intersection, Dhaka",+8801713373163,True,24/7,"Adjacent to DU, BSMMU & BIRDEM"
+pol_ramna,Ramna Police Station,police,23.741,90.4042,"Minto Road, Ramna, Dhaka",+8801713373164,True,24/7,Central police control corridor
+pol_badda,Badda Police Station,police,23.7806,90.4267,"Pragati Sarani, Middle Badda, Dhaka",+8801713373166,True,24/7,Pragati Sarani arterial corridor
+pol_mohammadpur,Mohammadpur Police Station,police,23.7562,90.3614,"Asad Gate, Mohammadpur, Dhaka",+8801713373167,True,24/7,Residential hub patrol post
+pol_lalbagh,Lalbagh Police Station,police,23.7198,90.3882,"Lalbagh Fort Road, Old Dhaka",+8801713373168,True,24/7,Old Dhaka historic patrol zone
+pol_paltan,Paltan Model Police Station,police,23.7342,90.4128,"Naya Paltan, Dhaka",+8801713373169,True,24/7,Commercial district response unit
+hosp_united,United Hospital,hospital,23.8052,90.4158,"Plot 15, Road 71, Gulshan-2, Dhaka",10666,True,24/7,24/7 trauma & emergency department
+hosp_kurmitola,Kurmitola General Hospital,hospital,23.8223,90.4124,"Airport Road, Cantonment, Dhaka",+880255067080,True,24/7,Public general hospital with 24/7 casualty
+hosp_square,Square Hospital,hospital,23.7531,90.3817,"18/F Bir Uttam Qazi Nuruzzaman Sarak, Dhaka",10616,True,24/7,24/7 critical care & ambulance
+hosp_dmc,Dhaka Medical College Hospital,hospital,23.7258,90.3976,"Secretariat Road, Bakshibazar, Dhaka",+880255165088,True,24/7,Largest tertiary emergency hospital in BD
+hosp_evercare,Evercare Hospital Dhaka,hospital,23.8101,90.4312,"Plot 81, Block E, Bashundhara R/A, Dhaka",10678,True,24/7,JCI accredited 24/7 emergency unit
+hosp_bsmmu,BSMMU (PG Hospital),hospital,23.7397,90.3958,"Shahbagh, Dhaka",+880255165760,True,24/7,Central medical university hospital
+hosp_birdem,BIRDEM General Hospital,hospital,23.7388,90.3952,"122 Kazi Nazrul Islam Avenue, Shahbagh, Dhaka",+88029661551,True,24/7,24/7 emergency care & pharmacy
+hosp_labaid,Labaid Specialized Hospital,hospital,23.7431,90.3824,"House 06, Road 04, Dhanmondi, Dhaka",10606,True,24/7,Emergency cardiac & general care
+hosp_ibn_sina,Ibn Sina Hospital Dhanmondi,hospital,23.749,90.3725,"House 48, Road 9/A, Dhanmondi, Dhaka",10615,True,24/7,Round-the-clock emergency assistance
+hosp_cmh,Combined Military Hospital (CMH),hospital,23.8187,90.3985,"Dhaka Cantonment, Dhaka",+88028750011,True,24/7,Military-grade 24/7 emergency complex
+metro_uttara_north,Uttara North Metro Station,metro,23.8741,90.3972,"Diabari, Sector 15, Uttara, Dhaka",16163,True,06:00 AM - 11:00 PM,"CCTV guarded, security gates active"
+metro_uttara_center,Uttara Center Metro Station,metro,23.864,90.392,"Sector 16, Uttara, Dhaka",16163,True,06:00 AM - 11:00 PM,CCTV monitored safe corridor
+metro_uttara_south,Uttara South Metro Station,metro,23.8475,90.3855,"Sector 17, Uttara, Dhaka",16163,True,06:00 AM - 11:00 PM,Station security guards present
+metro_pallabi,Pallabi Metro Station,metro,23.8248,90.3644,"Mirpur 12, Pallabi, Dhaka",16163,True,06:00 AM - 11:00 PM,Police patrol checkpoint nearby
+metro_mirpur11,Mirpur 11 Metro Station,metro,23.8164,90.366,"Mirpur 11, Dhaka",16163,True,06:00 AM - 11:00 PM,Well-lit entrance with CCTV
+metro_mirpur10,Mirpur 10 Metro Station,metro,23.8069,90.3687,"Mirpur 10 Roundabout, Dhaka",16163,True,06:00 AM - 11:00 PM,Major transit hub with round-the-clock police
+metro_kazipara,Kazipara Metro Station,metro,23.7998,90.3712,"Kazipara, Rokeya Sarani, Dhaka",16163,True,06:00 AM - 11:00 PM,Safe transit access point
+metro_shewrapara,Shewrapara Metro Station,metro,23.7937,90.3735,"Shewrapara, Rokeya Sarani, Dhaka",16163,True,06:00 AM - 11:00 PM,Near Banani-Mirpur link
+metro_agargaon,Agargaon Metro Station,metro,23.7785,90.3789,"Sher-e-Bangla Nagar, Agargaon, Dhaka",16163,True,06:00 AM - 11:00 PM,Government administrative zone
+metro_bijoy_sarani,Bijoy Sarani Metro Station,metro,23.7662,90.3842,"Bijoy Sarani, Tejgaon, Dhaka",16163,True,06:00 AM - 11:00 PM,Military museum and safe boulevard
+metro_farmgate,Farmgate Metro Station,metro,23.757,90.388,"Farmgate Intersection, Dhaka",16163,True,06:00 AM - 11:00 PM,High footfall safe intersection
+metro_karwan_bazar,Karwan Bazar Metro Station,metro,23.7505,90.392,"Kazi Nazrul Islam Avenue, Dhaka",16163,True,06:00 AM - 11:00 PM,Media & commercial district
+metro_shahbagh,Shahbagh Metro Station,metro,23.7385,90.3955,"Shahbagh Square, Dhaka",16163,True,06:00 AM - 11:00 PM,Near National Museum & DU
+metro_du,Dhaka University Metro Station,metro,23.7314,90.3962,"DU Campus, Nilkhet Road, Dhaka",16163,True,06:00 AM - 11:00 PM,Student & women safety corridor
+metro_secretariat,Bangladesh Secretariat Metro Station,metro,23.7275,90.4048,"Abdul Gani Road, Dhaka",16163,True,06:00 AM - 11:00 PM,High-security government corridor
+metro_motijheel,Motijheel Metro Station,metro,23.725,90.4168,"Shapla Chattar, Motijheel, Dhaka",16163,True,06:00 AM - 11:00 PM,Terminal hub with security guards
+check_emergency_999,National Emergency 999 Center,checkpoint,23.738,90.408,"Abdul Gani Road, Dhaka",999,True,24/7,National SOS & police dispatch headquarters
+check_police_plaza,Police Plaza Security Post,checkpoint,23.7782,90.4153,"Gulshan 1, Hatirjheel Link Road, Dhaka",+88029883536,True,24/7,24/7 guarded security outpost at Hatirjheel entry
+check_du_proctor,DU Proctor Office & Security Cell,checkpoint,23.733,90.3935,"Mall Area, Dhaka University Campus, Dhaka",+88029661900,True,24/7,Dedicated female student security cell
+check_banani_patrol,Banani Checkpoint & Patrol Post,checkpoint,23.796,90.4045,"Kamal Ataturk Avenue, Banani, Dhaka",+8801713373155,True,24/7,Permanent roadside patrol checkpoint
+check_hatirjheel_post,Hatirjheel Police Patrol Post,checkpoint,23.7685,90.405,"Rampura Bridge, Hatirjheel, Dhaka",+8801713373170,True,24/7,Hatirjheel security & surveillance unit
