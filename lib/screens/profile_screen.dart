@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
+import '../services/auth_service.dart';
 
 /// Profile screen — user info, stats, activity history, and account options.
 class ProfileScreen extends StatefulWidget {
@@ -33,27 +34,32 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      body: NestedScrollView(
-        headerSliverBuilder: (_, __) => [_buildSliverAppBar(context)],
-        body: Column(
-          children: [
-            // ── Tab bar ─────────────────────────────────────────────
-            _buildTabBar(),
-            // ── Tab views ───────────────────────────────────────────
-            Expanded(
-              child: TabBarView(
-                controller: _tabController,
-                children: [
-                  _buildOverviewTab(),
-                  _buildActivityTab(),
-                ],
-              ),
+    return ValueListenableBuilder(
+      valueListenable: AuthService.instance.userNotifier,
+      builder: (context, _, __) {
+        return Scaffold(
+          backgroundColor: AppColors.background,
+          body: NestedScrollView(
+            headerSliverBuilder: (_, __) => [_buildSliverAppBar(context)],
+            body: Column(
+              children: [
+                // ── Tab bar ─────────────────────────────────────────────
+                _buildTabBar(),
+                // ── Tab views ───────────────────────────────────────────
+                Expanded(
+                  child: TabBarView(
+                    controller: _tabController,
+                    children: [
+                      _buildOverviewTab(),
+                      _buildActivityTab(),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
@@ -80,6 +86,12 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildProfileHeader() {
+    final photoUrl = AuthService.instance.photoUrl;
+    final displayName = AuthService.instance.displayName;
+    final initials = AuthService.instance.initials;
+    final email = AuthService.instance.email;
+    final isAuth = AuthService.instance.isAuthenticated;
+
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -103,6 +115,12 @@ class _ProfileScreenState extends State<ProfileScreen>
                     shape: BoxShape.circle,
                     color: Colors.white.withValues(alpha: 0.25),
                     border: Border.all(color: Colors.white, width: 3),
+                    image: photoUrl != null
+                        ? DecorationImage(
+                            image: NetworkImage(photoUrl),
+                            fit: BoxFit.cover,
+                          )
+                        : null,
                     boxShadow: [
                       BoxShadow(
                           color: Colors.black.withValues(alpha: 0.2),
@@ -111,11 +129,13 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ],
                   ),
                   alignment: Alignment.center,
-                  child: Text('R',
-                      style: GoogleFonts.poppins(
-                          fontSize: 36,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white)),
+                  child: photoUrl == null
+                      ? Text(initials,
+                          style: GoogleFonts.poppins(
+                              fontSize: 36,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white))
+                      : null,
                 ),
                 Positioned(
                   right: 0,
@@ -124,12 +144,16 @@ class _ProfileScreenState extends State<ProfileScreen>
                     width: 28,
                     height: 28,
                     decoration: BoxDecoration(
-                        color: AppColors.actionOrange,
+                        color: isAuth
+                            ? AppColors.actionOrange
+                            : AppColors.textSecondary,
                         shape: BoxShape.circle,
                         border: Border.all(color: Colors.white, width: 2)),
                     alignment: Alignment.center,
-                    child: const Icon(Icons.camera_alt_rounded,
-                        color: Colors.white, size: 14),
+                    child: Icon(
+                        isAuth ? Icons.camera_alt_rounded : Icons.person_rounded,
+                        color: Colors.white,
+                        size: 14),
                   ),
                 ),
               ],
@@ -137,7 +161,7 @@ class _ProfileScreenState extends State<ProfileScreen>
 
             const SizedBox(height: 14),
 
-            Text('Alexa',
+            Text(displayName,
                 style: GoogleFonts.poppins(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
@@ -145,11 +169,15 @@ class _ProfileScreenState extends State<ProfileScreen>
 
             const SizedBox(height: 4),
 
-            Text('+880 1XXXXXXX',
+            Text(
+                email ??
+                    (isAuth
+                        ? '+880 1XXXXXXX'
+                        : 'Explore Mode • Not logged in'),
                 style: GoogleFonts.poppins(
                     fontSize: 13, color: Colors.white.withValues(alpha: 0.85))),
 
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
 
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
@@ -162,12 +190,17 @@ class _ProfileScreenState extends State<ProfileScreen>
                   Container(
                     width: 7,
                     height: 7,
-                    decoration: const BoxDecoration(
+                    decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: AppColors.successForeground),
+                        color: isAuth
+                            ? AppColors.successForeground
+                            : AppColors.actionOrange),
                   ),
                   const SizedBox(width: 6),
-                  Text('Guardian Mode: ON',
+                  Text(
+                      isAuth
+                          ? 'Google Account: Active'
+                          : 'Guest Mode: Tap to Sign In',
                       style: GoogleFonts.poppins(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -293,20 +326,22 @@ class _ProfileScreenState extends State<ProfileScreen>
           ),
           const SizedBox(height: 14),
           _InfoRow(
-              icon: Icons.person_rounded, label: 'Full Name', value: 'Alexa'),
-          _InfoRow(
+              icon: Icons.person_rounded,
+              label: 'Full Name',
+              value: AuthService.instance.displayName),
+          const _InfoRow(
               icon: Icons.phone_rounded,
               label: 'Phone',
               value: '+880 1XXXXXXX'),
           _InfoRow(
               icon: Icons.email_rounded,
               label: 'Email',
-              value: 'alexa@example.com'),
-          _InfoRow(
+              value: AuthService.instance.email ?? 'Not connected'),
+          const _InfoRow(
               icon: Icons.location_city_rounded,
               label: 'City',
               value: 'Dhaka, Bangladesh'),
-          _InfoRow(
+          const _InfoRow(
               icon: Icons.cake_rounded,
               label: 'Date of Birth',
               value: 'Jan 1, 1998',
@@ -395,6 +430,30 @@ class _ProfileScreenState extends State<ProfileScreen>
               ]),
           child: Column(
             children: [
+              if (!AuthService.instance.isAuthenticated) ...[
+                _AccountAction(
+                  icon: Icons.login_rounded,
+                  iconColor: AppColors.primary,
+                  iconBg: AppColors.primarySurface,
+                  label: 'Sign in with Google',
+                  onTap: () async {
+                    final res = await AuthService.instance.signInWithGoogle();
+                    if (res.isSuccess && mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content:
+                              Text('✅ Successfully signed in with Google!'),
+                          backgroundColor: AppColors.successForeground,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  },
+                ),
+                const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Divider(height: 1, color: AppColors.background)),
+              ],
               _AccountAction(
                 icon: Icons.lock_reset_rounded,
                 iconColor: AppColors.actionBlue,
@@ -402,8 +461,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                 label: 'Change Password',
                 onTap: () => _showSnack('Change Password'),
               ),
-              Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
+              const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
                   child: Divider(height: 1, color: AppColors.background)),
               _AccountAction(
                 icon: Icons.backup_rounded,
@@ -412,16 +471,18 @@ class _ProfileScreenState extends State<ProfileScreen>
                 label: 'Backup Data',
                 onTap: () => _showSnack('Backup Data'),
               ),
-              Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Divider(height: 1, color: AppColors.background)),
-              _AccountAction(
-                icon: Icons.delete_rounded,
-                iconColor: AppColors.sosRed,
-                iconBg: const Color(0xFFFFE5E5),
-                label: 'Delete Account',
-                onTap: () => _showSnack('Delete Account'),
-              ),
+              if (AuthService.instance.isAuthenticated) ...[
+                const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16),
+                    child: Divider(height: 1, color: AppColors.background)),
+                _AccountAction(
+                  icon: Icons.logout_rounded,
+                  iconColor: AppColors.sosRed,
+                  iconBg: const Color(0xFFFFE5E5),
+                  label: 'Log Out',
+                  onTap: _confirmLogout,
+                ),
+              ],
             ],
           ),
         ),
@@ -429,12 +490,60 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Log Out',
+            style: GoogleFonts.poppins(
+                fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+        content: Text(
+            'Are you sure you want to log out? You will be switched to Guest Mode.',
+            style: GoogleFonts.poppins(
+                fontSize: 13, color: AppColors.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel',
+                style: GoogleFonts.poppins(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await AuthService.instance.signOut();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Logged out. Switched to Guest Mode.'),
+                  backgroundColor: AppColors.textPrimary,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.sosRed,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: Text('Log Out',
+                style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600, color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildActivityTab() {
-    final activities = [
+    const activities = [
       _ActivityLog(
         icon: Icons.notifications_active_rounded,
         color: AppColors.sosRed,
-        bg: const Color(0xFFFFE5E5),
+        bg: Color(0xFFFFE5E5),
         title: 'SOS Alert Triggered',
         subtitle: 'Notified 3 emergency contacts',
         time: '2 hours ago',
@@ -442,7 +551,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       _ActivityLog(
         icon: Icons.location_on_rounded,
         color: AppColors.actionGreen,
-        bg: const Color(0xFFDFF5E3),
+        bg: Color(0xFFDFF5E3),
         title: 'Location Shared',
         subtitle: 'Shared with Mom and Riya',
         time: 'Yesterday, 9:30 PM',
@@ -450,7 +559,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       _ActivityLog(
         icon: Icons.bluetooth_connected_rounded,
         color: AppColors.actionBlue,
-        bg: const Color(0xFFDDEEFD),
+        bg: Color(0xFFDDEEFD),
         title: 'ESP32 Connected',
         subtitle: 'Device synced successfully',
         time: 'Yesterday, 8:15 AM',
@@ -458,7 +567,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       _ActivityLog(
         icon: Icons.mic_rounded,
         color: AppColors.actionOrange,
-        bg: const Color(0xFFFEEDD8),
+        bg: Color(0xFFFEEDD8),
         title: 'Voice Activation',
         subtitle: '"Help" keyword detected',
         time: '3 days ago',
@@ -466,7 +575,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       _ActivityLog(
         icon: Icons.phone_in_talk_rounded,
         color: AppColors.actionPurple,
-        bg: const Color(0xFFF0E6F9),
+        bg: Color(0xFFF0E6F9),
         title: 'Fake Call Used',
         subtitle: 'Exited unsafe situation',
         time: '3 days ago',
@@ -474,7 +583,7 @@ class _ProfileScreenState extends State<ProfileScreen>
       _ActivityLog(
         icon: Icons.campaign_rounded,
         color: AppColors.actionOrange,
-        bg: const Color(0xFFFEEDD8),
+        bg: Color(0xFFFEEDD8),
         title: 'Loud Siren Activated',
         subtitle: 'Active for 15 seconds',
         time: '5 days ago',
@@ -596,7 +705,7 @@ class _InfoRow extends StatelessWidget {
             ],
           ),
         ),
-        if (!isLast) Divider(height: 1, color: AppColors.background),
+        if (!isLast) const Divider(height: 1, color: AppColors.background),
       ],
     );
   }

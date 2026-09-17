@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
+import '../services/auth_service.dart';
 import 'home_screen.dart';
 
 /// The first screen users see when they open Smart Safety.
@@ -10,7 +11,8 @@ import 'home_screen.dart';
 /// - Solid primary purple background
 /// - Animated shield + heart logo widget
 /// - App name and subtitle
-/// - "Get Started" pill button that navigates to [HomeScreen]
+/// - "Continue with Google" primary action
+/// - "Explore as Guest" secondary action
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -24,6 +26,8 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
   late final Animation<Offset> _slideAnimation;
+
+  bool _isSigningIn = false;
 
   @override
   void initState() {
@@ -57,6 +61,10 @@ class _WelcomeScreenState extends State<WelcomeScreen>
     // Start animation after first frame renders
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _fadeController.forward();
+      // If already logged in, navigate straight to dashboard
+      if (AuthService.instance.isAuthenticated && mounted) {
+        _navigateToHome();
+      }
     });
   }
 
@@ -67,7 +75,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   }
 
   /// Navigates to the [HomeScreen] replacing the welcome screen.
-  void _onGetStarted() {
+  void _navigateToHome() {
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         pageBuilder: (_, __, ___) => const HomeScreen(),
@@ -76,6 +84,42 @@ class _WelcomeScreenState extends State<WelcomeScreen>
         transitionDuration: const Duration(milliseconds: 500),
       ),
     );
+  }
+
+  /// Triggers Google Sign-In pipeline.
+  Future<void> _onGoogleSignIn() async {
+    if (_isSigningIn) return;
+
+    setState(() => _isSigningIn = true);
+
+    try {
+      final result = await AuthService.instance.signInWithGoogle();
+      if (!mounted) return;
+
+      if (result.isSuccess) {
+        _navigateToHome();
+      } else if (!result.isCancelled && result.errorMessage != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result.errorMessage!),
+            backgroundColor: AppColors.sosRed,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSigningIn = false);
+      }
+    }
+  }
+
+  /// Continues into the dashboard under Guest Mode.
+  Future<void> _onContinueAsGuest() async {
+    await AuthService.instance.continueAsGuest();
+    if (mounted) {
+      _navigateToHome();
+    }
   }
 
   @override
@@ -126,30 +170,80 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                   const Spacer(flex: 3),
 
-                  // ── Get Started Button ────────────────────────────────
+                  // ── Primary "Continue with Google" Button ────────────
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
-                      onPressed: _onGetStarted,
+                      onPressed: _isSigningIn ? null : _onGoogleSignIn,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.surface,
                         foregroundColor: AppColors.primary,
                         shape: const StadiumBorder(),
-                        padding: const EdgeInsets.symmetric(vertical: 17),
-                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        elevation: 3,
                       ),
-                      child: Text(
-                        'Get Started',
-                        style: GoogleFonts.poppins(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
-                        ),
+                      child: _isSigningIn
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: AppColors.primary,
+                              ),
+                            )
+                          : Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(
+                                    color: AppColors.primarySurface,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.g_mobiledata_rounded,
+                                    color: AppColors.primary,
+                                    size: 22,
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  'Continue with Google',
+                                  style: GoogleFonts.poppins(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  // ── Secondary "Explore as Guest" Text Button ─────────
+                  TextButton(
+                    onPressed: _isSigningIn ? null : _onContinueAsGuest,
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textOnPrimary,
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 10, horizontal: 16),
+                    ),
+                    child: Text(
+                      'Explore as Guest',
+                      style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textOnPrimary.withValues(alpha: 0.9),
+                        decoration: TextDecoration.underline,
+                        decorationColor:
+                            AppColors.textOnPrimary.withValues(alpha: 0.6),
                       ),
                     ),
                   ),
 
-                  const SizedBox(height: 36),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),

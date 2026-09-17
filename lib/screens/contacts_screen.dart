@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../models/contact_model.dart';
 import '../services/contact_service.dart';
+import '../utils/auth_guard.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Contacts screen — manage emergency and trusted contacts.
@@ -384,100 +385,119 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   /// Displays confirmation dialog and removes contact on confirmation.
   Future<void> _confirmDelete(ContactModel contact) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        backgroundColor: AppColors.surface,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFE5E5),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(Icons.delete_outline_rounded,
-                  color: AppColors.sosRed, size: 22),
+    await AuthGuard.run(
+      context,
+      actionName: 'manage emergency contacts',
+      customSubtitle:
+          'To modify or remove verified emergency contacts, please sign in with Google.',
+      onAuthenticated: () async {
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape:
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            backgroundColor: AppColors.surface,
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFE5E5),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded,
+                      color: AppColors.sosRed, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Text(
+                  'Delete Contact',
+                  style: GoogleFonts.poppins(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary),
+                ),
+              ],
             ),
-            const SizedBox(width: 12),
-            Text(
-              'Delete Contact',
+            content: Text(
+              'Are you sure you want to remove "${contact.name}" (${contact.phone})? They will no longer receive emergency alerts.',
               style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary),
+                  fontSize: 13, color: AppColors.textSecondary),
             ),
-          ],
-        ),
-        content: Text(
-          'Are you sure you want to remove "${contact.name}" (${contact.phone})? They will no longer receive emergency alerts.',
-          style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary),
-        ),
-        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel',
-                style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary)),
+            actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Cancel',
+                    style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.textSecondary)),
+              ),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.sosRed,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
+                child: Text('Delete',
+                    style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w600, color: Colors.white)),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.sosRed,
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
-            ),
-            child: Text('Delete',
-                style: GoogleFonts.poppins(
-                    fontWeight: FontWeight.w600, color: Colors.white)),
-          ),
-        ],
-      ),
-    );
+        );
 
-    if (confirmed == true) {
-      final success = await ContactService.instance.deleteContact(contact.id);
-      if (success) {
-        await _loadContacts();
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('${contact.name} removed from contacts',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-          backgroundColor: AppColors.textPrimary,
-          behavior: SnackBarBehavior.floating,
-          shape: const StadiumBorder(),
-          margin: const EdgeInsets.all(16),
-          duration: const Duration(seconds: 2),
-        ));
-      }
-    }
+        if (confirmed == true) {
+          final success =
+              await ContactService.instance.deleteContact(contact.id);
+          if (success) {
+            await _loadContacts();
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text('${contact.name} removed from contacts',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+              backgroundColor: AppColors.textPrimary,
+              behavior: SnackBarBehavior.floating,
+              shape: const StadiumBorder(),
+              margin: const EdgeInsets.all(16),
+              duration: const Duration(seconds: 2),
+            ));
+          }
+        }
+      },
+    );
   }
 
-  void _onAddContact() async {
-    final result = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (_) => const _AddContactSheet(),
-    );
+  void _onAddContact() {
+    AuthGuard.run(
+      context,
+      actionName: 'add emergency contacts',
+      customSubtitle:
+          'To save and synchronize emergency contacts with live guardian alerts, please sign in with Google.',
+      onAuthenticated: () async {
+        final result = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => const _AddContactSheet(),
+        );
 
-    if (result == true) {
-      await _loadContacts();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('✅ New contact added successfully!',
-            style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-        backgroundColor: AppColors.successForeground,
-        behavior: SnackBarBehavior.floating,
-        shape: const StadiumBorder(),
-        margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 2),
-      ));
-    }
+        if (result == true) {
+          await _loadContacts();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('✅ New contact added successfully!',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            backgroundColor: AppColors.successForeground,
+            behavior: SnackBarBehavior.floating,
+            shape: const StadiumBorder(),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 2),
+          ));
+        }
+      },
+    );
   }
 }
 

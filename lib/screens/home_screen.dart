@@ -5,6 +5,8 @@ import '../core/app_colors.dart';
 import '../services/emergency_service.dart';
 import '../services/location_service.dart';
 import '../services/siren_service.dart';
+import '../services/auth_service.dart';
+import '../utils/auth_guard.dart';
 import 'map_screen.dart';
 import 'contacts_screen.dart';
 import 'settings_screen.dart';
@@ -84,8 +86,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 
   /// Central Big Red SOS Button Action:
+  /// Guarded by [AuthGuard.run] so Guest users must authenticate first.
   /// Calls [EmergencyService.instance.triggerEmergency] to obtain location & send background SMS.
   Future<void> _onSOSPressed() async {
+    await AuthGuard.run(
+      context,
+      actionName: 'trigger Emergency SOS',
+      customSubtitle:
+          'To dispatch emergency alerts, notify guardians, and share real-time GPS coordinates, please sign in with Google.',
+      onAuthenticated: () async {
+        await _executeSOSPipeline();
+      },
+    );
+  }
+
+  Future<void> _executeSOSPipeline() async {
     if (_isSOSLoading) return;
 
     HapticFeedback.heavyImpact();
@@ -345,66 +360,92 @@ class _SafetyDashboard extends StatelessWidget {
 /// [onAvatarTap] is forwarded from the shell to open [ProfileScreen].
 class _TopAppBar extends StatelessWidget {
   final VoidCallback onAvatarTap;
-
   const _TopAppBar({required this.onAvatarTap});
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        // ── Tappable avatar circle (opens Profile) ──────────────────
-        GestureDetector(
-          onTap: onAvatarTap,
-          child: Container(
-            width: 46,
-            height: 46,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.primarySurface,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              'R',
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: AppColors.primary,
-              ),
-            ),
-          ),
-        ),
+    return ValueListenableBuilder(
+      valueListenable: AuthService.instance.userNotifier,
+      builder: (context, _, __) {
+        final greeting = 'Hi, ${AuthService.instance.greetingName}! 👋';
+        final photoUrl = AuthService.instance.photoUrl;
+        final initials = AuthService.instance.initials;
+        final isAuthenticated = AuthService.instance.isAuthenticated;
 
-        const SizedBox(width: 12),
-
-        // ── Greeting + guardian mode subtitle ───────────────────────
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Hi, Alexa! 👋',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppColors.textPrimary,
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // ── Tappable avatar circle (opens Profile) ──────────────────
+            GestureDetector(
+              onTap: onAvatarTap,
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppColors.primarySurface,
+                  image: photoUrl != null
+                      ? DecorationImage(
+                          image: NetworkImage(photoUrl),
+                          fit: BoxFit.cover,
+                        )
+                      : null,
                 ),
+                alignment: Alignment.center,
+                child: photoUrl == null
+                    ? Text(
+                        initials,
+                        style: GoogleFonts.poppins(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primary,
+                        ),
+                      )
+                    : null,
               ),
-              Text(
-                'Guardian Mode: ON',
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-            ],
-          ),
-        ),
+            ),
 
-        // ── ESP32 status badge ───────────────────────────────────────
-        _ESP32Badge(),
-      ],
+            const SizedBox(width: 12),
+
+            // ── Greeting + guardian mode subtitle ───────────────────────
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    greeting,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  Text(
+                    isAuthenticated
+                        ? 'Guardian Mode: Active'
+                        : 'Guest Mode: Tap to Sign In',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: isAuthenticated
+                          ? AppColors.textSecondary
+                          : AppColors.actionOrange,
+                      fontWeight: isAuthenticated
+                          ? FontWeight.normal
+                          : FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // ── ESP32 status badge ───────────────────────────────────────
+            _ESP32Badge(),
+          ],
+        );
+      },
     );
   }
 }

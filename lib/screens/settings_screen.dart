@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
+import '../services/auth_service.dart';
 
 /// Settings screen — app preferences, security, notifications,
 /// device setup, alert history and logout.
@@ -55,7 +56,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     iconBg: const Color(0xFFDDEEFD),
                     label: 'Device Setup',
                     subtitle: 'ESP32 Connected',
-                    trailing: _StatusDot(color: AppColors.successForeground),
+                    trailing: const _StatusDot(color: AppColors.successForeground),
                     onTap: () => _showSnack('Device Setup'),
                   ),
                   _buildNavItem(
@@ -180,7 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary)),
           const Spacer(),
-          Icon(Icons.settings_rounded, color: AppColors.primary, size: 24),
+          const Icon(Icons.settings_rounded, color: AppColors.primary, size: 24),
         ],
       ),
     );
@@ -289,8 +290,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   items[i],
                   if (i < items.length - 1)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                    const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16),
                       child: Divider(height: 1, color: AppColors.background),
                     ),
                 ],
@@ -476,7 +477,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     fontWeight: FontWeight.w600)),
           ),
           ElevatedButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () async {
+              Navigator.pop(context);
+              await AuthService.instance.signOut();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Logged out. Switched to Guest Mode.'),
+                  backgroundColor: AppColors.textPrimary,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.sosRed,
               shape: RoundedRectangleBorder(

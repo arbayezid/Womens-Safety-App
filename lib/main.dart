@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'core/app_theme.dart';
 import 'screens/welcome_screen.dart';
+import 'services/auth_service.dart';
 
 /// Entry point of the Smart Safety application.
-void main() {
+void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // Lock orientation to portrait for the best mobile experience
@@ -12,6 +13,9 @@ void main() {
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
+
+  // Initialize Firebase and Authentication session
+  await AuthService.instance.initialize();
 
   runApp(const SmartSafetyApp());
 }

@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "207672062120",
+    "project_id": "womens-safety-aa3ef",
+    "storage_bucket": "womens-safety-aa3ef.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:207672062120:android:ab5e902451ddfad8ae129d",
+        "android_client_info": {
+          "package_name": "com.smartsafety.smart_safety"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "207672062120-uc60kk1u0qk68mn5d29k12nkffue1kbc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.smartsafety.smart_safety",
+            "certificate_hash": "b8a743c80dd37aa3d7e879d6aa6a47fb7b45660e"
+          }
+        },
+        {
+          "client_id": "207672062120-g576apnclsht157kec4detn6jfokiedf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA-037wxBT3OO_PGw_Z-X1H4mXKmc17IO8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "207672062120-g576apnclsht157kec4detn6jfokiedf.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "207672062120-p8739i9pfg2vvg0lao8013dtqctq3ebh.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.smartsafety.smartSafety"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
