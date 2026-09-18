@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'activity_service.dart';
 
 /// Central Singleton Service for handling the "Loud Siren" Quick Action.
 ///
@@ -57,6 +58,7 @@ class SirenService {
       }
 
       isPlayingNotifier.value = true;
+      ActivityService.instance.logSiren(isPlaying: true);
       debugPrint('[SirenService] 🔊 Siren is now playing on loop at MAX volume.');
     } catch (e) {
       debugPrint('[SirenService] ❌ Failed to play siren audio: $e');
@@ -70,6 +72,7 @@ class SirenService {
       debugPrint('[SirenService] 🔇 Stopping Emergency Siren...');
       await _audioPlayer.stop();
       isPlayingNotifier.value = false;
+      ActivityService.instance.logSiren(isPlaying: false);
       debugPrint('[SirenService] ✅ Siren stopped.');
     } catch (e) {
       debugPrint('[SirenService] ❌ Error stopping siren audio: $e');

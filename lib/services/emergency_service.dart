@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'activity_service.dart';
 import 'contact_service.dart';
 
 /// Data result object returned by [EmergencyService.triggerEmergency].
@@ -197,6 +198,14 @@ class EmergencyService {
     final String resultSummary = overallSuccess
         ? 'Emergency alert dispatched to $sentCount contact(s).'
         : 'Failed to dispatch SMS to contacts.';
+
+    // Log the SOS emergency event for profile activity tracking
+    ActivityService.instance.logSOS(
+      source: source,
+      contactsSent: sentCount,
+      mapUrl: mapUrl,
+      isSuccess: overallSuccess,
+    );
 
     return EmergencyResult(
       isSuccess: overallSuccess,

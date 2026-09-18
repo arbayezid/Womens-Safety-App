@@ -3,9 +3,14 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../models/user_profile_model.dart';
+import '../models/activity_model.dart';
 import '../services/auth_service.dart';
+import '../services/activity_service.dart';
+import '../services/contact_service.dart';
+import '../utils/url_launcher_helper.dart';
 
-/// Profile screen — user info, stats, activity history, and account options.
+/// Profile screen — user info, stats, dynamic safety score, activity history,
+/// and permanent account options.
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -16,6 +21,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  int _contactsCount = 0;
 
   @override
   void initState() {
@@ -25,12 +31,59 @@ class _ProfileScreenState extends State<ProfileScreen>
       statusBarIconBrightness: Brightness.light,
     ));
     _tabController = TabController(length: 2, vsync: this);
+    _loadDynamicData();
   }
 
   @override
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Loads dynamic emergency contacts and initializes activity history.
+  Future<void> _loadDynamicData() async {
+    try {
+      final contacts = await ContactService.instance.getContacts();
+      await ActivityService.instance.getActivities();
+      if (mounted) {
+        setState(() {
+          _contactsCount = contacts.length;
+        });
+      }
+    } catch (_) {}
+  }
+
+  /// Computes dynamic safety score (0-100%) based on real profile completeness,
+  /// emergency contacts configuration, and account state.
+  int _calculateSafetyScore(UserProfile profile) {
+    int score = 0;
+
+    // 1. Profile Completeness (max 35 pts)
+    if (profile.name.trim().isNotEmpty && profile.name != 'Guest') score += 10;
+    if (profile.phone.trim().isNotEmpty) score += 10;
+    if (profile.bloodGroup.trim().isNotEmpty) score += 5;
+    if (profile.city.trim().isNotEmpty) score += 5;
+    if (profile.emergencyNote.trim().isNotEmpty) score += 5;
+
+    // 2. Emergency Contacts Setup (max 40 pts)
+    if (_contactsCount >= 3) {
+      score += 40;
+    } else if (_contactsCount == 2) {
+      score += 25;
+    } else if (_contactsCount == 1) {
+      score += 15;
+    }
+
+    // 3. Account & Device Security (max 25 pts)
+    if (AuthService.instance.isAuthenticated) {
+      score += 15;
+    } else {
+      score += 5; // Guest baseline
+    }
+    // Baseline features active (siren, GPS, sensors ready)
+    score += 10;
+
+    return score.clamp(0, 100);
   }
 
   void _openEditProfileModal(BuildContext context, UserProfile profile) {
@@ -50,7 +103,8 @@ class _ProfileScreenState extends State<ProfileScreen>
         return Scaffold(
           backgroundColor: AppColors.background,
           body: NestedScrollView(
-            headerSliverBuilder: (_, __) => [_buildSliverAppBar(context, profile)],
+            headerSliverBuilder: (_, __) =>
+                [_buildSliverAppBar(context, profile)],
             body: Column(
               children: [
                 // ── Tab bar ─────────────────────────────────────────────
@@ -98,7 +152,9 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   Widget _buildProfileHeader(UserProfile profile) {
     final photoUrl = AuthService.instance.photoUrl;
-    final displayName = profile.name.isNotEmpty ? profile.name : AuthService.instance.displayName;
+    final displayName = profile.name.isNotEmpty
+        ? profile.name
+        : AuthService.instance.displayName;
     final initials = profile.initials;
     final email = AuthService.instance.email;
     final isAuth = AuthService.instance.isAuthenticated;
@@ -163,10 +219,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 2)),
                       alignment: Alignment.center,
-                      child: const Icon(
-                          Icons.edit_rounded,
-                          color: Colors.white,
-                          size: 14),
+                      child: const Icon(Icons.edit_rounded,
+                          color: Colors.white, size: 14),
                     ),
                   ),
                 ],
@@ -191,7 +245,8 @@ class _ProfileScreenState extends State<ProfileScreen>
                             ? '+880 1XXXXXXX'
                             : 'Explore Mode • Not logged in')),
                 style: GoogleFonts.poppins(
-                    fontSize: 13, color: Colors.white.withValues(alpha: 0.85))),
+                    fontSize: 13,
+                    color: Colors.white.withValues(alpha: 0.85))),
 
             const SizedBox(height: 6),
 
@@ -254,14 +309,28 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildOverviewTab(UserProfile profile) {
+    final safetyScore = _calculateSafetyScore(profile);
+
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Stats row ──────────────────────────────────────────────
-          _buildStatsRow(),
+          // ── Dynamic stats row ──────────────────────────────────────────────
+          ValueListenableBuilder<List<ActivityItem>>(
+            valueListenable: ActivityService.instance.activitiesNotifier,
+            builder: (context, activities, _) {
+              final alertCount = activities
+                  .where((a) => a.type == ActivityType.sos)
+                  .length;
+              return _buildStatsRow(
+                contactsCount: _contactsCount,
+                alertCount: alertCount,
+                safeScore: safetyScore,
+              );
+            },
+          ),
 
           const SizedBox(height: 20),
 
@@ -270,8 +339,8 @@ class _ProfileScreenState extends State<ProfileScreen>
 
           const SizedBox(height: 20),
 
-          // ── Safety score ────────────────────────────────────────────
-          _buildSafetyScore(),
+          // ── Dynamic safety score ────────────────────────────────────
+          _buildSafetyScore(safetyScore),
 
           const SizedBox(height: 20),
 
@@ -284,14 +353,49 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildStatsRow() {
-    const stats = [
-      _StatItem(value: '3', label: 'Contacts', icon: Icons.group_rounded),
+  Widget _buildStatsRow({
+    required int contactsCount,
+    required int alertCount,
+    required int safeScore,
+  }) {
+    final stats = [
       _StatItem(
-          value: '12',
-          label: 'Alerts Sent',
-          icon: Icons.notifications_active_rounded),
-      _StatItem(value: '98%', label: 'Safe Score', icon: Icons.shield_rounded),
+        value: contactsCount.toString(),
+        label: 'Contacts',
+        icon: Icons.group_rounded,
+        onTap: () {
+          // Switch tab or notify
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$contactsCount active emergency contacts configured.'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+      ),
+      _StatItem(
+        value: alertCount.toString(),
+        label: 'Alerts Sent',
+        icon: Icons.notifications_active_rounded,
+        onTap: () {
+          _tabController.animateTo(1);
+        },
+      ),
+      _StatItem(
+        value: '$safeScore%',
+        label: 'Safe Score',
+        icon: Icons.shield_rounded,
+        onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Safety Score: $safeScore% based on profile and contacts.'),
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        },
+      ),
     ];
 
     return Row(
@@ -385,12 +489,37 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  Widget _buildSafetyScore() {
+  Widget _buildSafetyScore(int score) {
+    Color scoreColor;
+    List<Color> gradientColors;
+    String feedbackTitle;
+    String feedbackSubtitle;
+
+    if (score >= 85) {
+      scoreColor = AppColors.successForeground;
+      gradientColors = const [Color(0xFFDFF5E3), Color(0xFFB8E6C4)];
+      feedbackTitle = 'Safety Score: Excellent';
+      feedbackSubtitle =
+          'Outstanding protection! Profile complete, $_contactsCount contacts configured, and safety features ready.';
+    } else if (score >= 60) {
+      scoreColor = AppColors.actionOrange;
+      gradientColors = const [Color(0xFFFEEDD8), Color(0xFFFDE1BF)];
+      feedbackTitle = 'Safety Score: Good';
+      feedbackSubtitle =
+          'Good security setup. ${_contactsCount < 3 ? "Add more emergency contacts" : "Complete your medical profile"} to reach 100%.';
+    } else {
+      scoreColor = AppColors.sosRed;
+      gradientColors = const [Color(0xFFFFE5E5), Color(0xFFFFD4D4)];
+      feedbackTitle = 'Safety Score: Attention Needed';
+      feedbackSubtitle =
+          'Incomplete safety configuration. Please add emergency contacts and save your phone number for full SOS protection.';
+    }
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFDFF5E3), Color(0xFFB8E6C4)],
+        gradient: LinearGradient(
+          colors: gradientColors,
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -405,18 +534,17 @@ class _ProfileScreenState extends State<ProfileScreen>
                 width: 70,
                 height: 70,
                 child: CircularProgressIndicator(
-                  value: 0.98,
-                  backgroundColor:
-                      AppColors.successForeground.withValues(alpha: 0.2),
-                  color: AppColors.successForeground,
+                  value: score / 100.0,
+                  backgroundColor: scoreColor.withValues(alpha: 0.2),
+                  color: scoreColor,
                   strokeWidth: 6,
                 ),
               ),
-              Text('98%',
+              Text('$score%',
                   style: GoogleFonts.poppins(
                       fontSize: 14,
                       fontWeight: FontWeight.w700,
-                      color: AppColors.successForeground)),
+                      color: scoreColor)),
             ],
           ),
           const SizedBox(width: 16),
@@ -424,14 +552,13 @@ class _ProfileScreenState extends State<ProfileScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Safety Score',
+                Text(feedbackTitle,
                     style: GoogleFonts.poppins(
-                        fontSize: 15,
+                        fontSize: 14,
                         fontWeight: FontWeight.w700,
                         color: AppColors.textPrimary)),
                 const SizedBox(height: 4),
-                Text(
-                    'Excellent! Your device is connected, 3 contacts set up and safety features enabled.',
+                Text(feedbackSubtitle,
                     style: GoogleFonts.poppins(
                         fontSize: 11, color: AppColors.textSecondary)),
               ],
@@ -574,72 +701,251 @@ class _ProfileScreenState extends State<ProfileScreen>
   }
 
   Widget _buildActivityTab() {
-    const activities = [
-      _ActivityLog(
-        icon: Icons.notifications_active_rounded,
-        color: AppColors.sosRed,
-        bg: Color(0xFFFFE5E5),
-        title: 'SOS Alert Triggered',
-        subtitle: 'Notified 3 emergency contacts',
-        time: '2 hours ago',
-      ),
-      _ActivityLog(
-        icon: Icons.location_on_rounded,
-        color: AppColors.actionGreen,
-        bg: Color(0xFFDFF5E3),
-        title: 'Location Shared',
-        subtitle: 'Shared with Mom and Riya',
-        time: 'Yesterday, 9:30 PM',
-      ),
-      _ActivityLog(
-        icon: Icons.bluetooth_connected_rounded,
-        color: AppColors.actionBlue,
-        bg: Color(0xFFDDEEFD),
-        title: 'ESP32 Connected',
-        subtitle: 'Device synced successfully',
-        time: 'Yesterday, 8:15 AM',
-      ),
-      _ActivityLog(
-        icon: Icons.mic_rounded,
-        color: AppColors.actionOrange,
-        bg: Color(0xFFFEEDD8),
-        title: 'Voice Activation',
-        subtitle: '"Help" keyword detected',
-        time: '3 days ago',
-      ),
-      _ActivityLog(
-        icon: Icons.phone_in_talk_rounded,
-        color: AppColors.actionPurple,
-        bg: Color(0xFFF0E6F9),
-        title: 'Fake Call Used',
-        subtitle: 'Exited unsafe situation',
-        time: '3 days ago',
-      ),
-      _ActivityLog(
-        icon: Icons.campaign_rounded,
-        color: AppColors.actionOrange,
-        bg: Color(0xFFFEEDD8),
-        title: 'Loud Siren Activated',
-        subtitle: 'Active for 15 seconds',
-        time: '5 days ago',
-      ),
-    ];
+    return ValueListenableBuilder<List<ActivityItem>>(
+      valueListenable: ActivityService.instance.activitiesNotifier,
+      builder: (context, activities, _) {
+        return ListView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.all(20),
+          children: [
+            // Section Header with clear action
+            Row(
+              children: [
+                Text('Recent Activity',
+                    style: GoogleFonts.poppins(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary)),
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySurface,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    '${activities.length}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.primary,
+                    ),
+                  ),
+                ),
+                const Spacer(),
+                if (activities.isNotEmpty)
+                  TextButton.icon(
+                    onPressed: _confirmClearHistory,
+                    icon: const Icon(Icons.delete_sweep_rounded,
+                        size: 16, color: AppColors.textSecondary),
+                    label: Text(
+                      'Clear',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
 
-    return ListView(
-      physics: const BouncingScrollPhysics(),
-      padding: const EdgeInsets.all(20),
-      children: [
-        Text('Recent Activity',
+            // Empty state
+            if (activities.isEmpty)
+              Container(
+                padding: const EdgeInsets.symmetric(vertical: 40, horizontal: 20),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  children: [
+                    Container(
+                      width: 60,
+                      height: 60,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFDFF5E3),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.shield_rounded,
+                          color: AppColors.actionGreen, size: 30),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'No Recent Activity',
+                      style: GoogleFonts.poppins(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'All quiet and safe! Safety alerts, siren activations, and contact updates will be tracked here.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: AppColors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else
+              ...activities.map((a) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _ActivityCard(
+                      log: a,
+                      onTap: () => _showActivityDetails(a),
+                    ),
+                  )),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showActivityDetails(ActivityItem item) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        title: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: item.bgColor,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(item.icon, color: item.iconColor, size: 18),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                item.title,
+                style: GoogleFonts.poppins(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary),
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(item.subtitle,
+                style: GoogleFonts.poppins(
+                    fontSize: 13, color: AppColors.textPrimary)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                const Icon(Icons.access_time_rounded,
+                    size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Text(
+                  '${item.timestamp.day}/${item.timestamp.month}/${item.timestamp.year} • ${item.timeAgo}',
+                  style: GoogleFonts.poppins(
+                      fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+            if (item.metadata['mapUrl'] != null) ...[
+              const SizedBox(height: 14),
+              InkWell(
+                onTap: () => UrlLauncherHelper.launchMapsUrl(
+                    item.metadata['mapUrl'].toString()),
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.primarySurface,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.map_rounded,
+                          size: 16, color: AppColors.primary),
+                      const SizedBox(width: 6),
+                      Text(
+                        'View GPS Location',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Close',
+                style: GoogleFonts.poppins(
+                    color: AppColors.primary, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmClearHistory() {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Clear History',
             style: GoogleFonts.poppins(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary)),
-        const SizedBox(height: 12),
-        ...activities.map((a) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _ActivityCard(log: a),
-            )),
-      ],
+                fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
+        content: Text(
+            'Are you sure you want to clear all logged safety activities? This cannot be undone.',
+            style: GoogleFonts.poppins(
+                fontSize: 13, color: AppColors.textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: Text('Cancel',
+                style: GoogleFonts.poppins(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600)),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await ActivityService.instance.clearHistory();
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Activity history cleared.'),
+                  backgroundColor: AppColors.textPrimary,
+                  behavior: SnackBarBehavior.floating,
+                ),
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.sosRed,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              elevation: 0,
+            ),
+            child: Text('Clear All',
+                style: GoogleFonts.poppins(
+                    color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1047,8 +1353,13 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
 class _StatItem {
   final String value, label;
   final IconData icon;
-  const _StatItem(
-      {required this.value, required this.label, required this.icon});
+  final VoidCallback? onTap;
+  const _StatItem({
+    required this.value,
+    required this.label,
+    required this.icon,
+    this.onTap,
+  });
 }
 
 class _StatCard extends StatelessWidget {
@@ -1057,32 +1368,35 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 3))
-        ],
-      ),
-      child: Column(
-        children: [
-          Icon(item.icon, color: AppColors.primary, size: 22),
-          const SizedBox(height: 6),
-          Text(item.value,
-              style: GoogleFonts.poppins(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary)),
-          Text(item.label,
-              style: GoogleFonts.poppins(
-                  fontSize: 10, color: AppColors.textSecondary),
-              textAlign: TextAlign.center),
-        ],
+    return GestureDetector(
+      onTap: item.onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 3))
+          ],
+        ),
+        child: Column(
+          children: [
+            Icon(item.icon, color: AppColors.primary, size: 22),
+            const SizedBox(height: 6),
+            Text(item.value,
+                style: GoogleFonts.poppins(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary)),
+            Text(item.label,
+                style: GoogleFonts.poppins(
+                    fontSize: 10, color: AppColors.textSecondary),
+                textAlign: TextAlign.center),
+          ],
+        ),
       ),
     );
   }
@@ -1181,68 +1495,63 @@ class _AccountAction extends StatelessWidget {
   }
 }
 
-class _ActivityLog {
-  final IconData icon;
-  final Color color, bg;
-  final String title, subtitle, time;
-  const _ActivityLog({
-    required this.icon,
-    required this.color,
-    required this.bg,
-    required this.title,
-    required this.subtitle,
-    required this.time,
-  });
-}
-
 class _ActivityCard extends StatelessWidget {
-  final _ActivityLog log;
-  const _ActivityCard({required this.log});
+  final ActivityItem log;
+  final VoidCallback? onTap;
+  const _ActivityCard({required this.log, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.04),
-              blurRadius: 8,
-              offset: const Offset(0, 2))
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: BoxDecoration(
-                color: log.bg, borderRadius: BorderRadius.circular(12)),
-            alignment: Alignment.center,
-            child: Icon(log.icon, color: log.color, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(log.title,
-                    style: GoogleFonts.poppins(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary)),
-                Text(log.subtitle,
-                    style: GoogleFonts.poppins(
-                        fontSize: 11, color: AppColors.textSecondary)),
-              ],
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2))
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 42,
+              height: 42,
+              decoration: BoxDecoration(
+                  color: log.bgColor, borderRadius: BorderRadius.circular(12)),
+              alignment: Alignment.center,
+              child: Icon(log.icon, color: log.iconColor, size: 20),
             ),
-          ),
-          Text(log.time,
-              style: GoogleFonts.poppins(
-                  fontSize: 9, color: AppColors.textSecondary)),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(log.title,
+                      style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textPrimary)),
+                  Text(log.subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                          fontSize: 11, color: AppColors.textSecondary)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(log.timeAgo,
+                style: GoogleFonts.poppins(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textSecondary)),
+          ],
+        ),
       ),
     );
   }

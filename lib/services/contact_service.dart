@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/contact_model.dart';
+import 'activity_service.dart';
 
 /// Singleton Service to manage emergency contacts with persistence via [SharedPreferences].
 ///
@@ -96,6 +97,12 @@ class ContactService {
 
       final bool success = await _saveContactsList(prefs, current);
       debugPrint('[ContactService] Contact added: ${contact.name} ($success)');
+      if (success) {
+        ActivityService.instance.logContactEvent(
+          action: existingIndex >= 0 ? 'Updated' : 'Added',
+          contactName: contact.name,
+        );
+      }
       return success;
     } catch (e) {
       debugPrint('[ContactService] Error adding contact: $e');
@@ -112,6 +119,8 @@ class ContactService {
       final List<ContactModel> current = await getContacts();
 
       final int beforeCount = current.length;
+      final contactToRemove = current.where((c) => c.id == id).firstOrNull;
+      final removedName = contactToRemove?.name ?? id;
       current.removeWhere((c) => c.id == id);
 
       if (current.length == beforeCount) {
@@ -121,6 +130,12 @@ class ContactService {
 
       final bool success = await _saveContactsList(prefs, current);
       debugPrint('[ContactService] Contact deleted: $id ($success)');
+      if (success) {
+        ActivityService.instance.logContactEvent(
+          action: 'Deleted',
+          contactName: removedName,
+        );
+      }
       return success;
     } catch (e) {
       debugPrint('[ContactService] Error deleting contact: $e');
@@ -145,6 +160,12 @@ class ContactService {
       current[index] = contact;
       final bool success = await _saveContactsList(prefs, current);
       debugPrint('[ContactService] Contact updated: ${contact.name} ($success)');
+      if (success) {
+        ActivityService.instance.logContactEvent(
+          action: 'Updated',
+          contactName: contact.name,
+        );
+      }
       return success;
     } catch (e) {
       debugPrint('[ContactService] Error updating contact: $e');

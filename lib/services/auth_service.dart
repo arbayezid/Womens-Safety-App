@@ -6,6 +6,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../firebase_options.dart';
 import '../models/user_profile_model.dart';
+import 'activity_service.dart';
 
 /// Result wrapper for Google Authentication attempts.
 class AuthResult {
@@ -245,6 +246,10 @@ class AuthService {
       // 3. Immediately broadcast to all UI listeners
       profileNotifier.value = updatedProfile;
       userNotifier.value = currentUser;
+
+      ActivityService.instance.logProfileUpdate(
+        summary: 'Updated profile details for ${updatedProfile.name}',
+      );
 
       debugPrint('[AuthService] ✅ Profile permanently updated for account: $accountUid');
       return true;

@@ -80,4 +80,17 @@ class UrlLauncherHelper {
     }
     return false;
   }
+
+  /// Launches an external web or map search URL.
+  static Future<bool> launchMapsUrl(String urlStr) async {
+    final Uri uri = Uri.parse(urlStr);
+    try {
+      if (await canLaunchUrl(uri)) {
+        return await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (_) {
+      return false;
+    }
+    return false;
+  }
 }

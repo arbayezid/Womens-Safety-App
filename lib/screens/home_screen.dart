@@ -6,6 +6,7 @@ import '../services/emergency_service.dart';
 import '../services/location_service.dart';
 import '../services/siren_service.dart';
 import '../services/auth_service.dart';
+import '../services/activity_service.dart';
 import '../utils/auth_guard.dart';
 import 'map_screen.dart';
 import 'contacts_screen.dart';
@@ -217,6 +218,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       );
       return;
     }
+
+    // Log the quick action event
+    ActivityService.instance.logQuickAction(label);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
