@@ -365,7 +365,7 @@ class _TopAppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder(
-      valueListenable: AuthService.instance.userNotifier,
+      valueListenable: AuthService.instance.profileNotifier,
       builder: (context, _, __) {
         final greeting = 'Hi, ${AuthService.instance.greetingName}! 👋';
         final photoUrl = AuthService.instance.photoUrl;
