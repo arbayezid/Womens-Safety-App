@@ -28,7 +28,7 @@ class SmartSafetyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Womens Safety',
+      title: 'Woman Guard',
       debugShowCheckedModeBanner: false,
 
       // Apply the centralized Material 3 theme

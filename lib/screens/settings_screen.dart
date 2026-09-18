@@ -154,7 +154,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     iconColor: AppColors.textSecondary,
                     iconBg: const Color(0xFFEEEEF2),
                     label: 'About App',
-                    subtitle: 'Smart Safety v1.0.0',
+                    subtitle: 'Woman Guard v1.0.0',
                     onTap: () => _showSnack('About'),
                   ),
                 ],

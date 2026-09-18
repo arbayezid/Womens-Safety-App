@@ -145,7 +145,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                   // ── App Title ────────────────────────────────────────
                   Text(
-                    'Smart Safety',
+                    'Woman Guard',
                     style: GoogleFonts.poppins(
                       fontSize: 34,
                       fontWeight: FontWeight.bold,
