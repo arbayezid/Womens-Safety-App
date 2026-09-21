@@ -49,6 +49,7 @@ void main() {
   group('ContactService Tests', () {
     setUp(() {
       SharedPreferences.setMockInitialValues({});
+      ContactService.instance.resetMemoryCache();
     });
 
     test('Initializes with default contacts when storage is empty', () async {
@@ -109,6 +110,33 @@ void main() {
       final reloaded = await ContactService.instance.getContacts();
       expect(reloaded.length, initialCount - 1);
       expect(reloaded.any((c) => c.id == target.id), isFalse);
+    });
+
+    test('Deletes a contact by contactUid, email, or phone matching', () async {
+      const testContact = ContactModel(
+        id: 'test_multi_del',
+        name: 'Multi Del User',
+        email: 'multidel@example.com',
+        phone: '+8801700998877',
+        relationship: 'Friend',
+        contactUid: 'uid_target_123',
+      );
+
+      await ContactService.instance.addContact(testContact);
+      var current = await ContactService.instance.getContacts();
+      expect(current.any((c) => c.id == 'test_multi_del'), isTrue);
+
+      // Delete by passing different ID but matching contactUid and email
+      final deleteResult = await ContactService.instance.deleteContact(
+        'other_random_id',
+        contactUid: 'uid_target_123',
+        email: 'multidel@example.com',
+      );
+      expect(deleteResult, isTrue);
+
+      current = await ContactService.instance.getContacts();
+      expect(current.any((c) => c.id == 'test_multi_del'), isFalse);
+      expect(current.any((c) => c.contactUid == 'uid_target_123'), isFalse);
     });
 
     test('getEmergencyPhoneNumbers extracts active numbers', () async {

@@ -15,6 +15,8 @@ class UserProfile {
   final String bloodGroup;
   final String emergencyNote;
   final String? photoUrl;
+  final bool isPhoneVerified;
+  final String? fcmToken;
 
   const UserProfile({
     required this.uid,
@@ -26,6 +28,8 @@ class UserProfile {
     this.bloodGroup = 'B+',
     this.emergencyNote = '',
     this.photoUrl,
+    this.isPhoneVerified = false,
+    this.fcmToken,
   });
 
   /// Factory constructor for default guest profile state.
@@ -40,6 +44,8 @@ class UserProfile {
       bloodGroup: 'B+',
       emergencyNote: '',
       photoUrl: null,
+      isPhoneVerified: false,
+      fcmToken: null,
     );
   }
 
@@ -61,6 +67,8 @@ class UserProfile {
       bloodGroup: 'B+',
       emergencyNote: '',
       photoUrl: user.photoURL,
+      isPhoneVerified: user.phoneNumber != null && user.phoneNumber!.trim().isNotEmpty,
+      fcmToken: null,
     );
   }
 
@@ -76,6 +84,8 @@ class UserProfile {
       'bloodGroup': bloodGroup,
       'emergencyNote': emergencyNote,
       'photoUrl': photoUrl,
+      'isPhoneVerified': isPhoneVerified,
+      'fcmToken': fcmToken,
     };
   }
 
@@ -85,12 +95,14 @@ class UserProfile {
       uid: map['uid']?.toString() ?? 'guest',
       name: map['name']?.toString() ?? 'Guest',
       email: map['email']?.toString() ?? '',
-      phone: map['phone']?.toString() ?? '',
+      phone: map['phone']?.toString() ?? map['phoneNumber']?.toString() ?? '',
       city: map['city']?.toString() ?? 'Dhaka, Bangladesh',
       dob: map['dob']?.toString() ?? 'Jan 1, 1998',
       bloodGroup: map['bloodGroup']?.toString() ?? 'B+',
       emergencyNote: map['emergencyNote']?.toString() ?? '',
       photoUrl: map['photoUrl']?.toString(),
+      isPhoneVerified: map['isPhoneVerified'] == true,
+      fcmToken: map['fcmToken']?.toString(),
     );
   }
 
@@ -112,6 +124,8 @@ class UserProfile {
     String? bloodGroup,
     String? emergencyNote,
     String? photoUrl,
+    bool? isPhoneVerified,
+    String? fcmToken,
     bool clearPhoto = false,
   }) {
     return UserProfile(
@@ -124,6 +138,8 @@ class UserProfile {
       bloodGroup: bloodGroup ?? this.bloodGroup,
       emergencyNote: emergencyNote ?? this.emergencyNote,
       photoUrl: clearPhoto ? null : (photoUrl ?? this.photoUrl),
+      isPhoneVerified: isPhoneVerified ?? this.isPhoneVerified,
+      fcmToken: fcmToken ?? this.fcmToken,
     );
   }
 
@@ -162,7 +178,9 @@ class UserProfile {
         other.dob == dob &&
         other.bloodGroup == bloodGroup &&
         other.emergencyNote == emergencyNote &&
-        other.photoUrl == photoUrl;
+        other.photoUrl == photoUrl &&
+        other.isPhoneVerified == isPhoneVerified &&
+        other.fcmToken == fcmToken;
   }
 
   @override
@@ -175,6 +193,8 @@ class UserProfile {
         dob.hashCode ^
         bloodGroup.hashCode ^
         emergencyNote.hashCode ^
-        photoUrl.hashCode;
+        photoUrl.hashCode ^
+        isPhoneVerified.hashCode ^
+        fcmToken.hashCode;
   }
 }

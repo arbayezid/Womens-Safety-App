@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
@@ -204,13 +205,51 @@ class AuthService {
         await prefs.setString(key, initialProfile.toJson());
         profileNotifier.value = initialProfile;
       }
+
+      // Automatically sync user profile to Firestore users/{uid} for contact discovery
+      unawaited(syncUserToFirestore(user));
     } catch (e) {
       debugPrint('[AuthService] Error loading profile: $e');
       if (user != null) {
         profileNotifier.value = UserProfile.fromFirebaseUser(user);
+        unawaited(syncUserToFirestore(user));
       } else {
         profileNotifier.value = UserProfile.guest();
       }
+    }
+  }
+
+  /// Automatically upserts the authenticated user's profile to Firestore `users/{uid}`
+  /// so other users can discover them by email and establish mutual sync.
+  Future<void> syncUserToFirestore(User user) async {
+    if (!_isFirebaseInitialized) return;
+    try {
+      final email = (user.email ?? '').toLowerCase().trim();
+      if (email.isEmpty) return;
+
+      final name = (user.displayName != null && user.displayName!.trim().isNotEmpty)
+          ? user.displayName!.trim()
+          : (currentProfile.name != 'Guest' && currentProfile.name.isNotEmpty)
+              ? currentProfile.name
+              : email.split('@').first;
+
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
+        'uid': user.uid,
+        'userId': user.uid,
+        'email': email,
+        'displayName': name,
+        'name': name,
+        'photoUrl': user.photoURL ?? currentProfile.photoUrl ?? '',
+        'phoneNumber': user.phoneNumber ?? currentProfile.phone,
+        'phone': user.phoneNumber ?? currentProfile.phone,
+        'lastActiveAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 3), onTimeout: () {
+        debugPrint('[AuthService] ⏱️ Firestore user sync timed out after 3s (persisted in offline cache)');
+      });
+
+      debugPrint('[AuthService] ☁️ Synced user ${user.uid} ($email) to Firestore users collection');
+    } catch (e) {
+      debugPrint('[AuthService] ⚠️ Firestore user sync warning: $e');
     }
   }
 
@@ -238,6 +277,18 @@ class AuthService {
           }
           await currentUser!.reload();
           userNotifier.value = FirebaseAuth.instance.currentUser;
+
+          // Also update Firestore users document
+          await FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).set({
+            'displayName': updatedProfile.name.trim(),
+            'name': updatedProfile.name.trim(),
+            'phoneNumber': updatedProfile.phone,
+            'phone': updatedProfile.phone,
+            'city': updatedProfile.city,
+            'bloodGroup': updatedProfile.bloodGroup,
+            'emergencyNote': updatedProfile.emergencyNote,
+            'lastActiveAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
         } catch (cloudErr) {
           debugPrint('[AuthService] Cloud profile sync notice: $cloudErr');
         }
@@ -287,6 +338,7 @@ class AuthService {
           userNotifier.value = user;
           _authStreamController.add(user);
           await _loadProfileForUser(user);
+          await syncUserToFirestore(user);
           return AuthResult.success(user);
         }
       }

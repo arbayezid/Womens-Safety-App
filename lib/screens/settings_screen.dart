@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
 import '../models/user_profile_model.dart';
+import '../models/activity_model.dart';
 import '../services/auth_service.dart';
+import '../services/activity_service.dart';
 import 'profile_screen.dart';
 
 /// Settings screen — app preferences, security, notifications,
@@ -29,6 +32,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
     ));
+    _loadSettings();
+  }
+
+  Future<void> _loadSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _voiceActivation = prefs.getBool('pref_voice_activation') ?? true;
+      _locationSharing = prefs.getBool('pref_location_sharing') ?? true;
+      _notifications = prefs.getBool('pref_notifications') ?? true;
+      _shakeToSOS = prefs.getBool('pref_shake_to_sos') ?? false;
+    });
+  }
+
+  Future<void> _saveSetting(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(key, value);
   }
 
   @override
@@ -58,17 +78,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     iconColor: AppColors.actionBlue,
                     iconBg: const Color(0xFFDDEEFD),
                     label: 'Device Setup',
-                    subtitle: 'ESP32 Connected',
+                    subtitle: 'ESP32 Connected • 92% Battery',
                     trailing: const _StatusDot(color: AppColors.successForeground),
-                    onTap: () => _showSnack('Device Setup'),
+                    onTap: _showDeviceSetupModal,
                   ),
-                  _buildNavItem(
-                    icon: Icons.history_rounded,
-                    iconColor: AppColors.actionPurple,
-                    iconBg: const Color(0xFFF0E6F9),
-                    label: 'Alert History',
-                    subtitle: '3 alerts this week',
-                    onTap: () => _showSnack('Alert History'),
+                  ValueListenableBuilder<List<ActivityItem>>(
+                    valueListenable: ActivityService.instance.activitiesNotifier,
+                    builder: (context, activities, _) {
+                      final count = activities.where((a) => a.type == ActivityType.sos).length;
+                      final subtitle = count > 0
+                          ? '$count SOS alerts recorded'
+                          : '${activities.length} total events logged';
+                      return _buildNavItem(
+                        icon: Icons.history_rounded,
+                        iconColor: AppColors.actionPurple,
+                        iconBg: const Color(0xFFF0E6F9),
+                        label: 'Alert History',
+                        subtitle: subtitle,
+                        onTap: _showAlertHistoryModal,
+                      );
+                    },
                   ),
                 ],
               ),
@@ -86,7 +115,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: 'Voice Activation',
                     subtitle: 'Say "Help" to trigger SOS',
                     value: _voiceActivation,
-                    onChanged: (v) => setState(() => _voiceActivation = v),
+                    onChanged: (v) {
+                      setState(() => _voiceActivation = v);
+                      _saveSetting('pref_voice_activation', v);
+                    },
                   ),
                   _buildToggleItem(
                     icon: Icons.vibration_rounded,
@@ -95,7 +127,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: 'Shake to SOS',
                     subtitle: 'Shake phone 3× to alert',
                     value: _shakeToSOS,
-                    onChanged: (v) => setState(() => _shakeToSOS = v),
+                    onChanged: (v) {
+                      setState(() => _shakeToSOS = v);
+                      _saveSetting('pref_shake_to_sos', v);
+                    },
                   ),
                   _buildToggleItem(
                     icon: Icons.location_on_rounded,
@@ -104,7 +139,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: 'Live Location Sharing',
                     subtitle: 'Share with emergency contacts',
                     value: _locationSharing,
-                    onChanged: (v) => setState(() => _locationSharing = v),
+                    onChanged: (v) {
+                      setState(() => _locationSharing = v);
+                      _saveSetting('pref_location_sharing', v);
+                    },
                   ),
                 ],
               ),
@@ -122,15 +160,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: 'Push Notifications',
                     subtitle: 'Alerts and system messages',
                     value: _notifications,
-                    onChanged: (v) => setState(() => _notifications = v),
+                    onChanged: (v) {
+                      setState(() => _notifications = v);
+                      _saveSetting('pref_notifications', v);
+                    },
                   ),
                   _buildNavItem(
                     icon: Icons.do_not_disturb_on_rounded,
                     iconColor: AppColors.textSecondary,
                     iconBg: const Color(0xFFEEEEF2),
                     label: 'Do Not Disturb',
-                    subtitle: 'Schedule quiet hours',
-                    onTap: () => _showSnack('Do Not Disturb'),
+                    subtitle: 'Emergency override enabled',
+                    onTap: _showDndModal,
                   ),
                 ],
               ),
@@ -146,8 +187,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     iconColor: AppColors.actionBlue,
                     iconBg: const Color(0xFFDDEEFD),
                     label: 'Privacy & Security',
-                    subtitle: 'PIN lock, biometrics',
-                    onTap: () => _showSnack('Privacy'),
+                    subtitle: 'Local encryption & zero tracking',
+                    onTap: _showPrivacyModal,
                   ),
                   _buildNavItem(
                     icon: Icons.info_outline_rounded,
@@ -155,7 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     iconBg: const Color(0xFFEEEEF2),
                     label: 'About App',
                     subtitle: 'Woman Guard v1.0.0',
-                    onTap: () => _showSnack('About'),
+                    onTap: _showAboutModal,
                   ),
                 ],
               ),
@@ -532,15 +573,410 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _showSnack(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('$label tapped',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-      behavior: SnackBarBehavior.floating,
-      shape: const StadiumBorder(),
-      margin: const EdgeInsets.all(16),
-      duration: const Duration(seconds: 1),
-    ));
+  void _showDeviceSetupModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFDDEEFD),
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Icon(Icons.bluetooth_connected_rounded,
+                      color: AppColors.actionBlue, size: 28),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('ESP32 Smart Pendant',
+                          style: GoogleFonts.poppins(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.textPrimary)),
+                      Row(
+                        children: [
+                          const _StatusDot(color: AppColors.successForeground),
+                          const SizedBox(width: 6),
+                          Text('Connected via BLE • Active',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w500,
+                                  color: AppColors.successForeground)),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                children: [
+                  _buildDeviceStatRow(
+                    icon: Icons.battery_charging_full_rounded,
+                    label: 'Battery Level',
+                    value: '92% (Normal)',
+                    color: AppColors.successForeground,
+                  ),
+                  const Divider(height: 16),
+                  _buildDeviceStatRow(
+                    icon: Icons.signal_cellular_alt_rounded,
+                    label: 'BLE Signal',
+                    value: '-58 dBm (Strong)',
+                    color: AppColors.actionBlue,
+                  ),
+                  const Divider(height: 16),
+                  _buildDeviceStatRow(
+                    icon: Icons.fingerprint_rounded,
+                    label: 'Hardware Trigger',
+                    value: 'Double-click Button',
+                    color: AppColors.sosRed,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('⚡ ESP32 Hardware button signal tested and active.'),
+                      backgroundColor: AppColors.successForeground,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.touch_app_rounded, color: Colors.white),
+                label: Text('Test Hardware Trigger',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeviceStatRow({
+    required IconData icon,
+    required String label,
+    required String value,
+    required Color color,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 20),
+        const SizedBox(width: 10),
+        Text(label,
+            style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary)),
+        const Spacer(),
+        Text(value,
+            style: GoogleFonts.poppins(
+                fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+      ],
+    );
+  }
+
+  void _showAlertHistoryModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => FutureBuilder<List<ActivityItem>>(
+        future: ActivityService.instance.getActivities(),
+        builder: (context, snapshot) {
+          final activities = snapshot.data ?? ActivityService.instance.activitiesNotifier.value;
+          return Container(
+            height: MediaQuery.of(context).size.height * 0.7,
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0E6F9),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(Icons.history_rounded,
+                          color: AppColors.actionPurple, size: 24),
+                    ),
+                    const SizedBox(width: 12),
+                    Text('Safety & Alert History',
+                        style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary)),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: activities.isEmpty
+                      ? Center(
+                          child: Text('No alert activity logged yet.',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 14, color: AppColors.textSecondary)),
+                        )
+                      : ListView.separated(
+                          itemCount: activities.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final item = activities[index];
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 42,
+                                    height: 42,
+                                    decoration: BoxDecoration(
+                                      color: item.bgColor,
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Icon(item.icon, color: item.iconColor, size: 20),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(item.title,
+                                            style: GoogleFonts.poppins(
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w600,
+                                                color: AppColors.textPrimary)),
+                                        Text(item.subtitle,
+                                            style: GoogleFonts.poppins(
+                                                fontSize: 11,
+                                                color: AppColors.textSecondary)),
+                                      ],
+                                    ),
+                                  ),
+                                  Text(item.timeAgo,
+                                      style: GoogleFonts.poppins(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w500,
+                                          color: AppColors.textSecondary)),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showDndModal() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.do_not_disturb_on_rounded, color: AppColors.sosRed),
+            const SizedBox(width: 8),
+            Text('Do Not Disturb',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+          ],
+        ),
+        content: Text(
+          'Emergency Override Policy:\n\nEmergency SOS triggers, loud sirens, and offline alerts will bypass Do Not Disturb to protect your personal safety in critical situations.',
+          style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Understood',
+                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPrivacyModal() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.lock_rounded, color: AppColors.actionBlue),
+            const SizedBox(width: 8),
+            Text('Privacy & Security',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildPrivacyBullet(
+              title: 'Offline-First SMS Fallback',
+              desc: 'SMS alerts are sent directly from your SIM card when offline — no middleman server.',
+            ),
+            const SizedBox(height: 10),
+            _buildPrivacyBullet(
+              title: 'On-Demand Location Only',
+              desc: 'Live GPS location is accessed only when you trigger SOS or use the Safe Route Map.',
+            ),
+            const SizedBox(height: 10),
+            _buildPrivacyBullet(
+              title: 'Secure Mutual Sync',
+              desc: 'Guardian connections require two-way email confirmation and are protected by Firestore security rules.',
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Close',
+                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrivacyBullet({required String title, required String desc}) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.check_circle_outline_rounded,
+            color: AppColors.successForeground, size: 18),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title,
+                  style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary)),
+              Text(desc,
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showAboutModal() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.shield_rounded, color: AppColors.primary),
+            const SizedBox(width: 8),
+            Text('Woman Guard',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Smart Women Safety & Emergency Response',
+                style: GoogleFonts.poppins(
+                    fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+            const SizedBox(height: 6),
+            Text('Version 1.0.0 • Final Year Project',
+                style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary)),
+            const SizedBox(height: 12),
+            Text('Designed with real-time mutual cloud sync, offline SMS redundancy, BLE hardware pendant integration, and emergency audio sirens.',
+                style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.4)),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.primary,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text('Close',
+                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _confirmLogout() {

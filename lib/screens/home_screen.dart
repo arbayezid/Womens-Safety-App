@@ -7,11 +7,13 @@ import '../services/location_service.dart';
 import '../services/siren_service.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
+import '../services/contact_sync_service.dart';
 import '../utils/auth_guard.dart';
 import 'map_screen.dart';
 import 'contacts_screen.dart';
 import 'settings_screen.dart';
 import 'profile_screen.dart';
+import '../widgets/fake_call_dialog.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -140,15 +142,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
       if (!mounted) return;
 
-      setState(() {
-        _isSOSLoading = false;
-      });
-
       if (result.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '✅ SOS Alert Dispatched! Location sent to ${result.contactsSentCount} contact(s).',
+              result.message.isNotEmpty
+                  ? result.message
+                  : '✅ SOS Alert Dispatched! Location sent to ${result.contactsSentCount} contact(s).',
               style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
             ),
             backgroundColor: AppColors.successForeground,
@@ -175,10 +175,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _isSOSLoading = false;
-      });
-
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
@@ -192,12 +188,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           duration: const Duration(seconds: 4),
         ),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSOSLoading = false;
+        });
+      }
     }
   }
 
   /// Handles Quick Action cards (e.g. Loud Siren trigger).
   Future<void> _onQuickAction(String label) async {
     HapticFeedback.selectionClick();
+
+    if (label == 'Fake Call') {
+      await FakeCallDialog.show(context);
+      return;
+    }
+
+    if (label == 'Safe Route') {
+      setState(() => _selectedIndex = 1);
+      return;
+    }
 
     if (label == 'Loud Siren') {
       final bool isNowPlaying = await SirenService.instance.toggleSiren();
@@ -225,7 +237,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          '$label tapped',
+          '$label activated',
           style: GoogleFonts.poppins(),
         ),
         behavior: SnackBarBehavior.floating,
@@ -252,6 +264,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onSOSPressed: _onSOSPressed,
             onQuickAction: _onQuickAction,
             onAvatarTap: _openProfile,
+            onOpenContacts: () => setState(() => _selectedIndex = 2),
           ),
 
           // Tab 1 — Map
@@ -286,6 +299,7 @@ class _SafetyDashboard extends StatelessWidget {
   final VoidCallback onSOSPressed;
   final void Function(String) onQuickAction;
   final VoidCallback onAvatarTap;
+  final VoidCallback onOpenContacts;
 
   const _SafetyDashboard({
     required this.pulseAnimation,
@@ -293,6 +307,7 @@ class _SafetyDashboard extends StatelessWidget {
     required this.onSOSPressed,
     required this.onQuickAction,
     required this.onAvatarTap,
+    required this.onOpenContacts,
   });
 
   @override
@@ -308,6 +323,65 @@ class _SafetyDashboard extends StatelessWidget {
 
             // ── 1. Custom Top App Bar ──────────────────────────────
             _TopAppBar(onAvatarTap: onAvatarTap),
+
+            // ── Incoming Guardian Requests Alert Banner ─────────────
+            StreamBuilder<List<Map<String, dynamic>>>(
+              stream: ContactSyncService.instance.streamIncomingRequests(),
+              builder: (context, snapshot) {
+                final requests = snapshot.data ?? [];
+                if (requests.isEmpty) return const SizedBox.shrink();
+
+                final first = requests.first;
+                final senderName = first['senderName'] ?? first['sender_name'] ?? 'Someone';
+
+                return Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: GestureDetector(
+                    onTap: onOpenContacts,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFF9E6),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFFD56B), width: 1.2),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFEDBA),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.mark_email_unread_rounded, color: AppColors.actionOrange, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Guardian Request (${requests.length})',
+                                  style: GoogleFonts.poppins(
+                                      fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                                ),
+                                Text(
+                                  '$senderName wants to connect with you. Tap to review.',
+                                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.chevron_right_rounded, color: AppColors.actionOrange),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
 
             const SizedBox(height: 16),
 
@@ -509,7 +583,7 @@ class CurrentLocationCard extends StatefulWidget {
 
 class _CurrentLocationCardState extends State<CurrentLocationCard>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
-  LocationResult _result = const LocationResult(status: LocationStateStatus.loading);
+  LocationResult _result = LocationService.instance.locationNotifier.value;
   late final AnimationController _spinController;
 
   @override
@@ -522,12 +596,26 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
       duration: const Duration(milliseconds: 900),
     );
 
-    // Initial location query
-    _fetchLocation();
+    _result = LocationService.instance.locationNotifier.value;
+    LocationService.instance.locationNotifier.addListener(_onLocationNotified);
+
+    // If no cached location is available, trigger a query
+    if (_result.status == LocationStateStatus.initial || LocationService.instance.lastKnownLocation == null) {
+      _fetchLocation(requestPermission: false);
+    }
+  }
+
+  void _onLocationNotified() {
+    if (mounted) {
+      setState(() {
+        _result = LocationService.instance.locationNotifier.value;
+      });
+    }
   }
 
   @override
   void dispose() {
+    LocationService.instance.locationNotifier.removeListener(_onLocationNotified);
     WidgetsBinding.instance.removeObserver(this);
     _spinController.dispose();
     super.dispose();
@@ -545,25 +633,23 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
 
   Future<void> _fetchLocation({bool requestPermission = true}) async {
     if (!mounted) return;
-
-    setState(() {
-      _result = LocationResult.loading();
-    });
     _spinController.repeat();
 
     try {
       final res = await LocationService.instance.getCurrentLocation(
         requestPermission: requestPermission,
       );
-      if (!mounted) return;
-      setState(() {
-        _result = res;
-      });
+      if (mounted) {
+        setState(() {
+          _result = res;
+        });
+      }
     } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _result = LocationResult.error(e.toString());
-      });
+      if (mounted) {
+        setState(() {
+          _result = LocationResult.error(e.toString());
+        });
+      }
     } finally {
       if (mounted) {
         _spinController.stop();
@@ -1322,23 +1408,45 @@ class _AppBottomNav extends StatelessWidget {
           fontSize: 11,
           fontWeight: FontWeight.w400,
         ),
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
             icon: Icon(Icons.shield_outlined),
             activeIcon: Icon(Icons.shield_rounded),
             label: 'Safety',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.map_outlined),
             activeIcon: Icon(Icons.map_rounded),
             label: 'Map',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.group_outlined),
-            activeIcon: Icon(Icons.group_rounded),
+            icon: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: ContactSyncService.instance.streamIncomingRequests(),
+              builder: (context, snapshot) {
+                final count = snapshot.data?.length ?? 0;
+                return Badge(
+                  isLabelVisible: count > 0,
+                  label: Text('$count', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                  backgroundColor: AppColors.sosRed,
+                  child: const Icon(Icons.group_outlined),
+                );
+              },
+            ),
+            activeIcon: StreamBuilder<List<Map<String, dynamic>>>(
+              stream: ContactSyncService.instance.streamIncomingRequests(),
+              builder: (context, snapshot) {
+                final count = snapshot.data?.length ?? 0;
+                return Badge(
+                  isLabelVisible: count > 0,
+                  label: Text('$count', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                  backgroundColor: AppColors.sosRed,
+                  child: const Icon(Icons.group_rounded),
+                );
+              },
+            ),
             label: 'Contacts',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
             activeIcon: Icon(Icons.settings_rounded),
             label: 'Settings',

@@ -1,10 +1,14 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../models/contact_model.dart';
 import '../services/contact_service.dart';
+import '../services/contact_sync_service.dart';
 import '../utils/auth_guard.dart';
+import '../widgets/add_contact_dialog.dart';
+import '../widgets/pending_requests_section.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Contacts screen — manage emergency and trusted contacts.
@@ -24,6 +28,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   String _searchQuery = '';
   List<ContactModel> _contacts = [];
   bool _isLoading = true;
+  StreamSubscription<List<ContactModel>>? _contactsSubscription;
 
   @override
   void initState() {
@@ -32,18 +37,61 @@ class _ContactsScreenState extends State<ContactsScreen> {
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
     ));
+
+    // Bind to reactive ContactService cache
+    _contacts = ContactService.instance.contacts;
+    _isLoading = _contacts.isEmpty;
+    ContactService.instance.contactsNotifier.addListener(_onContactsChanged);
+
     _loadContacts();
+    _subscribeToSyncedContacts();
+  }
+
+  void _onContactsChanged() {
+    if (mounted) {
+      setState(() {
+        _contacts = ContactService.instance.contacts;
+        _isLoading = false;
+      });
+    }
+  }
+
+  void _subscribeToSyncedContacts() {
+    _contactsSubscription?.cancel();
+    _contactsSubscription =
+        ContactSyncService.instance.streamSyncedContacts().listen((synced) async {
+      // 1. Cache incoming/updated synced contacts locally
+      for (final c in synced) {
+        await ContactService.instance.addContact(c);
+      }
+
+      // 2. If a synced contact was deleted in cloud, purge it from local storage
+      final local = await ContactService.instance.getContacts();
+      final syncedUids = synced.map((c) => c.contactUid ?? c.id).toSet();
+      for (final localContact in local) {
+        if (localContact.isSyncedAppUser &&
+            !syncedUids.contains(localContact.contactUid ?? localContact.id)) {
+          await ContactService.instance.deleteContact(
+            localContact.id,
+            contactUid: localContact.contactUid,
+            email: localContact.email,
+            phone: localContact.phone,
+          );
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    ContactService.instance.contactsNotifier.removeListener(_onContactsChanged);
+    _contactsSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
   /// Asynchronously fetches saved contacts from [ContactService].
   Future<void> _loadContacts() async {
-    setState(() => _isLoading = true);
     final loaded = await ContactService.instance.getContacts();
     if (mounted) {
       setState(() {
@@ -100,6 +148,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
                             parent: BouncingScrollPhysics()),
                         padding: const EdgeInsets.fromLTRB(20, 4, 20, 80),
                         children: [
+                          // ── Incoming Mutual Consent Requests ──────────────────────
+                          const PendingRequestsSection(),
+
                           if (emergency.isNotEmpty) ...[
                             const _SectionLabel(label: 'Emergency Contacts (SOS)'),
                             const SizedBox(height: 10),
@@ -110,6 +161,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                     onCall: () => makePhoneCall(c.phone),
                                     onMessage: () => openSMSApp(c.phone),
                                     onDelete: () => _confirmDelete(c),
+                                    onUpgrade: () => _handleUpgrade(c),
                                   ),
                                 )),
                             const SizedBox(height: 8),
@@ -124,6 +176,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                     onCall: () => makePhoneCall(c.phone),
                                     onMessage: () => openSMSApp(c.phone),
                                     onDelete: () => _confirmDelete(c),
+                                    onUpgrade: () => _handleUpgrade(c),
                                   ),
                                 )),
                           ],
@@ -449,21 +502,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
         );
 
         if (confirmed == true) {
-          final success =
-              await ContactService.instance.deleteContact(contact.id);
-          if (success) {
-            await _loadContacts();
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('${contact.name} removed from contacts',
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-              backgroundColor: AppColors.textPrimary,
-              behavior: SnackBarBehavior.floating,
-              shape: const StadiumBorder(),
-              margin: const EdgeInsets.all(16),
-              duration: const Duration(seconds: 2),
-            ));
-          }
+          // Permanently delete across Firestore (both directions) and local storage
+          await ContactSyncService.instance.deleteSyncedContact(contact);
+          await _loadContacts();
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('${contact.name} removed from contacts',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            backgroundColor: AppColors.textPrimary,
+            behavior: SnackBarBehavior.floating,
+            shape: const StadiumBorder(),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 2),
+          ));
         }
       },
     );
@@ -476,28 +527,49 @@ class _ContactsScreenState extends State<ContactsScreen> {
       customSubtitle:
           'To save and synchronize emergency contacts with live guardian alerts, please sign in with Google.',
       onAuthenticated: () async {
-        final result = await showModalBottomSheet<bool>(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (_) => const _AddContactSheet(),
-        );
-
+        final result = await AddContactDialog.show(context);
         if (result == true) {
           await _loadContacts();
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('✅ New contact added successfully!',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-            backgroundColor: AppColors.successForeground,
-            behavior: SnackBarBehavior.floating,
-            shape: const StadiumBorder(),
-            margin: const EdgeInsets.all(16),
-            duration: const Duration(seconds: 2),
-          ));
         }
       },
     );
+  }
+
+  Future<void> _handleUpgrade(ContactModel contact) async {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Checking if ${contact.email} is registered on Woman Guard...'),
+        duration: const Duration(seconds: 1),
+      ),
+    );
+    try {
+      final success = await ContactSyncService.instance.upgradeOfflineToSynced(contact);
+      if (!mounted) return;
+      if (success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Connection request sent to ${contact.email}! Waiting for consent.'),
+            backgroundColor: AppColors.actionGreen,
+          ),
+        );
+        await _loadContacts();
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('User ${contact.email} is not yet registered. Offline SMS alerts remain active.'),
+            backgroundColor: AppColors.actionOrange,
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceAll('Exception: ', '')),
+          backgroundColor: AppColors.sosRed,
+        ),
+      );
+    }
   }
 }
 
@@ -523,12 +595,14 @@ class _SectionLabel extends StatelessWidget {
 class _ContactCard extends StatelessWidget {
   final ContactModel contact;
   final VoidCallback onCall, onMessage, onDelete;
+  final VoidCallback? onUpgrade;
 
   const _ContactCard({
     required this.contact,
     required this.onCall,
     required this.onMessage,
     required this.onDelete,
+    this.onUpgrade,
   });
 
   @override
@@ -536,7 +610,7 @@ class _ContactCard extends StatelessWidget {
     final colorStyle = _getColorForContact(contact);
 
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(18),
@@ -553,8 +627,8 @@ class _ContactCard extends StatelessWidget {
           Stack(
             children: [
               Container(
-                width: 48,
-                height: 48,
+                width: 42,
+                height: 42,
                 decoration: BoxDecoration(
                     color: colorStyle.bg,
                     shape: BoxShape.circle),
@@ -562,7 +636,7 @@ class _ContactCard extends StatelessWidget {
                 child: Text(
                   contact.initial,
                   style: GoogleFonts.poppins(
-                      fontSize: 18,
+                      fontSize: 16,
                       fontWeight: FontWeight.bold,
                       color: colorStyle.text),
                 ),
@@ -572,8 +646,8 @@ class _ContactCard extends StatelessWidget {
                   right: 0,
                   bottom: 0,
                   child: Container(
-                    width: 14,
-                    height: 14,
+                    width: 13,
+                    height: 13,
                     decoration: BoxDecoration(
                         color: AppColors.sosRed,
                         shape: BoxShape.circle,
@@ -582,7 +656,7 @@ class _ContactCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(width: 14),
+          const SizedBox(width: 10),
           // Details
           Expanded(
             child: Column(
@@ -620,38 +694,135 @@ class _ContactCard extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 2),
-                Text(
-                  contact.phone,
-                  style: GoogleFonts.poppins(
-                      fontSize: 11, color: AppColors.textSecondary),
-                ),
-                Text(
-                  contact.relationship,
-                  style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w500,
-                      color: colorStyle.text),
+                if (contact.email.isNotEmpty)
+                  Text(
+                    contact.email,
+                    style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.primaryViolet),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                if (contact.hasPhone)
+                  Text(
+                    contact.phone,
+                    style: GoogleFonts.poppins(
+                        fontSize: 10.5, color: AppColors.textSecondary),
+                  ),
+                const SizedBox(height: 3),
+                Wrap(
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 5,
+                  runSpacing: 2,
+                  children: [
+                    Text(
+                      contact.relationship,
+                      style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: colorStyle.text),
+                    ),
+                    // Sync Status Badge
+                    if (contact.isSynced)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: AppColors.successBackground,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.verified_rounded, size: 10, color: AppColors.actionGreen),
+                            const SizedBox(width: 3),
+                            Text(
+                              'Synced App User',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.actionGreen),
+                            ),
+                          ],
+                        ),
+                      )
+                    else if (contact.isPending)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF9E6),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.hourglass_top_rounded, size: 10, color: AppColors.actionOrange),
+                            const SizedBox(width: 3),
+                            Text(
+                              'Sync Pending',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.actionOrange),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEEF2F6),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.sms_outlined, size: 10, color: AppColors.textSecondary),
+                            const SizedBox(width: 3),
+                            Text(
+                              contact.hasPhone ? 'Offline SMS' : 'Email Only',
+                              style: GoogleFonts.poppins(
+                                  fontSize: 8.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
           ),
-          // Actions: Call, Message, Delete
+          // Actions: Call, Message, Sync, Delete
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              _ActionIconBtn(
-                icon: Icons.phone_rounded,
-                color: AppColors.actionGreen,
-                bg: AppColors.successBackground,
-                onTap: onCall,
-              ),
-              const SizedBox(width: 6),
-              _ActionIconBtn(
-                icon: Icons.message_rounded,
-                color: AppColors.actionBlue,
-                bg: const Color(0xFFDDEEFD),
-                onTap: onMessage,
-              ),
-              const SizedBox(width: 6),
+              if (!contact.isSynced && !contact.isPending && contact.email.isNotEmpty && onUpgrade != null) ...[
+                _ActionIconBtn(
+                  icon: Icons.sync_rounded,
+                  color: AppColors.primaryViolet,
+                  bg: const Color(0xFFEDE7F6),
+                  onTap: onUpgrade!,
+                ),
+                const SizedBox(width: 4),
+              ],
+              if (contact.hasPhone) ...[
+                _ActionIconBtn(
+                  icon: Icons.phone_rounded,
+                  color: AppColors.actionGreen,
+                  bg: AppColors.successBackground,
+                  onTap: onCall,
+                ),
+                const SizedBox(width: 4),
+                _ActionIconBtn(
+                  icon: Icons.message_rounded,
+                  color: AppColors.actionBlue,
+                  bg: const Color(0xFFDDEEFD),
+                  onTap: onMessage,
+                ),
+                const SizedBox(width: 4),
+              ],
               _ActionIconBtn(
                 icon: Icons.delete_outline_rounded,
                 color: AppColors.sosRed,
@@ -683,12 +854,12 @@ class _ActionIconBtn extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 34,
-        height: 34,
+        width: 30,
+        height: 30,
         decoration:
-            BoxDecoration(color: bg, borderRadius: BorderRadius.circular(10)),
+            BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
         alignment: Alignment.center,
-        child: Icon(icon, color: color, size: 17),
+        child: Icon(icon, color: color, size: 15),
       ),
     );
   }
@@ -744,345 +915,6 @@ _AvatarColorPair _getColorForContact(ContactModel contact) {
     return _avatarPalette[0];
   }
   final index = contact.name.hashCode.abs() % _avatarPalette.length;
-  return _avatarPalette[index == 0 ? 1 : index];
+  return _avatarPalette[index];
 }
 
-/// Modal Bottom Sheet for adding a new Contact with form validation and persistence.
-class _AddContactSheet extends StatefulWidget {
-  const _AddContactSheet();
-
-  @override
-  State<_AddContactSheet> createState() => _AddContactSheetState();
-}
-
-class _AddContactSheetState extends State<_AddContactSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final TextEditingController _nameController = TextEditingController();
-  final TextEditingController _phoneController = TextEditingController();
-  final TextEditingController _relationController = TextEditingController(text: 'Family');
-  bool _isPrimary = true;
-  bool _isSubmitting = false;
-
-  final List<String> _relationPresets = [
-    'Family',
-    'Best Friend',
-    'Friend',
-    'Colleague',
-    'Neighbour',
-    'Other'
-  ];
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _phoneController.dispose();
-    _relationController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _handleSave() async {
-    if (!_formKey.currentState!.validate()) return;
-
-    setState(() => _isSubmitting = true);
-
-    try {
-      // Normalize Bangladesh phone number format
-      String rawPhone = _phoneController.text.trim().replaceAll(RegExp(r'[\s\-]'), '');
-      if (rawPhone.startsWith('01')) {
-        rawPhone = '+88$rawPhone';
-      }
-
-      final newContact = ContactModel(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        name: _nameController.text.trim(),
-        phone: rawPhone,
-        relationship: _relationController.text.trim(),
-        isPrimary: _isPrimary,
-      );
-
-      final success = await ContactService.instance.addContact(newContact);
-      if (mounted) {
-        Navigator.pop(context, success);
-      }
-    } catch (e) {
-      debugPrint('Error saving contact: $e');
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.all(16),
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
-      decoration: BoxDecoration(
-          color: AppColors.surface, borderRadius: BorderRadius.circular(24)),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                      color: AppColors.textSecondary.withValues(alpha: 0.3),
-                      borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                'Add Emergency Contact',
-                style: GoogleFonts.poppins(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Saved contacts are stored locally and notified during SOS triggers.',
-                style: GoogleFonts.poppins(
-                    fontSize: 11, color: AppColors.textSecondary),
-              ),
-              const SizedBox(height: 18),
-
-              // Full Name field
-              TextFormField(
-                controller: _nameController,
-                textCapitalization: TextCapitalization.words,
-                style: GoogleFonts.poppins(
-                    fontSize: 13, color: AppColors.textPrimary),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Contact name is required';
-                  }
-                  if (val.trim().length < 2) {
-                    return 'Name must be at least 2 characters';
-                  }
-                  return null;
-                },
-                decoration: _buildInputDecoration(
-                  label: 'Full Name',
-                  hint: 'e.g. Mom, Riya Sharma',
-                  icon: Icons.person_rounded,
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // Phone Number field with Bangladesh regex validation
-              TextFormField(
-                controller: _phoneController,
-                keyboardType: TextInputType.phone,
-                style: GoogleFonts.poppins(
-                    fontSize: 13, color: AppColors.textPrimary),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Phone number is required';
-                  }
-                  final clean = val.trim().replaceAll(RegExp(r'[\s\-]'), '');
-                  // Regex validates BD formats like +8801XXXXXXXXX or 01XXXXXXXXX
-                  final bdRegex = RegExp(r'^(\+8801|01)[3-9]\d{8}$');
-                  if (!bdRegex.hasMatch(clean)) {
-                    return 'Enter valid BD number (e.g. 01712345678 or +8801712345678)';
-                  }
-                  return null;
-                },
-                decoration: _buildInputDecoration(
-                  label: 'Phone Number (Bangladesh)',
-                  hint: 'e.g. +8801711000001 or 01711000001',
-                  icon: Icons.phone_rounded,
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // Relationship input field
-              TextFormField(
-                controller: _relationController,
-                style: GoogleFonts.poppins(
-                    fontSize: 13, color: AppColors.textPrimary),
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Relationship is required';
-                  }
-                  return null;
-                },
-                decoration: _buildInputDecoration(
-                  label: 'Relationship',
-                  hint: 'e.g. Family, Sister, Friend',
-                  icon: Icons.favorite_rounded,
-                ),
-              ),
-              const SizedBox(height: 10),
-
-              // Relationship quick presets
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                physics: const BouncingScrollPhysics(),
-                child: Row(
-                  children: _relationPresets.map((preset) {
-                    final isSelected = _relationController.text == preset;
-                    return Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(
-                          preset,
-                          style: GoogleFonts.poppins(
-                            fontSize: 11,
-                            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                            color: isSelected ? Colors.white : AppColors.textPrimary,
-                          ),
-                        ),
-                        selected: isSelected,
-                        selectedColor: AppColors.primary,
-                        backgroundColor: AppColors.background,
-                        side: BorderSide.none,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10)),
-                        onSelected: (selected) {
-                          if (selected) {
-                            setState(() => _relationController.text = preset);
-                          }
-                        },
-                      ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // SOS Primary Toggle Switch
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                decoration: BoxDecoration(
-                  color: _isPrimary
-                      ? const Color(0xFFFFE5E5).withValues(alpha: 0.6)
-                      : AppColors.background,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: _isPrimary ? AppColors.sosRed.withValues(alpha: 0.4) : Colors.transparent,
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.warning_amber_rounded,
-                      color: _isPrimary ? AppColors.sosRed : AppColors.textSecondary,
-                      size: 22,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'SOS Emergency Priority',
-                            style: GoogleFonts.poppins(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: _isPrimary ? AppColors.sosRed : AppColors.textPrimary),
-                          ),
-                          Text(
-                            'Sends emergency SMS automatically when SOS is pressed',
-                            style: GoogleFonts.poppins(
-                                fontSize: 10, color: AppColors.textSecondary),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _isPrimary,
-                      activeThumbColor: AppColors.sosRed,
-                      onChanged: (val) => setState(() => _isPrimary = val),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Action buttons
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _isSubmitting ? null : () => Navigator.pop(context),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.textSecondary),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                      ),
-                      child: Text('Cancel',
-                          style: GoogleFonts.poppins(
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.textSecondary)),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _isSubmitting ? null : _handleSave,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        elevation: 0,
-                      ),
-                      child: _isSubmitting
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : Text('Save Contact',
-                              style: GoogleFonts.poppins(
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white)),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  InputDecoration _buildInputDecoration({
-    required String label,
-    required String hint,
-    required IconData icon,
-  }) {
-    return InputDecoration(
-      filled: true,
-      fillColor: AppColors.background,
-      labelText: label,
-      hintText: hint,
-      labelStyle: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
-      hintStyle: GoogleFonts.poppins(
-          fontSize: 12, color: AppColors.textSecondary.withValues(alpha: 0.6)),
-      prefixIcon: Icon(icon, color: AppColors.primary, size: 20),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
-        borderSide: const BorderSide(color: AppColors.sosRed, width: 1.5),
-      ),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-    );
-  }
-}

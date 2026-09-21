@@ -31,11 +31,22 @@ class _ProfileScreenState extends State<ProfileScreen>
       statusBarIconBrightness: Brightness.light,
     ));
     _tabController = TabController(length: 2, vsync: this);
+    _contactsCount = ContactService.instance.contactsCount;
+    ContactService.instance.contactsNotifier.addListener(_onContactsChanged);
     _loadDynamicData();
+  }
+
+  void _onContactsChanged() {
+    if (mounted) {
+      setState(() {
+        _contactsCount = ContactService.instance.contactsCount;
+      });
+    }
   }
 
   @override
   void dispose() {
+    ContactService.instance.contactsNotifier.removeListener(_onContactsChanged);
     _tabController.dispose();
     super.dispose();
   }

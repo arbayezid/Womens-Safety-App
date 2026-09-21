@@ -13,6 +13,12 @@ class AppColors {
   /// A slightly lighter variant of the primary for accents
   static const Color primaryLight = Color(0xFF7B72DB);
 
+  /// Alias for primary brand color
+  static const Color primaryViolet = Color(0xFF5A4FCF);
+
+  /// Divider line color
+  static const Color divider = Color(0xFFE5E5EA);
+
   /// Very light purple for avatar backgrounds and subtle highlights
   static const Color primarySurface = Color(0xFFEDE9FF);
 

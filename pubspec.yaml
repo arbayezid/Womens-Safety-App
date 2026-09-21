@@ -46,6 +46,13 @@ dependencies:
   firebase_auth: ^5.0.0
   google_sign_in: ^6.2.1
 
+  # Cloud Firestore & Real-Time Sync
+  cloud_firestore: ^5.0.0
+
+  # Firebase Cloud Messaging & In-App Notifications
+  firebase_messaging: ^15.0.0
+  flutter_local_notifications: ^17.1.2
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

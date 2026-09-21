@@ -6,6 +6,7 @@ import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'activity_service.dart';
 import 'contact_service.dart';
+import 'sos_cloud_dispatcher.dart';
 
 /// Data result object returned by [EmergencyService.triggerEmergency].
 class EmergencyResult {
@@ -31,6 +32,20 @@ class EmergencyResult {
   String toString() {
     return 'EmergencyResult(isSuccess: $isSuccess, message: $message, mapsUrl: $googleMapsUrl, sentCount: $contactsSentCount)';
   }
+}
+
+class _SmsDispatchResult {
+  final int sentCount;
+  final List<String> failedList;
+  final bool hasRecipients;
+  final bool permissionGranted;
+
+  const _SmsDispatchResult({
+    required this.sentCount,
+    required this.failedList,
+    required this.hasRecipients,
+    required this.permissionGranted,
+  });
 }
 
 /// Central Singleton Service for handling One-Tap SOS Emergency triggers.
@@ -102,107 +117,72 @@ class EmergencyService {
       }
     }
 
-    // Edge Case: Contact list is empty
-    if (recipients.isEmpty) {
-      const String emptyMsg = 'No emergency contacts configured. Please add emergency contacts first.';
-      debugPrint('[EmergencyService] ⚠️ $emptyMsg');
+    // Step 3 & 4: CONCURRENT DUAL DISPATCH
+    // Action A (Cloud SOS) and Action B (Offline SMS) execute in parallel
+    // so offline SMS is NEVER delayed or blocked by internet latency!
+    final cloudFuture = SosCloudDispatcher.instance.triggerCloudSos(
+      position: position,
+      source: source,
+      customNote: customMessage,
+    ).timeout(
+      const Duration(seconds: 4),
+      onTimeout: () {
+        debugPrint('[EmergencyService] ⏱️ Cloud SOS dispatch timed out after 4s (continuing in background)');
+        return null;
+      },
+    ).catchError((err) {
+      debugPrint('[EmergencyService] Cloud SOS dispatch error: $err');
+      return null;
+    });
 
-      if (context != null && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.white),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    emptyMsg,
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
-              ],
-            ),
-            backgroundColor: Colors.orange.shade800,
-            behavior: SnackBarBehavior.floating,
-            shape: const StadiumBorder(),
-            margin: const EdgeInsets.all(16),
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-
-      return EmergencyResult(
-        isSuccess: false,
-        message: emptyMsg,
-        position: position,
-        googleMapsUrl: mapUrl,
+    final smsFuture = _dispatchOfflineSms(
+      recipients: recipients,
+      mapUrl: mapUrl,
+      customMessage: customMessage,
+    ).catchError((err) {
+      debugPrint('[EmergencyService] SMS dispatch future error: $err');
+      final bool isPermissionDenied = err.toString().contains('permission_denied') ||
+          err.toString().contains('SEND_SMS');
+      return _SmsDispatchResult(
+        sentCount: 0,
+        failedList: recipients,
+        hasRecipients: recipients.isNotEmpty,
+        permissionGranted: !isPermissionDenied,
       );
-    }
+    });
 
-    // Build cost-effective emergency SMS text (single-segment GSM-7, under 160 characters)
-    final String smsBody = (customMessage != null && customMessage.trim().isNotEmpty)
-        ? customMessage.trim()
-        : buildEmergencyMessage(mapUrl);
+    final List<dynamic> dualResults = await Future.wait([cloudFuture, smsFuture]);
+    final String? cloudAlertId = dualResults[0] as String?;
+    final _SmsDispatchResult smsResult = dualResults[1] as _SmsDispatchResult;
 
-    debugPrint('[EmergencyService] ✉️ Prepared Message: "$smsBody" (${smsBody.length} chars)');
+    final int sentCount = smsResult.sentCount;
+    final List<String> failedList = smsResult.failedList;
+    final bool cloudSent = cloudAlertId != null;
+    final bool overallSuccess = sentCount > 0 || cloudSent;
 
-    // Step 3: Ensure SMS permissions
-    final bool hasSmsPermission = await _checkAndRequestSmsPermission();
-    if (!hasSmsPermission) {
-      const String permMsg = 'SMS Permission denied. Unable to auto-send emergency alert messages.';
-      if (context != null && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(permMsg, style: TextStyle(fontWeight: FontWeight.w600)),
-            backgroundColor: Colors.orange.shade800,
-            behavior: SnackBarBehavior.floating,
-            shape: const StadiumBorder(),
-            margin: const EdgeInsets.all(16),
-            duration: const Duration(seconds: 4),
-          ),
-        );
+    String resultSummary;
+    if (sentCount > 0 && cloudSent) {
+      resultSummary = 'SOS alert dispatched! SMS sent to $sentCount contact(s) & Cloud alert broadcast.';
+    } else if (sentCount > 0) {
+      resultSummary = 'Emergency SMS successfully sent to $sentCount contact(s).';
+    } else if (cloudSent) {
+      if (!smsResult.permissionGranted) {
+        resultSummary = '🚨 In-App alert sent to guardians! (SMS skipped: allow SMS in phone Settings).';
+      } else {
+        resultSummary = '🚨 Emergency cloud alert broadcast to all mutual guardians.';
       }
-
-      return EmergencyResult(
-        isSuccess: false,
-        message: permMsg,
-        position: position,
-        googleMapsUrl: mapUrl,
-      );
+    } else if (!smsResult.permissionGranted) {
+      resultSummary = 'SMS permission was denied. Please allow SMS permission in device settings.';
+    } else if (!smsResult.hasRecipients) {
+      resultSummary = 'No emergency contacts configured. Please add emergency contacts first.';
+    } else {
+      resultSummary = 'Failed to dispatch emergency alerts.';
     }
-
-    // Step 4: Dispatch SMS to dynamic emergency contacts
-    int sentCount = 0;
-    List<String> failedList = [];
-
-    for (final contact in recipients) {
-      final cleanNumber = contact.replaceAll(RegExp(r'\s+'), '');
-      if (cleanNumber.isEmpty) continue;
-
-      try {
-        // Send direct background SMS without opening native SMS dialog
-        await _telephony.sendSms(
-          to: cleanNumber,
-          message: smsBody,
-          isMultipart: true,
-        );
-        sentCount++;
-        debugPrint('[EmergencyService] ✅ SMS successfully sent to: $cleanNumber');
-      } catch (smsError) {
-        debugPrint('[EmergencyService] ❌ Failed sending SMS to $cleanNumber: $smsError');
-        failedList.add(cleanNumber);
-      }
-    }
-
-    final bool overallSuccess = sentCount > 0;
-    final String resultSummary = overallSuccess
-        ? 'Emergency alert dispatched to $sentCount contact(s).'
-        : 'Failed to dispatch SMS to contacts.';
 
     // Log the SOS emergency event for profile activity tracking
     ActivityService.instance.logSOS(
       source: source,
-      contactsSent: sentCount,
+      contactsSent: sentCount > 0 ? sentCount : (cloudSent ? 1 : 0),
       mapUrl: mapUrl,
       isSuccess: overallSuccess,
     );
@@ -215,6 +195,81 @@ class EmergencyService {
       contactsSentCount: sentCount,
       failedContacts: failedList,
     );
+  }
+
+  /// Dispatches offline background SMS messages to valid recipient phone numbers.
+  Future<_SmsDispatchResult> _dispatchOfflineSms({
+    required List<String> recipients,
+    required String? mapUrl,
+    required String? customMessage,
+  }) async {
+    final List<String> validRecipients = recipients
+        .map((r) => r.replaceAll(RegExp(r'\s+'), ''))
+        .where((r) => r.isNotEmpty)
+        .toList();
+
+    if (validRecipients.isEmpty) {
+      return const _SmsDispatchResult(
+        sentCount: 0,
+        failedList: [],
+        hasRecipients: false,
+        permissionGranted: true,
+      );
+    }
+
+    try {
+      final String smsBody = (customMessage != null && customMessage.trim().isNotEmpty)
+          ? customMessage.trim()
+          : buildEmergencyMessage(mapUrl);
+
+      debugPrint('[EmergencyService] ✉️ Prepared Message: "$smsBody" (${smsBody.length} chars)');
+
+      final bool hasSmsPermission = await _checkAndRequestSmsPermission();
+      if (!hasSmsPermission) {
+        debugPrint('[EmergencyService] ⚠️ SMS Permission denied.');
+        return _SmsDispatchResult(
+          sentCount: 0,
+          failedList: validRecipients,
+          hasRecipients: true,
+          permissionGranted: false,
+        );
+      }
+
+      int sentCount = 0;
+      final List<String> failedList = [];
+
+      for (final contact in validRecipients) {
+        try {
+          await _telephony.sendSms(
+            to: contact,
+            message: smsBody,
+            isMultipart: true,
+          );
+          sentCount++;
+          debugPrint('[EmergencyService] ✅ SMS successfully sent to: $contact');
+        } catch (smsErr) {
+          debugPrint('[EmergencyService] ❌ Failed to send SMS to $contact: $smsErr');
+          failedList.add(contact);
+        }
+      }
+
+      return _SmsDispatchResult(
+        sentCount: sentCount,
+        failedList: failedList,
+        hasRecipients: true,
+        permissionGranted: true,
+      );
+    } catch (e) {
+      debugPrint('[EmergencyService] Offline SMS dispatch error: $e');
+      final bool isPermissionDenied = e.toString().contains('permission_denied') ||
+          e.toString().contains('SEND_SMS');
+      return _SmsDispatchResult(
+        sentCount: 0,
+        failedList: validRecipients,
+        hasRecipients: true,
+        permissionGranted: !isPermissionDenied,
+      );
+    }
   }
 
   /// Convenience alias for [triggerEmergency]
@@ -297,15 +352,24 @@ class EmergencyService {
   Future<bool> _checkAndRequestSmsPermission() async {
     if (kIsWeb) return false;
 
-    // First check telephony permission request
-    bool? isSmsGranted = await _telephony.requestSmsPermissions;
-    if (isSmsGranted == true) return true;
-
-    // Fallback to permission_handler
-    var status = await Permission.sms.status;
-    if (!status.isGranted) {
-      status = await Permission.sms.request();
+    try {
+      // First check telephony permission request
+      bool? isSmsGranted = await _telephony.requestSmsPermissions;
+      if (isSmsGranted == true) return true;
+    } catch (e) {
+      debugPrint('[EmergencyService] Telephony permission request notice: $e');
     }
-    return status.isGranted;
+
+    try {
+      // Fallback to permission_handler
+      var status = await Permission.sms.status;
+      if (!status.isGranted) {
+        status = await Permission.sms.request();
+      }
+      return status.isGranted;
+    } catch (e) {
+      debugPrint('[EmergencyService] Permission_handler request notice: $e');
+      return false;
+    }
   }
 }
