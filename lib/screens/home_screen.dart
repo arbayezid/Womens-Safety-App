@@ -9,10 +9,12 @@ import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import '../services/contact_sync_service.dart';
 import '../utils/auth_guard.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'map_screen.dart';
 import 'contacts_screen.dart';
 import 'settings_screen.dart';
 import 'profile_screen.dart';
+import 'sos_history_screen.dart';
 import '../widgets/fake_call_dialog.dart';
 
 /// Root shell widget for Smart Safety.
@@ -145,17 +147,79 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (result.isSuccess) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              result.message.isNotEmpty
-                  ? result.message
-                  : '✅ SOS Alert Dispatched! Location sent to ${result.contactsSentCount} contact(s).',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+            content: Row(
+              children: [
+                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    result.message.isNotEmpty
+                        ? result.message
+                        : '✅ SOS Alert Dispatched! Location sent to ${result.contactsSentCount} contact(s).',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+                  ),
+                ),
+              ],
             ),
             backgroundColor: AppColors.successForeground,
             behavior: SnackBarBehavior.floating,
-            shape: const StadiumBorder(),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             margin: const EdgeInsets.all(16),
             duration: const Duration(seconds: 4),
+          ),
+        );
+      } else if (result.hasNoRecipients) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.person_add_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    result.message,
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12.5),
+                  ),
+                ),
+              ],
+            ),
+            action: SnackBarAction(
+              label: 'Contacts',
+              textColor: Colors.amberAccent,
+              onPressed: () => setState(() => _selectedIndex = 2),
+            ),
+            backgroundColor: AppColors.sosRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      } else if (result.isPermissionDenied) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.settings_suggest_rounded, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    result.message,
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12.5),
+                  ),
+                ),
+              ],
+            ),
+            action: SnackBarAction(
+              label: 'Settings',
+              textColor: Colors.amberAccent,
+              onPressed: () => openAppSettings(),
+            ),
+            backgroundColor: AppColors.sosRed,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            margin: const EdgeInsets.all(16),
+            duration: const Duration(seconds: 5),
           ),
         );
       } else {
@@ -167,7 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             backgroundColor: Colors.orange.shade800,
             behavior: SnackBarBehavior.floating,
-            shape: const StadiumBorder(),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             margin: const EdgeInsets.all(16),
             duration: const Duration(seconds: 4),
           ),
@@ -271,7 +335,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           const MapScreen(),
 
           // Tab 2 — Contacts
-          const ContactsScreen(),
+          ContactsScreen(isActive: _selectedIndex == 2),
 
           // Tab 3 — Settings
           const SettingsScreen(),
@@ -516,6 +580,34 @@ class _TopAppBar extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+            ),
+
+            // ── SOS History Quick Access Button ──────────────────────
+            Tooltip(
+              message: 'SOS Alert History',
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const SosHistoryScreen()),
+                  );
+                },
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFEEEE),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.25)),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.history_rounded,
+                    color: AppColors.sosRed,
+                    size: 19,
+                  ),
+                ),
               ),
             ),
 

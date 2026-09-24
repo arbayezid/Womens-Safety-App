@@ -106,14 +106,11 @@ void main() {
       expect(auth.currentProfile.bloodGroup, 'A-');
       expect(auth.currentProfile.city, 'Sylhet, Bangladesh');
 
-      // Verify persistence in SharedPreferences
+      // Verify that sensitive profile information is NOT persisted to physical device SharedPreferences
       final prefs = await SharedPreferences.getInstance();
       final storedJson = prefs.getString('smart_safety_user_profile_guest');
-      expect(storedJson, isNotNull);
-      final restored = UserProfile.fromJson(storedJson!);
-      expect(restored.name, 'Nusrat Jahan');
-      expect(restored.phone, '+8801811223344');
-      expect(restored.bloodGroup, 'A-');
+      expect(storedJson, isNull,
+          reason: 'Sensitive profile data must never be saved to physical device storage');
     });
 
     test('continueAsGuest sets guest state correctly', () async {

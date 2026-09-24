@@ -5,8 +5,10 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../firebase_options.dart';
 import '../widgets/intrusive_sos_dialog.dart';
+import 'activity_service.dart';
 import 'contact_sync_service.dart';
 
 /// Top-level background message handler for FCM.
@@ -30,7 +32,7 @@ class NotificationService {
   NotificationService._internal();
   static final NotificationService instance = NotificationService._internal();
 
-  final FirebaseMessaging _fcm = FirebaseMessaging.instance;
+  FirebaseMessaging get _fcm => FirebaseMessaging.instance;
   final FlutterLocalNotificationsPlugin _localNotifications =
       FlutterLocalNotificationsPlugin();
 
@@ -39,6 +41,8 @@ class NotificationService {
 
   StreamSubscription<QuerySnapshot>? _sosAlertsSubscription;
   final Set<String> _shownAlertIds = {};
+  final Set<String> _dismissedAlertIds = {};
+  bool _isSosDialogShowing = false;
 
   StreamSubscription<List<Map<String, dynamic>>>? _requestsSubscription;
   final Set<String> _shownRequestIds = {};
@@ -47,6 +51,7 @@ class NotificationService {
   Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
     if (_isInitialized) return;
     _navigatorKey = navigatorKey;
+    await _loadDismissedAlertIds();
 
     try {
       // 1. Initialize local notifications plugin (purely local & offline)
@@ -178,8 +183,71 @@ class NotificationService {
     }
   }
 
+  /// Loads previously dismissed SOS alert IDs from [SharedPreferences] to ensure
+  /// they never re-appear after the app is closed and reopened.
+  Future<void> _loadDismissedAlertIds() async {
+    try {
+      final String? uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
+      final key = uid != null ? 'dismissed_sos_alerts_$uid' : 'dismissed_sos_alerts_default';
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList(key) ?? [];
+      _dismissedAlertIds.addAll(saved);
+      _shownAlertIds.addAll(saved);
+    } catch (e) {
+      debugPrint('[NotificationService] Error loading dismissed alerts: $e');
+    }
+  }
+
+  /// Persistently marks an active SOS alert as dismissed/responded to by the current user.
+  /// Prevents this alert from ever popping up again on this device or across app restarts.
+  Future<void> dismissAlert(String alertId) async {
+    _shownAlertIds.add(alertId);
+    _dismissedAlertIds.add(alertId);
+
+    // 1. Persist locally to SharedPreferences so it never re-shows even across process kill
+    try {
+      final String? uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
+      final key = uid != null ? 'dismissed_sos_alerts_$uid' : 'dismissed_sos_alerts_default';
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(key) ?? [];
+      if (!list.contains(alertId)) {
+        list.add(alertId);
+        if (list.length > 200) {
+          list.removeRange(0, list.length - 200);
+        }
+        await prefs.setStringList(key, list);
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Error saving dismissed alert to prefs: $e');
+    }
+
+    // 2. Mark acknowledged in Firestore sos_alerts doc
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirebaseFirestore.instance.collection('sos_alerts').doc(alertId).set({
+            'dismissedBy': FieldValue.arrayUnion([user.uid]),
+            'acknowledgedBy': FieldValue.arrayUnion([user.uid]),
+            'lastRespondedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Error updating alert dismissed status in Firestore: $e');
+    }
+
+    // 3. Log acknowledgement in local activity history
+    try {
+      ActivityService.instance.logQuickAction('Responded to SOS Alert');
+    } catch (_) {}
+  }
+
   /// Subscribes to real-time Cloud Firestore `sos_alerts` collection to receive
   /// instant in-app alerts directly, without requiring deployed Cloud Functions.
+  ///
+  /// Deduplicates multiple SOS button presses from the same sender and shows
+  /// ONLY the single latest alert with timing, and never re-shows dismissed alerts.
   void startSosAlertStreamListener() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -190,6 +258,8 @@ class NotificationService {
     final String myEmail = (user.email ?? '').toLowerCase().trim();
     final String myUid = user.uid;
 
+    _loadDismissedAlertIds();
+
     _sosAlertsSubscription?.cancel();
     debugPrint('[NotificationService] 🛡️ Starting real-time Firestore SOS stream for $myEmail (UID: $myUid)...');
 
@@ -198,71 +268,112 @@ class NotificationService {
         .where('status', isEqualTo: 'active')
         .snapshots()
         .listen((snapshot) {
-      for (final change in snapshot.docChanges) {
-        if (change.type == DocumentChangeType.added) {
-          final doc = change.doc;
-          final data = doc.data();
-          if (data == null) continue;
+      final List<Map<String, dynamic>> eligibleAlerts = [];
 
-          final senderId = (data['senderId'] ?? data['sender_uid'])?.toString();
-          if (senderId == myUid) {
-            // Do not alert the sender on their own device
+      for (final doc in snapshot.docs) {
+        final data = doc.data();
+        final alertId = doc.id;
+
+        final senderId = (data['senderId'] ?? data['sender_uid'])?.toString();
+        if (senderId == myUid) {
+          // Do not alert the sender on their own device
+          continue;
+        }
+
+        // Check if already dismissed locally
+        if (_dismissedAlertIds.contains(alertId)) {
+          continue;
+        }
+
+        // Check if dismissed in cloud by my UID
+        final List<dynamic> dismissedBy = (data['dismissedBy'] as List<dynamic>?) ?? [];
+        if (dismissedBy.map((e) => e.toString()).contains(myUid)) {
+          _dismissedAlertIds.add(alertId);
+          continue;
+        }
+
+        // Check timestamp: ignore stale alerts older than 60 minutes
+        final dynamic rawTime = data['triggeredAt'] ?? data['timestamp'];
+        DateTime alertDate = DateTime.now();
+        if (rawTime is Timestamp) {
+          alertDate = rawTime.toDate();
+          if (DateTime.now().difference(alertDate).inMinutes > 60) {
             continue;
-          }
-
-          final alertId = doc.id;
-          if (_shownAlertIds.contains(alertId)) {
-            continue;
-          }
-
-          // Check timestamp: ignore stale alerts older than 60 minutes
-          final dynamic rawTime = data['triggeredAt'] ?? data['timestamp'];
-          if (rawTime is Timestamp) {
-            final alertDate = rawTime.toDate();
-            if (DateTime.now().difference(alertDate).inMinutes > 60) {
-              continue;
-            }
-          }
-
-          // Check if current user is an intended recipient:
-          final List<dynamic> recEmails = (data['recipientEmails'] as List<dynamic>?) ?? [];
-          final List<dynamic> recUids = (data['recipientUids'] as List<dynamic>?) ?? [];
-
-          final bool matchesEmail = myEmail.isNotEmpty &&
-              recEmails.map((e) => e.toString().toLowerCase().trim()).contains(myEmail);
-          final bool matchesUid = recUids.map((u) => u.toString()).contains(myUid);
-
-          // Alert if recipient matches, or if broadcast list is open (e.g. initial testing)
-          final bool isRecipient = matchesEmail || matchesUid || (recEmails.isEmpty && recUids.isEmpty);
-
-          if (isRecipient) {
-            _shownAlertIds.add(alertId);
-            debugPrint('[NotificationService] 🚨 In-App SOS alert detected for $myEmail from ${data['senderName']}!');
-
-            final alertPayload = {
-              'type': 'SOS_ALERT',
-              'alertId': alertId,
-              'senderName': data['senderName'] ?? data['sender_name'] ?? 'Emergency Contact',
-              'senderEmail': data['senderEmail'] ?? data['sender_email'] ?? '',
-              'senderPhone': data['senderPhone'] ?? data['sender_phone'] ?? '',
-              'address': data['location']?['address'] ?? data['address'] ?? 'Live GPS Location Available',
-              'googleMapsUrl': data['google_maps_url'] ?? data['location']?['googleMapsUrl'] ?? '',
-              'latitude': data['latitude']?.toString() ?? data['location']?['latitude']?.toString() ?? '',
-              'longitude': data['longitude']?.toString() ?? data['location']?['longitude']?.toString() ?? '',
-              'message': data['message'] ?? data['note'] ?? 'Emergency SOS Alert triggered!',
-            };
-
-            // 1. Pop up intrusive fullscreen dialog
-            _showIntrusiveSosDialog(alertPayload);
-
-            // 2. Show local heads-up notification banner with sound
-            _showLocalSosAlertBanner(
-              title: '🚨 INCOMING SOS ALERT: ${data['senderName']}!',
-              body: '${data['senderName']} needs immediate help! Tap to view live location.',
-              payload: alertPayload,
-            );
           }
         }
+
+        // Check if current user is an intended recipient:
+        final List<dynamic> recEmails = (data['recipientEmails'] as List<dynamic>?) ?? [];
+        final List<dynamic> recUids = (data['recipientUids'] as List<dynamic>?) ?? [];
+
+        final bool matchesEmail = myEmail.isNotEmpty &&
+            recEmails.map((e) => e.toString().toLowerCase().trim()).contains(myEmail);
+        final bool matchesUid = recUids.map((u) => u.toString()).contains(myUid);
+        final bool isRecipient = matchesEmail || matchesUid || (recEmails.isEmpty && recUids.isEmpty);
+
+        if (!isRecipient) continue;
+
+        eligibleAlerts.add({
+          'alertId': alertId,
+          'doc': doc,
+          'data': data,
+          'alertDate': alertDate,
+        });
+      }
+
+      if (eligibleAlerts.isEmpty) return;
+
+      // Deduplicate: Sort by alertDate descending so newest is first
+      eligibleAlerts.sort((a, b) =>
+          (b['alertDate'] as DateTime).compareTo(a['alertDate'] as DateTime));
+
+      // Pick ONLY the single latest active alert
+      final latest = eligibleAlerts.first;
+      final latestAlertId = latest['alertId'] as String;
+      final latestData = latest['data'] as Map<String, dynamic>;
+      final latestDate = latest['alertDate'] as DateTime;
+
+      // Count total active presses from this sender
+      final senderId = (latestData['senderId'] ?? latestData['sender_uid'])?.toString();
+      final totalPresses = eligibleAlerts.where((a) {
+        final sid = (a['data']['senderId'] ?? a['data']['sender_uid'])?.toString();
+        return sid == senderId;
+      }).length;
+
+      // Only present if this latest alert hasn't already been displayed
+      if (!_shownAlertIds.contains(latestAlertId)) {
+        // Mark all older alerts from this sender as processed so they don't trigger subsequently
+        for (final a in eligibleAlerts) {
+          _shownAlertIds.add(a['alertId'] as String);
+        }
+
+        debugPrint('[NotificationService] 🚨 In-App SOS alert (latest of $totalPresses) detected for $myEmail from ${latestData['senderName']}!');
+
+        final alertPayload = {
+          'type': 'SOS_ALERT',
+          'alertId': latestAlertId,
+          'senderName': latestData['senderName'] ?? latestData['sender_name'] ?? 'Emergency Contact',
+          'senderEmail': latestData['senderEmail'] ?? latestData['sender_email'] ?? '',
+          'senderPhone': latestData['senderPhone'] ?? latestData['sender_phone'] ?? '',
+          'address': latestData['location']?['address'] ?? latestData['address'] ?? 'Live GPS Location Available',
+          'googleMapsUrl': latestData['google_maps_url'] ?? latestData['location']?['googleMapsUrl'] ?? '',
+          'latitude': latestData['latitude']?.toString() ?? latestData['location']?['latitude']?.toString() ?? '',
+          'longitude': latestData['longitude']?.toString() ?? latestData['location']?['longitude']?.toString() ?? '',
+          'message': latestData['message'] ?? latestData['note'] ?? 'Emergency SOS Alert triggered!',
+          'triggeredAt': latestDate.toIso8601String(),
+          'alertDate': latestDate,
+          'totalPresses': totalPresses,
+        };
+
+        // 1. Pop up intrusive fullscreen dialog
+        _showIntrusiveSosDialog(alertPayload);
+
+        // 2. Show local heads-up notification banner with sound
+        _showLocalSosAlertBanner(
+          title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
+          body: '${latestData['senderName']} needs immediate help! Tap to view live location.',
+          payload: alertPayload,
+        );
       }
     }, onError: (err) {
       debugPrint('[NotificationService] Real-time SOS stream error: $err');
@@ -375,7 +486,7 @@ class NotificationService {
     );
   }
 
-  /// Displays the full-featured Intrusive SOS Dialog overlay
+  /// Displays the full-featured Intrusive SOS Dialog overlay without stacking multiple dialogs
   void _showIntrusiveSosDialog(Map<String, dynamic> data) {
     final context = _navigatorKey?.currentContext;
     if (context == null) {
@@ -383,21 +494,35 @@ class NotificationService {
       Future.delayed(const Duration(milliseconds: 500), () {
         final retryContext = _navigatorKey?.currentContext;
         if (retryContext != null && retryContext.mounted) {
-          showDialog(
-            context: retryContext,
-            barrierDismissible: false,
-            builder: (ctx) => IntrusiveSosDialog(data: data),
-          );
+          _displayDialog(retryContext, data);
         }
       });
       return;
     }
 
+    _displayDialog(context, data);
+  }
+
+  void _displayDialog(BuildContext context, Map<String, dynamic> data) {
+    if (_isSosDialogShowing) {
+      try {
+        Navigator.of(context, rootNavigator: true).pop();
+      } catch (_) {}
+    }
+
+    _isSosDialogShowing = true;
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => IntrusiveSosDialog(data: data),
-    );
+      builder: (ctx) => IntrusiveSosDialog(
+        data: data,
+        onDismissed: () {
+          _isSosDialogShowing = false;
+        },
+      ),
+    ).then((_) {
+      _isSosDialogShowing = false;
+    });
   }
 
   /// Synchronizes device FCM token into the authenticated user's Firestore document.

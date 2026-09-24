@@ -2,13 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/app_colors.dart';
+import '../screens/sos_history_screen.dart';
+import '../services/notification_service.dart';
 
 /// Fullscreen-style intrusive dialog displayed when an incoming high-priority
 /// SOS Alert push notification is received while the app is active.
 class IntrusiveSosDialog extends StatefulWidget {
   final Map<String, dynamic> data;
+  final VoidCallback? onDismissed;
 
-  const IntrusiveSosDialog({super.key, required this.data});
+  const IntrusiveSosDialog({
+    super.key,
+    required this.data,
+    this.onDismissed,
+  });
 
   @override
   State<IntrusiveSosDialog> createState() => _IntrusiveSosDialogState();
@@ -70,6 +77,29 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
     final address = widget.data['address']?.toString() ?? 'Live GPS Coordinates Available';
     final mapsUrl = widget.data['googleMapsUrl']?.toString() ?? '';
     final message = widget.data['message']?.toString() ?? '';
+
+    // Calculate formatted timing & relative elapsed time
+    final rawDate = widget.data['alertDate'];
+    DateTime? alertDate;
+    if (rawDate is DateTime) {
+      alertDate = rawDate;
+    } else if (rawDate is String) {
+      alertDate = DateTime.tryParse(rawDate);
+    } else if (widget.data['triggeredAt'] != null) {
+      alertDate = DateTime.tryParse(widget.data['triggeredAt'].toString());
+    }
+
+    String timeFormatted = 'Just now';
+    if (alertDate != null) {
+      final hour = alertDate.hour == 0 ? 12 : (alertDate.hour > 12 ? alertDate.hour - 12 : alertDate.hour);
+      final minute = alertDate.minute.toString().padLeft(2, '0');
+      final period = alertDate.hour >= 12 ? 'PM' : 'AM';
+      final diff = DateTime.now().difference(alertDate);
+      final relative = diff.inMinutes < 1 ? 'Just now' : '${diff.inMinutes}m ago';
+      timeFormatted = '$hour:$minute $period • $relative';
+    }
+
+    final int totalPresses = (widget.data['totalPresses'] as int?) ?? 1;
 
     return PopScope(
       canPop: false, // Disallow dismissing via back button without explicit action
@@ -145,8 +175,53 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   ),
                 ),
               ],
+              const SizedBox(height: 8),
+
+              // Timing Badge (Clock Time + Relative Elapsed + Multi-press Indicator)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEEEE),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.2)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.access_time_filled_rounded, size: 13, color: AppColors.sosRed),
+                    const SizedBox(width: 5),
+                    Text(
+                      timeFormatted,
+                      style: GoogleFonts.poppins(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.sosRed,
+                      ),
+                    ),
+                    if (totalPresses > 1) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppColors.sosRed,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          'Update #$totalPresses',
+                          style: GoogleFonts.poppins(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
               if (message.isNotEmpty) ...[
-                const SizedBox(height: 6),
+                const SizedBox(height: 8),
                 Text(
                   '"$message"',
                   textAlign: TextAlign.center,
@@ -157,7 +232,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
               // Location Information Box
               Container(
@@ -197,7 +272,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   ],
                 ),
               ),
-              const SizedBox(height: 22),
+              const SizedBox(height: 20),
 
               // Action Buttons: Call & View Map
               Row(
@@ -244,13 +319,24 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 10),
 
               // Dismiss / Responding Button
               SizedBox(
                 width: double.infinity,
                 child: TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
+                  onPressed: () async {
+                    final alertId = widget.data['alertId']?.toString() ?? '';
+                    if (alertId.isNotEmpty) {
+                      await NotificationService.instance.dismissAlert(alertId);
+                    }
+                    if (widget.onDismissed != null) {
+                      widget.onDismissed!();
+                    }
+                    if (context.mounted && Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    }
+                  },
                   child: Text(
                     'I am Responding / Dismiss',
                     style: GoogleFonts.poppins(
@@ -258,6 +344,47 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       fontWeight: FontWeight.w600,
                       fontSize: 12.5,
                     ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 2),
+
+              // View Alert History Link
+              GestureDetector(
+                onTap: () {
+                  final alertId = widget.data['alertId']?.toString() ?? '';
+                  if (alertId.isNotEmpty) {
+                    NotificationService.instance.dismissAlert(alertId);
+                  }
+                  if (widget.onDismissed != null) {
+                    widget.onDismissed!();
+                  }
+                  if (context.mounted && Navigator.of(context).canPop()) {
+                    Navigator.of(context).pop();
+                  }
+                  if (context.mounted) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const SosHistoryScreen()),
+                    );
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.history_rounded, size: 14, color: AppColors.primary),
+                      const SizedBox(width: 4),
+                      Text(
+                        'View Alert History',
+                        style: GoogleFonts.poppins(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),

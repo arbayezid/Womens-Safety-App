@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import '../models/contact_model.dart';
 import 'auth_service.dart';
@@ -9,13 +10,17 @@ import 'contact_service.dart';
 /// Service managing real-time mutual consent emergency contact synchronization,
 /// email-based user lookup, connection requests, and live Firestore streams.
 class ContactSyncService {
-  ContactSyncService._internal();
+  ContactSyncService._internal() {
+    _initAuthAndRequestsListener();
+  }
   static final ContactSyncService instance = ContactSyncService._internal();
 
+  bool get _isFirebaseReady => Firebase.apps.isNotEmpty;
   FirebaseFirestore get _firestore => FirebaseFirestore.instance;
   FirebaseAuth get _auth => FirebaseAuth.instance;
 
   String? get _currentUid {
+    if (!_isFirebaseReady) return null;
     try {
       return _auth.currentUser?.uid;
     } catch (_) {
@@ -24,10 +29,148 @@ class ContactSyncService {
   }
 
   String? get _currentEmail {
+    if (!_isFirebaseReady) return null;
     try {
       return _auth.currentUser?.email?.toLowerCase().trim();
     } catch (_) {
       return null;
+    }
+  }
+
+  // ── Unified Reactive State for Incoming Consent Requests ──
+  StreamSubscription<User?>? _authSubscription;
+  StreamSubscription? _subUid;
+  StreamSubscription? _subUidSnake;
+  StreamSubscription? _subEmail;
+  StreamSubscription? _subEmailCamel;
+  final Map<String, Map<String, dynamic>> _requestsMap = {};
+  final StreamController<List<Map<String, dynamic>>> _broadcastRequestsController =
+      StreamController<List<Map<String, dynamic>>>.broadcast();
+
+  /// Reactive notifier for real-time UI binding
+  final ValueNotifier<List<Map<String, dynamic>>> incomingRequestsNotifier =
+      ValueNotifier<List<Map<String, dynamic>>>([]);
+
+  /// Synchronously accessible list of current pending incoming requests
+  List<Map<String, dynamic>> get currentPendingRequests =>
+      List.unmodifiable(incomingRequestsNotifier.value);
+
+  void _initAuthAndRequestsListener() {
+    if (!_isFirebaseReady) return;
+    try {
+      _authSubscription?.cancel();
+      _authSubscription = _auth.authStateChanges().listen((user) {
+        if (user != null) {
+          final uid = user.uid;
+          final email = (user.email ?? '').toLowerCase().trim();
+          _startRequestsListeners(uid, email);
+          refreshIncomingRequests();
+        } else {
+          _cancelRequestsSubscriptions();
+          _requestsMap.clear();
+          _notifyIncomingRequests();
+        }
+      }, onError: (e) {
+        debugPrint('[ContactSync] Auth state listener notice: $e');
+      });
+    } catch (e) {
+      debugPrint('[ContactSync] Auth listener init notice: $e');
+    }
+  }
+
+  void _cancelRequestsSubscriptions() {
+    _subUid?.cancel();
+    _subUidSnake?.cancel();
+    _subEmail?.cancel();
+    _subEmailCamel?.cancel();
+    _subUid = null;
+    _subUidSnake = null;
+    _subEmail = null;
+    _subEmailCamel = null;
+  }
+
+  /// Cancels all active Firestore subscriptions and clears in-memory pending request state.
+  void purgeOnSignOut() {
+    _cancelRequestsSubscriptions();
+    _requestsMap.clear();
+    _notifyIncomingRequests();
+  }
+
+  void _startRequestsListeners(String uid, String email) {
+    _cancelRequestsSubscriptions();
+    final normalizedEmail = email.toLowerCase().trim();
+
+    void updateSource(String sourceKey, QuerySnapshot<Map<String, dynamic>> snap) {
+      _requestsMap.removeWhere((key, val) => val['_source'] == sourceKey);
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        if (data['status'] == 'pending') {
+          _requestsMap[doc.id] = {'docId': doc.id, '_source': sourceKey, ...data};
+        }
+      }
+      _notifyIncomingRequests();
+    }
+
+    if (uid.isNotEmpty) {
+      _subUid = _firestore
+          .collection('connection_requests')
+          .where('receiverId', isEqualTo: uid)
+          .where('status', isEqualTo: 'pending')
+          .snapshots()
+          .listen(
+            (snap) => updateSource('uid', snap),
+            onError: (e) => debugPrint('[ContactSync] receiverId listener error: $e'),
+          );
+
+      _subUidSnake = _firestore
+          .collection('connection_requests')
+          .where('receiver_uid', isEqualTo: uid)
+          .where('status', isEqualTo: 'pending')
+          .snapshots()
+          .listen(
+            (snap) => updateSource('uid_snake', snap),
+            onError: (e) => debugPrint('[ContactSync] receiver_uid listener error: $e'),
+          );
+    }
+
+    if (normalizedEmail.isNotEmpty) {
+      _subEmail = _firestore
+          .collection('connection_requests')
+          .where('receiver_email', isEqualTo: normalizedEmail)
+          .where('status', isEqualTo: 'pending')
+          .snapshots()
+          .listen(
+            (snap) => updateSource('email', snap),
+            onError: (e) => debugPrint('[ContactSync] receiver_email listener error: $e'),
+          );
+
+      _subEmailCamel = _firestore
+          .collection('connection_requests')
+          .where('receiverEmail', isEqualTo: normalizedEmail)
+          .where('status', isEqualTo: 'pending')
+          .snapshots()
+          .listen(
+            (snap) => updateSource('email_camel', snap),
+            onError: (e) => debugPrint('[ContactSync] receiverEmail listener error: $e'),
+          );
+    }
+  }
+
+  void _notifyIncomingRequests() {
+    final list = _requestsMap.values.toList();
+    list.retainWhere((r) => r['status'] == 'pending');
+    list.sort((a, b) {
+      final aTime = a['createdAt'];
+      final bTime = b['createdAt'];
+      if (aTime is Timestamp && bTime is Timestamp) {
+        return bTime.compareTo(aTime);
+      }
+      return 0;
+    });
+
+    incomingRequestsNotifier.value = List.unmodifiable(list);
+    if (!_broadcastRequestsController.isClosed) {
+      _broadcastRequestsController.add(List.unmodifiable(list));
     }
   }
 
@@ -299,66 +442,73 @@ class ContactSyncService {
 
   /// Real-time stream of incoming pending requests directed to the current user (User B),
   /// matching both their registered UID and their Google email address.
+  /// Replays currently cached requests immediately to eliminate tab switch and rendering delay.
   Stream<List<Map<String, dynamic>>> streamIncomingRequests() {
-    final currentEmail = _currentEmail;
-    final currentUid = _currentUid;
-    if (currentEmail == null && currentUid == null) return const Stream.empty();
-
-    late StreamController<List<Map<String, dynamic>>> controller;
-    StreamSubscription? subUid;
-    StreamSubscription? subEmail;
-
-    final Map<String, Map<String, dynamic>> requestsMap = {};
-
-    void emitMerged() {
-      if (!controller.isClosed) {
-        controller.add(requestsMap.values.toList());
-      }
+    final uid = _currentUid;
+    final email = _currentEmail;
+    if (_subUid == null && (uid != null || email != null)) {
+      _startRequestsListeners(uid ?? '', email ?? '');
     }
 
-    controller = StreamController<List<Map<String, dynamic>>>(
-      onListen: () {
-        if (currentUid != null && currentUid.isNotEmpty) {
-          subUid = _firestore
-              .collection('connection_requests')
-              .where('receiverId', isEqualTo: currentUid)
-              .where('status', isEqualTo: 'pending')
-              .snapshots()
-              .listen((snap) {
-            requestsMap.removeWhere((key, val) => val['_source'] == 'uid');
-            for (final doc in snap.docs) {
-              requestsMap[doc.id] = {'docId': doc.id, '_source': 'uid', ...doc.data()};
-            }
-            emitMerged();
-          }, onError: (e) {
-            debugPrint('[ContactSync] UID requests listener error: $e');
-          });
-        }
+    return (() async* {
+      yield currentPendingRequests;
+      yield* _broadcastRequestsController.stream;
+    })();
+  }
 
-        if (currentEmail != null && currentEmail.isNotEmpty) {
-          subEmail = _firestore
-              .collection('connection_requests')
-              .where('receiver_email', isEqualTo: currentEmail)
-              .where('status', isEqualTo: 'pending')
-              .snapshots()
-              .listen((snap) {
-            requestsMap.removeWhere((key, val) => val['_source'] == 'email');
-            for (final doc in snap.docs) {
-              requestsMap[doc.id] = {'docId': doc.id, '_source': 'email', ...doc.data()};
-            }
-            emitMerged();
-          }, onError: (e) {
-            debugPrint('[ContactSync] Email requests listener error: $e');
-          });
-        }
-      },
-      onCancel: () {
-        subUid?.cancel();
-        subEmail?.cancel();
-      },
-    );
+  /// Force-refreshes pending incoming requests from Firestore (both server and cache)
+  /// and updates the shared stream and reactive notifier.
+  Future<List<Map<String, dynamic>>> refreshIncomingRequests() async {
+    final uid = _currentUid;
+    final email = _currentEmail;
+    if (uid == null && email == null) return [];
 
-    return controller.stream;
+    try {
+      debugPrint('[ContactSync] 🔄 Actively refreshing incoming connection requests...');
+      final normalizedEmail = (email ?? '').toLowerCase().trim();
+
+      final List<QuerySnapshot<Map<String, dynamic>>> results = await Future.wait([
+        if (uid != null && uid.isNotEmpty) ...[
+          _firestore
+              .collection('connection_requests')
+              .where('receiverId', isEqualTo: uid)
+              .where('status', isEqualTo: 'pending')
+              .get(const GetOptions(source: Source.serverAndCache)),
+          _firestore
+              .collection('connection_requests')
+              .where('receiver_uid', isEqualTo: uid)
+              .where('status', isEqualTo: 'pending')
+              .get(const GetOptions(source: Source.serverAndCache)),
+        ],
+        if (normalizedEmail.isNotEmpty) ...[
+          _firestore
+              .collection('connection_requests')
+              .where('receiver_email', isEqualTo: normalizedEmail)
+              .where('status', isEqualTo: 'pending')
+              .get(const GetOptions(source: Source.serverAndCache)),
+          _firestore
+              .collection('connection_requests')
+              .where('receiverEmail', isEqualTo: normalizedEmail)
+              .where('status', isEqualTo: 'pending')
+              .get(const GetOptions(source: Source.serverAndCache)),
+        ],
+      ]);
+
+      _requestsMap.clear();
+      for (final snap in results) {
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          if (data['status'] == 'pending') {
+            _requestsMap[doc.id] = {'docId': doc.id, ...data};
+          }
+        }
+      }
+      _notifyIncomingRequests();
+      return currentPendingRequests;
+    } catch (e) {
+      debugPrint('[ContactSync] Error actively refreshing requests: $e');
+      return currentPendingRequests;
+    }
   }
 
   /// Real-time stream of emergency contacts in `users/{currentUid}/contacts`.
@@ -385,6 +535,10 @@ class ContactSyncService {
   ///
   /// Executes atomic batch write so both User A and User B are linked simultaneously.
   Future<void> acceptRequest(String requestId) async {
+    // 0. Optimistically remove from pending requests map for instant UI response
+    _requestsMap.remove(requestId);
+    _notifyIncomingRequests();
+
     final reqDoc = await _firestore.collection('connection_requests').doc(requestId).get();
     if (!reqDoc.exists) return;
 
@@ -397,12 +551,30 @@ class ContactSyncService {
 
     final senderName = (data['sender_name'] ?? data['senderName']) ?? 'Emergency Contact';
     final senderEmail = (data['sender_email'] ?? data['senderEmail']) ?? '';
-    final senderPhone = (data['optional_phone'] ?? data['optionalPhone']) ?? '';
+    var senderPhone = (data['optional_phone'] ?? data['optionalPhone'] ?? '').toString();
     final relationship = (data['relationship'] as String?) ?? 'Guardian';
 
     final currentUserName = AuthService.instance.displayName;
     final currentUserEmail = _currentEmail ?? '';
-    final currentUserPhone = AuthService.instance.currentProfile.phone;
+    var currentUserPhone = AuthService.instance.currentProfile.phone;
+
+    // Fallback: Resolve sender or current user phone from their Firestore profiles if not in request
+    if (senderPhone.isEmpty) {
+      try {
+        final senderDoc = await _firestore.collection('users').doc(senderId).get();
+        if (senderDoc.exists && senderDoc.data() != null) {
+          senderPhone = (senderDoc.data()!['phoneNumber'] ?? senderDoc.data()!['phone'] ?? '').toString();
+        }
+      } catch (_) {}
+    }
+    if (currentUserPhone.isEmpty) {
+      try {
+        final receiverDoc = await _firestore.collection('users').doc(receiverId).get();
+        if (receiverDoc.exists && receiverDoc.data() != null) {
+          currentUserPhone = (receiverDoc.data()!['phoneNumber'] ?? receiverDoc.data()!['phone'] ?? '').toString();
+        }
+      } catch (_) {}
+    }
 
     // 1. Mark request as accepted in connection_requests
     await _firestore.collection('connection_requests').doc(requestId).update({
@@ -475,7 +647,7 @@ class ContactSyncService {
       debugPrint('[ContactSync] Batch mutual linking notice: $e');
     }
 
-    // 3. Save into local persistent storage for offline fallback
+    // 3. Save into local persistent storage for offline fallback & instant promotion in UI
     final localContact = ContactModel(
       id: senderId,
       name: senderName.toString(),
@@ -492,6 +664,10 @@ class ContactSyncService {
 
   /// Rejects an incoming connection request and updates its state to `rejected`.
   Future<void> rejectRequest(String requestId) async {
+    // 0. Optimistically remove from pending requests map for instant UI response
+    _requestsMap.remove(requestId);
+    _notifyIncomingRequests();
+
     await _firestore.collection('connection_requests').doc(requestId).update({
       'status': 'rejected',
       'respondedAt': FieldValue.serverTimestamp(),
@@ -614,7 +790,7 @@ class ContactSyncService {
       }
     }
 
-    // 4. Always permanently remove from local SharedPreferences
+    // 4. Permanently remove from in-memory cache and cloud
     await ContactService.instance.deleteContact(
       contactId,
       contactUid: resolvedUid,

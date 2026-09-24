@@ -9,6 +9,7 @@ import '../models/activity_model.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import 'profile_screen.dart';
+import 'sos_history_screen.dart';
 
 /// Settings screen — app preferences, security, notifications,
 /// device setup, alert history and logout.
@@ -163,6 +164,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) {
                       setState(() => _notifications = v);
                       _saveSetting('pref_notifications', v);
+                    },
+                  ),
+                  _buildNavItem(
+                    icon: Icons.history_rounded,
+                    iconColor: AppColors.sosRed,
+                    iconBg: const Color(0xFFFFEEEE),
+                    label: 'SOS Alert History',
+                    subtitle: 'View all past emergency alerts and responses',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const SosHistoryScreen()),
+                      );
                     },
                   ),
                   _buildNavItem(

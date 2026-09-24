@@ -3,11 +3,14 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../firebase_options.dart';
 import '../models/user_profile_model.dart';
 import 'activity_service.dart';
+import 'contact_service.dart';
+import 'contact_sync_service.dart';
 
 /// Result wrapper for Google Authentication attempts.
 class AuthResult {
@@ -150,12 +153,23 @@ class AuthService {
       FirebaseAuth.instance.authStateChanges().listen((User? user) async {
         userNotifier.value = user;
         _authStreamController.add(user);
+        if (user != null) {
+          _isGuestMode = false;
+          ContactService.instance.bindUser(user.uid);
+        } else {
+          await ContactService.instance.purgeOnSignOut();
+          ContactSyncService.instance.purgeOnSignOut();
+        }
         await _loadProfileForUser(user);
       });
 
       final user = FirebaseAuth.instance.currentUser;
       userNotifier.value = user;
       _authStreamController.add(user);
+      if (user != null) {
+        _isGuestMode = false;
+        ContactService.instance.bindUser(user.uid);
+      }
       await _loadProfileForUser(user);
     } catch (e) {
       debugPrint('[AuthService] Firebase initialization notice: $e');
@@ -171,45 +185,45 @@ class AuthService {
     }
   }
 
-  /// Loads the persisted [UserProfile] associated with the given user account UID,
-  /// or seeds an initial profile from Firebase Auth if signing in for the first time.
+  /// Loads the [UserProfile] dynamically from Cloud Firestore scoped to the active user's UID.
+  /// Zero sensitive profile data is stored in unencrypted local device preferences.
   Future<void> _loadProfileForUser(User? user) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-
       if (user == null) {
-        const guestKey = '${_prefsKeyProfilePrefix}guest';
-        final savedGuest = prefs.getString(guestKey);
-        if (savedGuest != null && savedGuest.isNotEmpty) {
-          profileNotifier.value = UserProfile.fromJson(savedGuest);
-        } else {
-          profileNotifier.value = UserProfile.guest();
-        }
+        profileNotifier.value = UserProfile.guest();
         return;
       }
 
-      final key = '$_prefsKeyProfilePrefix${user.uid}';
-      final savedJson = prefs.getString(key);
+      if (_isFirebaseInitialized && Firebase.apps.isNotEmpty) {
+        final doc = await FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 4));
 
-      if (savedJson != null && savedJson.isNotEmpty) {
-        final existing = UserProfile.fromJson(savedJson);
-        // Ensure photoUrl and email sync with newest Google credentials if null in storage
-        final synced = existing.copyWith(
-          photoUrl: existing.photoUrl ?? user.photoURL,
-          email: existing.email.isEmpty ? (user.email ?? '') : existing.email,
-        );
-        profileNotifier.value = synced;
+        if (doc.exists && doc.data() != null) {
+          final data = doc.data()!;
+          final cloudProfile = UserProfile.fromMap(data).copyWith(
+            photoUrl: data['photoUrl'] ?? user.photoURL,
+            email: (data['email']?.toString().isNotEmpty == true)
+                ? data['email'].toString()
+                : (user.email ?? ''),
+          );
+          profileNotifier.value = cloudProfile;
+        } else {
+          // Initial setup for this cloud account: initialize and sync to Firestore
+          final initialProfile = UserProfile.fromFirebaseUser(user);
+          profileNotifier.value = initialProfile;
+          unawaited(syncUserToFirestore(user));
+        }
       } else {
-        // Initial setup for this account
-        final initialProfile = UserProfile.fromFirebaseUser(user);
-        await prefs.setString(key, initialProfile.toJson());
-        profileNotifier.value = initialProfile;
+        profileNotifier.value = UserProfile.fromFirebaseUser(user);
       }
 
-      // Automatically sync user profile to Firestore users/{uid} for contact discovery
-      unawaited(syncUserToFirestore(user));
+      // Automatically bind contacts to the active user UID
+      ContactService.instance.bindUser(user.uid);
     } catch (e) {
-      debugPrint('[AuthService] Error loading profile: $e');
+      debugPrint('[AuthService] Error loading cloud profile: $e');
       if (user != null) {
         profileNotifier.value = UserProfile.fromFirebaseUser(user);
         unawaited(syncUserToFirestore(user));
@@ -253,19 +267,14 @@ class AuthService {
     }
   }
 
-  /// Updates and permanently persists the user's profile both locally and
-  /// in Firebase Auth cloud credentials.
+  /// Updates the user's profile dynamically in Cloud Firestore and in active memory.
+  ///
+  /// **Zero Physical Device Persistence**: No personal information (name, phone, blood group,
+  /// medical emergency notes) is written to local [SharedPreferences].
   Future<bool> updateProfile(UserProfile updatedProfile) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final accountUid = currentUser?.uid ?? 'guest';
-      final key = '$_prefsKeyProfilePrefix$accountUid';
-
-      // 1. Permanently store in local preferences partitioned by account UID
-      await prefs.setString(key, updatedProfile.toJson());
-
-      // 2. If authenticated with Firebase, synchronize cloud account credentials
-      if (_isFirebaseInitialized && currentUser != null) {
+      // 1. If authenticated with Firebase, synchronize directly to Cloud Firestore
+      if (_isFirebaseInitialized && currentUser != null && Firebase.apps.isNotEmpty) {
         try {
           if (updatedProfile.name.trim().isNotEmpty &&
               updatedProfile.name != currentUser!.displayName) {
@@ -278,15 +287,21 @@ class AuthService {
           await currentUser!.reload();
           userNotifier.value = FirebaseAuth.instance.currentUser;
 
-          // Also update Firestore users document
+          // Update Firestore users/{uid} document directly
           await FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).set({
-            'displayName': updatedProfile.name.trim(),
+            'uid': currentUser!.uid,
             'name': updatedProfile.name.trim(),
-            'phoneNumber': updatedProfile.phone,
+            'displayName': updatedProfile.name.trim(),
+            'email': currentUser!.email ?? updatedProfile.email,
             'phone': updatedProfile.phone,
+            'phoneNumber': updatedProfile.phone,
             'city': updatedProfile.city,
+            'dob': updatedProfile.dob,
             'bloodGroup': updatedProfile.bloodGroup,
             'emergencyNote': updatedProfile.emergencyNote,
+            'photoUrl': updatedProfile.photoUrl ?? currentUser!.photoURL ?? '',
+            'isPhoneVerified': updatedProfile.isPhoneVerified,
+            'fcmToken': updatedProfile.fcmToken,
             'lastActiveAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
         } catch (cloudErr) {
@@ -294,7 +309,7 @@ class AuthService {
         }
       }
 
-      // 3. Immediately broadcast to all UI listeners
+      // 2. Immediately broadcast in memory to UI listeners (No physical disk writes!)
       profileNotifier.value = updatedProfile;
       userNotifier.value = currentUser;
 
@@ -302,7 +317,7 @@ class AuthService {
         summary: 'Updated profile details for ${updatedProfile.name}',
       );
 
-      debugPrint('[AuthService] ✅ Profile permanently updated for account: $accountUid');
+      debugPrint('[AuthService] ✅ Profile updated dynamically in cloud for ${currentUser?.uid ?? 'guest'}');
       return true;
     } catch (e) {
       debugPrint('[AuthService] ❌ Error updating profile: $e');
@@ -376,24 +391,52 @@ class AuthService {
     } catch (_) {}
   }
 
-  /// Signs the user out, clearing Google credentials and returning to Guest mode.
+  /// Signs the user out, purging all in-memory caches, subscriptions, image caches,
+  /// and any legacy device storage keys to guarantee complete account isolation.
   Future<void> signOut() async {
     try {
+      // 1. Sign out from Firebase Auth and Google Sign-In
       if (_isFirebaseInitialized) {
-        await FirebaseAuth.instance.signOut();
+        try {
+          await FirebaseAuth.instance.signOut();
+        } catch (_) {}
       }
       try {
         await _googleSignIn.signOut();
       } catch (_) {}
 
+      // 2. Evict Flutter image cache completely so avatars do not persist across accounts
+      try {
+        PaintingBinding.instance.imageCache.clear();
+        PaintingBinding.instance.imageCache.clearLiveImages();
+      } catch (_) {}
+
+      // 3. Purge all in-memory contacts, subscriptions, and activity history
+      await ContactService.instance.purgeOnSignOut();
+      ContactSyncService.instance.purgeOnSignOut();
+      await ActivityService.instance.clearHistory();
+
+      // 4. Reset in-memory session and user profile to guest defaults
       _mockUser = null;
       _isGuestMode = true;
       userNotifier.value = null;
       _authStreamController.add(null);
       profileNotifier.value = UserProfile.guest();
 
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_prefsKeyGuestMode, true);
+      // 5. Scrub any legacy sensitive device storage keys to ensure zero leftover physical device data
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('emergency_contacts_list');
+        final keys = prefs.getKeys();
+        for (final k in keys) {
+          if (k.startsWith(_prefsKeyProfilePrefix)) {
+            await prefs.remove(k);
+          }
+        }
+        await prefs.setBool(_prefsKeyGuestMode, true);
+      } catch (_) {}
+
+      debugPrint('[AuthService] 🔒 Signed out successfully. Session and cache purged.');
     } catch (e) {
       debugPrint('[AuthService] Sign-out error: $e');
     }

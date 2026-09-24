@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:smart_safety/models/contact_model.dart';
 import 'package:smart_safety/services/contact_service.dart';
 import 'package:smart_safety/services/emergency_service.dart';
 
@@ -28,6 +29,29 @@ void main() {
       expect(
         result.message,
         'No emergency contacts configured. Please add emergency contacts first.',
+      );
+    });
+
+    test('Contact configured without mobile phone produces informative phone-needed message', () async {
+      await ContactService.instance.clearContacts();
+      await ContactService.instance.addContact(
+        const ContactModel(
+          id: 'test_no_phone',
+          name: 'Aryean Arko',
+          email: 'bayezid305@gmail.com',
+          phone: '',
+          relationship: 'Friend',
+          isSyncedAppUser: true,
+          syncStatus: 'synced',
+        ),
+      );
+      EmergencyService.instance.updateContacts([]);
+
+      final result = await EmergencyService.instance.triggerEmergency(source: 'Test SOS');
+      expect(result.hasNoRecipients, isFalse);
+      expect(
+        result.message,
+        contains('has no mobile phone number configured. Please add a phone number for SMS.'),
       );
     });
 

@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -17,7 +20,8 @@ import 'package:url_launcher/url_launcher.dart';
 /// real-time persistence via [ContactService], delete confirmation,
 /// and primary SOS contact tagging.
 class ContactsScreen extends StatefulWidget {
-  const ContactsScreen({super.key});
+  final bool isActive;
+  const ContactsScreen({super.key, this.isActive = true});
 
   @override
   State<ContactsScreen> createState() => _ContactsScreenState();
@@ -42,9 +46,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
     _contacts = ContactService.instance.contacts;
     _isLoading = _contacts.isEmpty;
     ContactService.instance.contactsNotifier.addListener(_onContactsChanged);
+    ContactSyncService.instance.incomingRequestsNotifier.addListener(_onIncomingRequestsChanged);
 
     _loadContacts();
     _subscribeToSyncedContacts();
+  }
+
+  @override
+  void didUpdateWidget(ContactsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // When tab becomes active in IndexedStack, immediately refresh both contacts and requests
+    if (!oldWidget.isActive && widget.isActive) {
+      _loadContacts();
+    }
   }
 
   void _onContactsChanged() {
@@ -56,46 +70,38 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
+  void _onIncomingRequestsChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   void _subscribeToSyncedContacts() {
     _contactsSubscription?.cancel();
     _contactsSubscription =
-        ContactSyncService.instance.streamSyncedContacts().listen((synced) async {
-      // 1. Cache incoming/updated synced contacts locally
-      for (final c in synced) {
-        await ContactService.instance.addContact(c);
-      }
-
-      // 2. If a synced contact was deleted in cloud, purge it from local storage
-      final local = await ContactService.instance.getContacts();
-      final syncedUids = synced.map((c) => c.contactUid ?? c.id).toSet();
-      for (final localContact in local) {
-        if (localContact.isSyncedAppUser &&
-            !syncedUids.contains(localContact.contactUid ?? localContact.id)) {
-          await ContactService.instance.deleteContact(
-            localContact.id,
-            contactUid: localContact.contactUid,
-            email: localContact.email,
-            phone: localContact.phone,
-          );
-        }
-      }
+        ContactSyncService.instance.streamSyncedContacts().listen((synced) {
+      ContactService.instance.syncFromCloud(synced);
     });
   }
 
   @override
   void dispose() {
     ContactService.instance.contactsNotifier.removeListener(_onContactsChanged);
+    ContactSyncService.instance.incomingRequestsNotifier.removeListener(_onIncomingRequestsChanged);
     _contactsSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
   }
 
-  /// Asynchronously fetches saved contacts from [ContactService].
+  /// Asynchronously fetches saved contacts and fresh incoming consent requests from cloud.
   Future<void> _loadContacts() async {
-    final loaded = await ContactService.instance.getContacts();
+    final results = await Future.wait([
+      ContactService.instance.getContacts(forceRefresh: true),
+      ContactSyncService.instance.refreshIncomingRequests(),
+    ]);
     if (mounted) {
       setState(() {
-        _contacts = loaded;
+        _contacts = results[0] as List<ContactModel>;
         _isLoading = false;
       });
     }
@@ -162,6 +168,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                     onMessage: () => openSMSApp(c.phone),
                                     onDelete: () => _confirmDelete(c),
                                     onUpgrade: () => _handleUpgrade(c),
+                                    onEditPhone: () => _showEditPhoneDialog(c),
                                   ),
                                 )),
                             const SizedBox(height: 8),
@@ -177,6 +184,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                     onMessage: () => openSMSApp(c.phone),
                                     onDelete: () => _confirmDelete(c),
                                     onUpgrade: () => _handleUpgrade(c),
+                                    onEditPhone: () => _showEditPhoneDialog(c),
                                   ),
                                 )),
                           ],
@@ -571,6 +579,200 @@ class _ContactsScreenState extends State<ContactsScreen> {
       );
     }
   }
+
+  /// Displays bottom sheet dialog allowing the user to configure or edit an emergency mobile number.
+  Future<void> _showEditPhoneDialog(ContactModel contact) async {
+    final phoneController = TextEditingController(text: contact.phone);
+    final formKey = GlobalKey<FormState>();
+
+    await showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(ctx).viewInsets.bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+            decoration: const BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: AppColors.successBackground,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.phone_rounded,
+                            color: AppColors.actionGreen, size: 22),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Set Emergency Phone',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.textPrimary,
+                              ),
+                            ),
+                            Text(
+                              'for ${contact.name}',
+                              style: GoogleFonts.poppins(
+                                fontSize: 12,
+                                color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Emergency distress SMS with your live GPS location will be dispatched to this number when SOS is activated.',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: phoneController,
+                    keyboardType: TextInputType.phone,
+                    autofocus: true,
+                    style: GoogleFonts.poppins(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textPrimary),
+                    decoration: InputDecoration(
+                      labelText: 'Mobile Phone Number',
+                      hintText: 'e.g. 01712345678 or +8801...',
+                      prefixIcon: const Icon(Icons.phone_outlined,
+                          color: AppColors.actionGreen, size: 20),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      filled: true,
+                      fillColor: const Color(0xFFF8F9FA),
+                    ),
+                    validator: (val) {
+                      final clean = (val ?? '').replaceAll(RegExp(r'\s+|-|\(|\)'), '');
+                      if (clean.isEmpty) {
+                        return 'Please enter a valid phone number';
+                      }
+                      if (clean.length < 9) {
+                        return 'Phone number is too short';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.primary,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        elevation: 0,
+                      ),
+                      onPressed: () async {
+                        if (!formKey.currentState!.validate()) return;
+                        final newPhone = ContactSyncService.instance
+                            .normalizePhone(phoneController.text.trim());
+                        Navigator.pop(ctx);
+
+                        final updatedContact = contact.copyWith(phone: newPhone);
+                        await ContactService.instance.updateContact(updatedContact);
+
+                        // Persist to Firestore subcollection if authenticated
+                        if (Firebase.apps.isNotEmpty) {
+                          final user = FirebaseAuth.instance.currentUser;
+                          if (user != null) {
+                            await FirebaseFirestore.instance
+                                .collection('users')
+                                .doc(user.uid)
+                                .collection('contacts')
+                                .doc(contact.id)
+                                .set({
+                              'phone': newPhone,
+                              'contact_optional_phone': newPhone,
+                            }, SetOptions(merge: true));
+                          }
+                        }
+
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(Icons.check_circle_rounded,
+                                    color: Colors.white),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    'Emergency phone updated for ${contact.name}!',
+                                    style: GoogleFonts.poppins(
+                                        fontWeight: FontWeight.w500,
+                                        fontSize: 13),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: AppColors.actionGreen,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                        _loadContacts();
+                      },
+                      child: Text(
+                        'Save Phone Number',
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 
 // ─── Sub-widgets ────────────────────────────────────────────────────────────
@@ -596,6 +798,7 @@ class _ContactCard extends StatelessWidget {
   final ContactModel contact;
   final VoidCallback onCall, onMessage, onDelete;
   final VoidCallback? onUpgrade;
+  final VoidCallback? onEditPhone;
 
   const _ContactCard({
     required this.contact,
@@ -603,6 +806,7 @@ class _ContactCard extends StatelessWidget {
     required this.onMessage,
     required this.onDelete,
     this.onUpgrade,
+    this.onEditPhone,
   });
 
   @override
@@ -708,6 +912,29 @@ class _ContactCard extends StatelessWidget {
                     contact.phone,
                     style: GoogleFonts.poppins(
                         fontSize: 10.5, color: AppColors.textSecondary),
+                  )
+                else if (onEditPhone != null)
+                  GestureDetector(
+                    onTap: onEditPhone,
+                    child: Padding(
+                      padding: const EdgeInsets.only(top: 2, bottom: 2),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.add_call, size: 12, color: AppColors.actionOrange),
+                          const SizedBox(width: 4),
+                          Text(
+                            '+ Add phone for SMS',
+                            style: GoogleFonts.poppins(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.actionOrange,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 const SizedBox(height: 3),
                 Wrap(
@@ -820,6 +1047,15 @@ class _ContactCard extends StatelessWidget {
                   color: AppColors.actionBlue,
                   bg: const Color(0xFFDDEEFD),
                   onTap: onMessage,
+                ),
+                const SizedBox(width: 4),
+              ],
+              if (onEditPhone != null) ...[
+                _ActionIconBtn(
+                  icon: Icons.edit_outlined,
+                  color: AppColors.primary,
+                  bg: const Color(0xFFEDE7F6),
+                  onTap: onEditPhone!,
                 ),
                 const SizedBox(width: 4),
               ],

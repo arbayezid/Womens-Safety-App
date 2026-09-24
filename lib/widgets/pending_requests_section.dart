@@ -11,16 +11,16 @@ class PendingRequestsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<List<Map<String, dynamic>>>(
+      initialData: ContactSyncService.instance.currentPendingRequests,
       stream: ContactSyncService.instance.streamIncomingRequests(),
       builder: (context, snapshot) {
-        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+        final requests = snapshot.data ?? ContactSyncService.instance.currentPendingRequests;
+        if (requests.isEmpty) {
           return const SizedBox.shrink();
         }
 
-        final requests = snapshot.data!;
-
         return Container(
-          margin: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+          margin: const EdgeInsets.only(bottom: 14),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
             color: const Color(0xFFFFF9E6), // Soft amber background

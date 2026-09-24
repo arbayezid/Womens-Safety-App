@@ -68,13 +68,18 @@ class _AddContactDialogState extends State<AddContactDialog> {
       final targetUser = await ContactSyncService.instance.searchUserByEmail(email);
 
       if (targetUser != null) {
+        // Auto-fill phone from registered user's profile if left blank
+        final resolvedPhone = phone.isNotEmpty
+            ? phone
+            : (targetUser['phoneNumber'] ?? targetUser['phone'] ?? '').toString().trim();
+
         // --- CASE A: Registered App User -> Send Connection Request ---
         await ContactSyncService.instance.sendConnectionRequest(
           receiverUid: targetUser['uid'] as String,
           receiverEmail: email,
           receiverName: name,
           relationship: _selectedRelation,
-          optionalPhone: phone.isNotEmpty ? phone : null,
+          optionalPhone: resolvedPhone.isNotEmpty ? resolvedPhone : null,
         );
 
         if (mounted) {
