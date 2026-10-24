@@ -202,8 +202,15 @@ class EmergencyService {
     required String source,
     BuildContext? context,
     String? customMessage,
+    bool isDuress = false,
+    bool playSiren = false,
+    String? linkedJourneyId,
   }) async {
-    debugPrint('[EmergencyService] 🚨 Triggering Emergency SOS via source: $source');
+    debugPrint('[EmergencyService] 🚨 Triggering Emergency SOS via source: $source (duress: $isDuress, siren: $playSiren)');
+
+    if (playSiren) {
+      SirenService.instance.startSiren();
+    }
 
     // Step 1: Dynamically fetch active recipients from in-memory override or ContactService
     List<String> recipients = _emergencyContacts.where((c) => c.trim().isNotEmpty).toList();
@@ -334,6 +341,7 @@ class EmergencyService {
       customNote: customMessage,
       recipientEmails: routedCloudEmails,
       recipientUids: routedCloudUids,
+      isDuress: isDuress,
     ).catchError((err) {
       debugPrint('[EmergencyService] ❌ Cloud SOS dispatch error: $err');
       return null;

@@ -18,6 +18,11 @@ import 'profile_screen.dart';
 import 'sos_history_screen.dart';
 import '../widgets/fake_call_dialog.dart';
 import '../widgets/record_audio_sheet.dart';
+import '../models/journey_model.dart';
+import '../services/journey_service.dart';
+import '../widgets/active_journey_card.dart';
+import '../widgets/safety_check_dialog.dart';
+import 'start_journey_sheet.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -64,13 +69,23 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Restore any active SOS session and initialize battery monitoring
+    // Restore any active SOS session, safe journey, and initialize battery monitoring
     EmergencyService.instance.restoreActiveAlertId();
     BatteryAlertService.instance.initialize();
+    JourneyService.instance.restoreActiveJourney();
+    JourneyService.instance.activeSafetyCheckNotifier.addListener(_handleSafetyCheckChange);
+  }
+
+  void _handleSafetyCheckChange() {
+    final state = JourneyService.instance.activeSafetyCheckNotifier.value;
+    if (state != null && mounted) {
+      SafetyCheckDialog.show(context, state);
+    }
   }
 
   @override
   void dispose() {
+    JourneyService.instance.activeSafetyCheckNotifier.removeListener(_handleSafetyCheckChange);
     _pulseController.dispose();
     super.dispose();
   }
@@ -311,6 +326,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return;
     }
 
+    if (label == 'Safe Journey') {
+      await AuthGuard.run(
+        context,
+        actionName: 'start a Safe Journey',
+        customSubtitle:
+            'To monitor your route with Dead-Man\'s Switch protection and broadcast live GPS tracking to guardians, please sign in.',
+        onAuthenticated: () {
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            backgroundColor: Colors.transparent,
+            builder: (_) => const StartJourneySheet(),
+          );
+        },
+      );
+      return;
+    }
+
     // Log the quick action event
     ActivityService.instance.logQuickAction(label);
 
@@ -471,6 +504,20 @@ class _SafetyDashboard extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: _ActiveSosEmergencyBanner(alertId: activeAlertId),
+                );
+              },
+            ),
+
+            // ── Active Safe Journey Card ───────────────────────────
+            ValueListenableBuilder<JourneyModel?>(
+              valueListenable: JourneyService.instance.activeJourneyNotifier,
+              builder: (context, activeJourney, _) {
+                if (activeJourney == null || !activeJourney.isActive) {
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: ActiveJourneyCard(journey: activeJourney),
                 );
               },
             ),
@@ -1574,8 +1621,8 @@ class _QuickActionsGrid extends StatelessWidget {
       iconBackground: Color(0xFFF0E6F9),
     ),
     _QuickActionItem(
-      icon: Icons.route_rounded,
-      label: 'Safe Route',
+      icon: Icons.directions_walk_rounded,
+      label: 'Safe Journey',
       iconColor: AppColors.actionGreen,
       iconBackground: Color(0xFFDFF5E3),
     ),

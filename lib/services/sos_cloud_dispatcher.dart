@@ -24,6 +24,7 @@ class SosCloudDispatcher {
     String source = 'SOS Button',
     List<String>? recipientEmails,
     List<String>? recipientUids,
+    bool isDuress = false,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -181,6 +182,7 @@ class SosCloudDispatcher {
         'recipientEmails': resolvedEmails,
         'recipientUids': resolvedUids,
         'source': source,
+        'isDuress': isDuress,
         'note': message,
         'message': message,
         'status': 'active',

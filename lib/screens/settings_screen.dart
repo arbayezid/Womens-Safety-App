@@ -27,6 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _notifications = true;
   bool _shakeToSOS = false;
   bool _criticalBatteryAlert = true;
+  bool _sirenOnAutoSos = false;
 
   @override
   void initState() {
@@ -48,6 +49,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _notifications = prefs.getBool('pref_notifications') ?? true;
       _shakeToSOS = prefs.getBool('pref_shake_to_sos') ?? false;
       _criticalBatteryAlert = criticalBattery;
+      _sirenOnAutoSos = prefs.getBool('pref_siren_on_auto_sos') ?? false;
     });
   }
 
@@ -159,6 +161,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) {
                       setState(() => _criticalBatteryAlert = v);
                       BatteryAlertService.instance.setEnabled(v);
+                    },
+                  ),
+                  _buildToggleItem(
+                    icon: Icons.volume_up_rounded,
+                    iconColor: AppColors.actionOrange,
+                    iconBg: const Color(0xFFFEEDD8),
+                    label: 'Siren on automatic SOS',
+                    subtitle: 'Sound loud alarm on dead-man switch expiry',
+                    value: _sirenOnAutoSos,
+                    onChanged: (v) {
+                      setState(() => _sirenOnAutoSos = v);
+                      _saveSetting('pref_siren_on_auto_sos', v);
                     },
                   ),
                 ],
