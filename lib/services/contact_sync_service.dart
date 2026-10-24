@@ -262,6 +262,7 @@ class ContactSyncService {
     required String receiverName,
     required String relationship,
     String? optionalPhone,
+    bool isBackup = false,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -351,6 +352,8 @@ class ContactSyncService {
         'relationship': relationship,
         'optional_phone': cleanPhone,
         'optionalPhone': cleanPhone,
+        'isBackup': isBackup,
+        'is_backup': isBackup,
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'respondedAt': null,
@@ -374,6 +377,7 @@ class ContactSyncService {
       isSyncedAppUser: false,
       syncStatus: 'pending',
       isPrimary: true,
+      isBackup: isBackup,
     );
 
     try {
@@ -402,6 +406,7 @@ class ContactSyncService {
     required String email,
     required String relationship,
     String? optionalPhone,
+    bool isBackup = false,
   }) async {
     final user = _auth.currentUser;
     final senderId = user?.uid;
@@ -419,6 +424,7 @@ class ContactSyncService {
       isSyncedAppUser: false,
       syncStatus: 'offline_only',
       isPrimary: true,
+      isBackup: isBackup,
     );
 
     if (senderId != null) {

@@ -561,7 +561,65 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
               ),
               const SizedBox(height: 10),
 
-              // Dismiss / Responding Button
+              // Guardian Action Buttons
+              if (!isResolved) ...[
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      final messenger = ScaffoldMessenger.maybeOf(context);
+                      final alertId = widget.data['alertId']?.toString() ?? '';
+                      if (alertId.isNotEmpty) {
+                        await NotificationService.instance.acknowledgeAlert(alertId);
+                      }
+                      if (widget.onDismissed != null) {
+                        widget.onDismissed!();
+                      }
+                      if (mounted && Navigator.of(context).canPop()) {
+                        Navigator.of(context).pop();
+                      }
+                      messenger?.showSnackBar(
+                        SnackBar(
+                          content: Row(
+                              children: [
+                                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'You confirmed responding to $senderName\'s SOS alert!',
+                                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            backgroundColor: AppColors.actionGreen,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.handshake_rounded, color: Colors.white, size: 20),
+                    label: Text(
+                      "I'M RESPONDING",
+                      style: GoogleFonts.poppins(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 14,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.actionGreen,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+              ],
+
+              // Dismiss / Close Button
               SizedBox(
                 width: double.infinity,
                 child: TextButton(
@@ -578,10 +636,10 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     }
                   },
                   child: Text(
-                    isResolved ? 'Acknowledge & Close' : 'I am Responding / Dismiss',
+                    isResolved ? 'Close Alert' : 'Dismiss (Not Responding)',
                     style: GoogleFonts.poppins(
                       color: isResolved ? AppColors.safeGreen : AppColors.textSecondary,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                       fontSize: 12.5,
                     ),
                   ),

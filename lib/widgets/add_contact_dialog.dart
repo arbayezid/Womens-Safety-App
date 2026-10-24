@@ -30,6 +30,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
 
   String _selectedRelation = 'Parent';
   bool _isPrimary = true;
+  bool _isBackup = false;
   bool _isSubmitting = false;
   String? _errorMessage;
 
@@ -88,6 +89,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
           receiverName: name,
           relationship: _selectedRelation,
           optionalPhone: resolvedPhone.isNotEmpty ? resolvedPhone : null,
+          isBackup: _isBackup,
         );
 
         if (mounted) {
@@ -120,6 +122,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
           receiverName: name,
           relationship: _selectedRelation,
           optionalPhone: phone.isNotEmpty ? phone : null,
+          isBackup: _isBackup,
         );
 
         if (mounted) {
@@ -164,6 +167,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
           email: email,
           relationship: _selectedRelation,
           optionalPhone: phone.isNotEmpty ? phone : null,
+          isBackup: _isBackup,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -490,6 +494,27 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
                 ),
                 onChanged: (val) => setState(() => _isPrimary = val),
+              ),
+              const SizedBox(height: 6),
+
+              // 6. Backup contact toggle
+              SwitchListTile(
+                value: _isBackup,
+                contentPadding: EdgeInsets.zero,
+                activeThumbColor: AppColors.actionOrange,
+                title: Text(
+                  'Backup contact: only alerted if no one responds',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                subtitle: Text(
+                  'Excluded from initial SOS; notified in escalation Stage 1 if guardians do not acknowledge within 3 minutes',
+                  style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                ),
+                onChanged: (val) => setState(() => _isBackup = val),
               ),
               const SizedBox(height: 20),
 

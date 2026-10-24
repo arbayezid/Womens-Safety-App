@@ -11,6 +11,7 @@ import '../services/activity_service.dart';
 import '../services/battery_alert_service.dart';
 import '../services/pin_security_service.dart';
 import '../services/motion_detection_service.dart';
+import '../services/sos_escalation_service.dart';
 import '../widgets/pin_input_dialog.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
@@ -32,6 +33,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _criticalBatteryAlert = true;
   bool _sirenOnAutoSos = false;
   bool _fallDetection = false;
+  bool _smartEscalation = true;
   bool _pinProtection = false;
   bool _requirePinOnOpen = false;
   bool _hasRealPin = false;
@@ -51,6 +53,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     final criticalBattery = await BatteryAlertService.instance.isEnabled();
     final fallEnabled = await MotionDetectionService.instance.isFallDetectionEnabled();
+    final escalationEnabled = await SosEscalationService.instance.isEnabled();
     final pinEnabled = await PinSecurityService.instance.isPinEnabled();
     final requireOnOpen = await PinSecurityService.instance.isPinRequiredOnOpen();
     final hasReal = await PinSecurityService.instance.isRealPinConfigured();
@@ -65,6 +68,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _criticalBatteryAlert = criticalBattery;
       _sirenOnAutoSos = prefs.getBool('pref_siren_on_auto_sos') ?? false;
       _fallDetection = fallEnabled;
+      _smartEscalation = escalationEnabled;
       _pinProtection = pinEnabled;
       _requirePinOnOpen = requireOnOpen;
       _hasRealPin = hasReal;
@@ -204,6 +208,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) async {
                       setState(() => _fallDetection = v);
                       await MotionDetectionService.instance.setEnabled(v);
+                    },
+                  ),
+                  _buildToggleItem(
+                    icon: Icons.trending_up_rounded,
+                    iconColor: AppColors.primaryViolet,
+                    iconBg: const Color(0xFFEDE7F6),
+                    label: 'Smart SOS Escalation',
+                    subtitle: 'Alerts backup contacts at 3m; prompts 999 at 8m if unanswered',
+                    value: _smartEscalation,
+                    onChanged: (v) async {
+                      setState(() => _smartEscalation = v);
+                      await SosEscalationService.instance.setEnabled(v);
                     },
                   ),
                 ],

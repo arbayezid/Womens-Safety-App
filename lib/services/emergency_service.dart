@@ -17,6 +17,7 @@ import 'contact_service.dart';
 import 'live_tracking_service.dart';
 import 'siren_service.dart';
 import 'sos_cloud_dispatcher.dart';
+import 'sos_escalation_service.dart';
 
 /// Data result object returned by [EmergencyService.triggerEmergency].
 class EmergencyResult {
@@ -123,7 +124,8 @@ class EmergencyService {
       await prefs.remove('active_sos_alert_id');
     } catch (_) {}
 
-    // 3. Stop live tracking and background service
+    // 3. Stop live tracking, background service, and smart escalation
+    SosEscalationService.instance.stopEscalation();
     await LiveTrackingService.instance.stopTrackingSession();
     await BackgroundServiceManager.instance.stopService();
 
@@ -257,6 +259,10 @@ class EmergencyService {
     final List<String> routedCloudUids = [];
 
     for (final contact in localContacts) {
+      // Backup contacts are excluded from the initial SOS dispatch.
+      // They are engaged in Stage 1 escalation if primary guardians do not acknowledge.
+      if (contact.isBackup) continue;
+
       // Channel 1: Offline SMS
       if (contact.phone.trim().isNotEmpty) {
         final formatted = formatRecipientPhone(contact.phone);
@@ -276,6 +282,28 @@ class EmergencyService {
           !contact.contactUid!.startsWith('offline_') &&
           !routedCloudUids.contains(contact.contactUid)) {
         routedCloudUids.add(contact.contactUid!);
+      }
+    }
+
+    // Safety fallback: if user ONLY has backup contacts, include them immediately so SOS is never empty
+    if (routedSmsRecipients.isEmpty && routedCloudEmails.isEmpty && routedCloudUids.isEmpty) {
+      for (final contact in localContacts) {
+        if (contact.phone.trim().isNotEmpty) {
+          final formatted = formatRecipientPhone(contact.phone);
+          if (formatted.isNotEmpty && !routedSmsRecipients.contains(formatted)) {
+            routedSmsRecipients.add(formatted);
+          }
+        }
+        final normEmail = contact.email.trim().toLowerCase();
+        if (normEmail.isNotEmpty && !routedCloudEmails.contains(normEmail)) {
+          routedCloudEmails.add(normEmail);
+        }
+        if (contact.contactUid != null &&
+            contact.contactUid!.isNotEmpty &&
+            !contact.contactUid!.startsWith('offline_') &&
+            !routedCloudUids.contains(contact.contactUid)) {
+          routedCloudUids.add(contact.contactUid!);
+        }
       }
     }
 
@@ -367,6 +395,13 @@ class EmergencyService {
         await BackgroundServiceManager.instance.startService(
           title: '🚨 Emergency SOS Live Tracking Active',
           content: 'Broadcasting live coordinates to your guardians',
+        );
+
+        // Start smart SOS escalation engine
+        await SosEscalationService.instance.startEscalation(
+          alertId: alertId,
+          senderName: AuthService.instance.displayName,
+          mapsUrl: mapUrl,
         );
       }
     }).catchError((_) {});

@@ -11,6 +11,7 @@ class ContactModel {
   final String phone;
   final String relationship;
   final bool isPrimary;
+  final bool isBackup;
   final String? contactUid;
   final bool isSyncedAppUser;
   final String syncStatus; // 'synced' | 'pending' | 'offline_only'
@@ -22,6 +23,7 @@ class ContactModel {
     this.phone = '',
     required this.relationship,
     this.isPrimary = false,
+    this.isBackup = false,
     this.contactUid,
     this.isSyncedAppUser = false,
     this.syncStatus = 'offline_only',
@@ -63,6 +65,7 @@ class ContactModel {
       'phone': phone.trim(),
       'relationship': relationship,
       'isPrimary': isPrimary,
+      'isBackup': isBackup,
       'contactUid': contactUid,
       'isSyncedAppUser': isSyncedAppUser,
       'syncStatus': syncStatus,
@@ -73,6 +76,7 @@ class ContactModel {
       'contact_uid': contactUid,
       'is_synced_app_user': isSyncedAppUser,
       'sync_status': syncStatus,
+      'is_backup': isBackup,
     };
   }
 
@@ -89,6 +93,7 @@ class ContactModel {
     final String resolvedStatus = map['syncStatus']?.toString() ??
         map['sync_status']?.toString() ??
         (resolvedSynced ? 'synced' : 'offline_only');
+    final bool resolvedBackup = map['isBackup'] == true || map['is_backup'] == true;
 
     return ContactModel(
       id: map['id']?.toString() ?? resolvedUid ?? '',
@@ -97,6 +102,7 @@ class ContactModel {
       phone: resolvedPhone,
       relationship: map['relationship']?.toString() ?? 'Other',
       isPrimary: map['isPrimary'] == true,
+      isBackup: resolvedBackup,
       contactUid: resolvedUid,
       isSyncedAppUser: resolvedSynced,
       syncStatus: resolvedStatus,
@@ -118,6 +124,7 @@ class ContactModel {
     String? phone,
     String? relationship,
     bool? isPrimary,
+    bool? isBackup,
     String? contactUid,
     bool? isSyncedAppUser,
     String? syncStatus,
@@ -129,6 +136,7 @@ class ContactModel {
       phone: phone ?? this.phone,
       relationship: relationship ?? this.relationship,
       isPrimary: isPrimary ?? this.isPrimary,
+      isBackup: isBackup ?? this.isBackup,
       contactUid: contactUid ?? this.contactUid,
       isSyncedAppUser: isSyncedAppUser ?? this.isSyncedAppUser,
       syncStatus: syncStatus ?? this.syncStatus,
@@ -144,7 +152,7 @@ class ContactModel {
 
   @override
   String toString() {
-    return 'ContactModel(id: $id, name: $name, email: $email, phone: $phone, relationship: $relationship, isPrimary: $isPrimary, isSynced: $isSyncedAppUser, status: $syncStatus)';
+    return 'ContactModel(id: $id, name: $name, email: $email, phone: $phone, relationship: $relationship, isPrimary: $isPrimary, isBackup: $isBackup, isSynced: $isSyncedAppUser, status: $syncStatus)';
   }
 
   @override
@@ -158,6 +166,7 @@ class ContactModel {
         other.phone == phone &&
         other.relationship == relationship &&
         other.isPrimary == isPrimary &&
+        other.isBackup == isBackup &&
         other.contactUid == contactUid &&
         other.isSyncedAppUser == isSyncedAppUser &&
         other.syncStatus == syncStatus;
@@ -171,6 +180,7 @@ class ContactModel {
         phone.hashCode ^
         relationship.hashCode ^
         isPrimary.hashCode ^
+        isBackup.hashCode ^
         contactUid.hashCode ^
         isSyncedAppUser.hashCode ^
         syncStatus.hashCode;

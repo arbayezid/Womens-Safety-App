@@ -895,6 +895,23 @@ class _ContactCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (contact.isBackup) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                            color: const Color(0xFFFEEDD8),
+                            borderRadius: BorderRadius.circular(6)),
+                        child: Text(
+                          'BACKUP',
+                          style: GoogleFonts.poppins(
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.actionOrange),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 2),
@@ -979,6 +996,22 @@ class _ContactCard extends StatelessWidget {
                             fontSize: 8.5,
                             fontWeight: FontWeight.w600,
                             color: AppColors.primaryViolet,
+                          ),
+                        ),
+                      ),
+                    if (contact.isBackup)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEEDD8),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '🛡️ Backup',
+                          style: GoogleFonts.poppins(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.actionOrange,
                           ),
                         ),
                       ),

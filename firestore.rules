@@ -92,8 +92,8 @@ service cloud.firestore {
       allow read: if isSender() || isRecipient();
 
       // Update: 
-      // Sender can update tracking fields and resolve alert
-      // Recipients can update status, resolvedAt, dismissedBy, acknowledgedBy, lastRespondedAt
+      // Sender can update tracking fields, recipient escalation lists, and resolve alert
+      // Recipients can update status, resolvedAt, dismissedBy, acknowledgedBy, acknowledgedAt, lastRespondedAt
       allow update: if (isSender() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
@@ -107,7 +107,11 @@ service cloud.firestore {
           'latitude',
           'longitude',
           'google_maps_url',
-          'location'
+          'location',
+          'recipientUids',
+          'recipientEmails',
+          'escalationLevel',
+          'escalationLog'
         ]))
         ||
         (isRecipient() &&
@@ -116,11 +120,18 @@ service cloud.firestore {
           'resolvedAt',
           'dismissedBy',
           'acknowledgedBy',
+          'acknowledgedAt',
           'lastRespondedAt'
         ]));
 
       // Delete: Denied (alerts are immutable emergency records)
       allow delete: if false;
+
+      // Emergency Incident Room Events Subcollection
+      match /events/{eventId} {
+        allow read: if isSender() || isRecipient();
+        allow create: if isSender() || isRecipient();
+      }
     }
 
     // Safe Journeys Collection

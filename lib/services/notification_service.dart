@@ -235,20 +235,60 @@ class NotificationService {
       debugPrint('[NotificationService] Error saving dismissed alert to prefs: $e');
     }
 
-    // 2. Mark acknowledged in Firestore sos_alerts doc
+    // 2. Mark dismissed in Firestore sos_alerts doc (dismissedBy only, does NOT halt escalation)
     try {
       if (Firebase.apps.isNotEmpty) {
         final user = FirebaseAuth.instance.currentUser;
         if (user != null) {
           await FirebaseFirestore.instance.collection('sos_alerts').doc(alertId).set({
             'dismissedBy': FieldValue.arrayUnion([user.uid]),
-            'acknowledgedBy': FieldValue.arrayUnion([user.uid]),
-            'lastRespondedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
         }
       }
     } catch (e) {
       debugPrint('[NotificationService] Error updating alert dismissed status in Firestore: $e');
+    }
+  }
+
+  /// Explicitly marks an active SOS alert as acknowledged by the current guardian user ("I'm Responding").
+  /// Writes acknowledgedBy and timestamped acknowledgedAt, halting the Smart SOS Escalation sequence.
+  Future<void> acknowledgeAlert(String alertId) async {
+    _shownAlertIds.add(alertId);
+    _dismissedAlertIds.add(alertId);
+
+    // 1. Persist locally to SharedPreferences
+    try {
+      final String? uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
+      final key = uid != null ? 'dismissed_sos_alerts_$uid' : 'dismissed_sos_alerts_default';
+      final prefs = await SharedPreferences.getInstance();
+      final list = prefs.getStringList(key) ?? [];
+      if (!list.contains(alertId)) {
+        list.add(alertId);
+        if (list.length > 200) {
+          list.removeRange(0, list.length - 200);
+        }
+        await prefs.setStringList(key, list);
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Error saving acknowledged alert to prefs: $e');
+    }
+
+    // 2. Mark acknowledged in Firestore sos_alerts doc
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          await FirebaseFirestore.instance.collection('sos_alerts').doc(alertId).set({
+            'acknowledgedBy': FieldValue.arrayUnion([user.uid]),
+            'acknowledgedAt': {
+              user.uid: FieldValue.serverTimestamp(),
+            },
+            'lastRespondedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
+    } catch (e) {
+      debugPrint('[NotificationService] Error updating alert acknowledged status in Firestore: $e');
     }
 
     // 3. Log acknowledgement in local activity history
