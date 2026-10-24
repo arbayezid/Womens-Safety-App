@@ -23,6 +23,7 @@ enum JourneySafetyTriggerType {
   deviation,
   inactivity,
   gpsLost,
+  followedCheck,
 }
 
 /// Represents an identified safety issue requiring Dead-Man's Switch confirmation
@@ -274,6 +275,17 @@ class JourneyService {
     return null;
   }
 
+  /// Pure static evaluation of whether a 10-minute periodic check-in is required in Followed Mode.
+  static bool evaluateFollowedCheck({
+    required DateTime now,
+    required DateTime lastCheckOrStart,
+    required bool isCooldownActive,
+    int intervalMinutes = 10,
+  }) {
+    if (isCooldownActive) return false;
+    return now.difference(lastCheckOrStart).inMinutes >= intervalMinutes;
+  }
+
   // ─────────────────────────────────────────────────────────────
   //  LIFECYCLE MANAGEMENT
   // ─────────────────────────────────────────────────────────────
@@ -445,6 +457,135 @@ class JourneyService {
     return journey;
   }
 
+  /// Starts a new session in "I'm Being Followed" mode with live location broadcast and nearest checkpoint tracking.
+  Future<JourneyModel?> startFollowedMode({
+    bool notifySms = true,
+    List<String>? guardianUids,
+    List<String>? guardianEmails,
+  }) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      throw Exception('Authentication required to activate Followed Mode');
+    }
+
+    Position? startPos = await Geolocator.getLastKnownPosition();
+    try {
+      startPos ??= await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 4),
+        ),
+      ).timeout(const Duration(seconds: 4));
+    } catch (_) {}
+
+    final startLat = startPos?.latitude ?? 23.8103;
+    final startLng = startPos?.longitude ?? 90.4125;
+
+    final now = DateTime.now();
+    final docRef = FirebaseFirestore.instance.collection('journeys').doc();
+    final journeyId = docRef.id;
+
+    final startLocationMap = {
+      'latitude': startLat,
+      'longitude': startLng,
+      'address': 'Current Location',
+      'googleMapsUrl': EmergencyService.instance.generateGoogleMapsUrl(startLat, startLng),
+    };
+
+    final destinationMap = {
+      'latitude': startLat,
+      'longitude': startLng,
+      'label': 'Followed Mode (No fixed destination)',
+      'address': 'Searching for nearby physical safe zone',
+      'googleMapsUrl': EmergencyService.instance.generateGoogleMapsUrl(startLat, startLng),
+    };
+
+    final journey = JourneyModel(
+      id: journeyId,
+      ownerId: user.uid,
+      ownerName: AuthService.instance.displayName,
+      ownerPhone: AuthService.instance.currentProfile.phone,
+      guardianUids: guardianUids ?? [],
+      guardianEmails: guardianEmails ?? [],
+      status: JourneyStatus.active,
+      startLocation: startLocationMap,
+      destination: destinationMap,
+      startedAt: now,
+      expectedArrivalAt: now.add(const Duration(hours: 2)),
+      currentLocation: startLocationMap,
+      lastUpdatedAt: now,
+      startSmsSent: notifySms,
+      mode: 'followed',
+    );
+
+    // Save to Firestore
+    await docRef.set(journey.toMap());
+
+    // Save active ID locally
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(prefKeyActiveJourneyId, journeyId);
+
+    activeJourneyNotifier.value = journey;
+    _recentDistancesToDest.clear();
+    _recentLocationTrail.clear();
+    _recentLocationTrail.add({'lat': startLat, 'lng': startLng, 'time': now});
+
+    // Start Live Tracking Service
+    await LiveTrackingService.instance.startTrackingSession(
+      sessionType: 'journey',
+      documentId: journeyId,
+      initialPosition: startPos,
+    );
+
+    // Start Background Service
+    await BackgroundServiceManager.instance.startService(
+      title: '⚠️ Followed Mode Active',
+      content: 'Broadcasting live coordinates & checking nearest police checkpoint',
+    );
+
+    // Send SMS alert to guardians
+    if (notifySms) {
+      _sendFollowedSms(mapUrl: startLocationMap['googleMapsUrl'] as String?);
+    }
+
+    await _attachToJourneyDoc(journeyId);
+    _startMonitorLoop();
+
+    ActivityService.instance.logActivity(
+      ActivityItem(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        type: ActivityType.sos,
+        title: "Activated 'I'm Being Followed' Mode",
+        subtitle: 'Live tracking & guardian alerts active.',
+        timestamp: now,
+      ),
+    );
+
+    MotionDetectionService.instance.checkAndSyncMonitoringState();
+    return journey;
+  }
+
+  void _sendFollowedSms({String? mapUrl}) async {
+    try {
+      final contacts = await ContactService.instance.getContacts();
+      final name = AuthService.instance.displayName;
+      final locPart = mapUrl != null ? ' Location: $mapUrl' : '';
+      final message = 'ALERT: $name feels followed and activated Followed Mode! Live tracking is active.$locPart';
+
+      for (final contact in contacts) {
+        if (contact.hasPhone) {
+          final formatted = EmergencyService.instance.formatRecipientPhone(contact.phone);
+          if (formatted.isNotEmpty) {
+            await _telephony.sendSms(to: formatted, message: message, isMultipart: false);
+            debugPrint('[JourneyService] ✉️ Sent Followed Mode SMS to $formatted');
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('[JourneyService] Error sending Followed SMS: $e');
+    }
+  }
+
   void _sendJourneySms({
     required bool isStart,
     required String destLabel,
@@ -505,6 +646,30 @@ class JourneyService {
     final now = DateTime.now();
     final curLat = position?.latitude ?? journey.currentLat;
     final curLng = position?.longitude ?? journey.currentLng;
+
+    // Followed Mode Check:
+    if (journey.isFollowedMode) {
+      final lastCheck = journey.lastSafetyCheckAt ?? journey.startedAt;
+      final cooldownTime = _triggerCooldowns[JourneySafetyTriggerType.followedCheck];
+      final isCooldownActive = cooldownTime != null && now.difference(cooldownTime).inMinutes < 10;
+      final shouldCheck = evaluateFollowedCheck(
+        now: now,
+        lastCheckOrStart: lastCheck,
+        isCooldownActive: isCooldownActive,
+      );
+
+      if (shouldCheck && activeSafetyCheckNotifier.value == null) {
+        debugPrint('[JourneyService] ⚠️ 10-minute Followed Mode check activated!');
+        _triggerSafetyCheck(
+          const JourneySafetyTrigger(
+            type: JourneySafetyTriggerType.followedCheck,
+            title: 'Followed Mode Check-In',
+            reason: '10 minutes elapsed in Followed Mode. Please tap to confirm you are safe.',
+          ),
+        );
+      }
+      return;
+    }
 
     // Check Arrival (<= 100m)
     final distanceToDest = haversineDistance(curLat, curLng, journey.destinationLat, journey.destinationLng);
@@ -609,12 +774,22 @@ class JourneyService {
     activeSafetyCheckNotifier.value = null;
     await NotificationService.instance.cancelSafetyCheckNotification();
 
+    final journey = activeJourney;
+    if (journey != null) {
+      try {
+        await FirebaseFirestore.instance.collection('journeys').doc(journey.id).update({
+          'lastSafetyCheckAt': FieldValue.serverTimestamp(),
+          'lastUpdatedAt': FieldValue.serverTimestamp(),
+        });
+      } catch (_) {}
+    }
+
     ActivityService.instance.logActivity(
       ActivityItem(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         type: ActivityType.location,
         title: 'Safety Check Confirmed',
-        subtitle: 'User confirmed safety during safe journey monitor check.',
+        subtitle: 'User confirmed safety during monitor check.',
         timestamp: DateTime.now(),
       ),
     );
@@ -657,10 +832,14 @@ class JourneyService {
     final prefs = await SharedPreferences.getInstance();
     final playSiren = prefs.getBool(prefKeySirenOnAutoSos) ?? false;
 
+    final bool isFollowed = journey.isFollowedMode;
+
     // Trigger full SOS pipeline
     await EmergencyService.instance.triggerEmergency(
-      source: 'JOURNEY_SOS',
-      customMessage: 'AUTOMATIC EMERGENCY ALERT: ${journey.ownerName} did not respond to safety check during journey to ${journey.destinationLabel}. Immediate help requested.',
+      source: isFollowed ? 'FOLLOWED_SOS' : 'JOURNEY_SOS',
+      customMessage: isFollowed
+          ? 'AUTOMATIC EMERGENCY ALERT: ${journey.ownerName} activated "I\'m Being Followed" mode and did not respond to the safety check. Immediate assistance needed!'
+          : 'AUTOMATIC EMERGENCY ALERT: ${journey.ownerName} did not respond to safety check during journey to ${journey.destinationLabel}. Immediate help requested.',
       playSiren: playSiren,
       linkedJourneyId: journey.id,
     );

@@ -17,6 +17,7 @@ import 'settings_screen.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
 import 'incident_room_screen.dart';
+import 'followed_mode_screen.dart';
 import '../widgets/fake_call_dialog.dart';
 import '../widgets/record_audio_sheet.dart';
 import '../models/journey_model.dart';
@@ -392,6 +393,86 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             backgroundColor: Colors.transparent,
             builder: (_) => const StartJourneySheet(),
           );
+        },
+      );
+      return;
+    }
+
+    if (label == 'Being Followed') {
+      await AuthGuard.run(
+        context,
+        actionName: 'activate "I\'m Being Followed" Mode',
+        customSubtitle:
+            'To alert your guardians, activate live tracking, and get guidance to the nearest safe police checkpoint, please sign in.',
+        onAuthenticated: () async {
+          final activeJourney = JourneyService.instance.activeJourneyNotifier.value;
+          if (activeJourney != null && activeJourney.isActive && activeJourney.isFollowedMode) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const FollowedModeScreen()),
+            );
+            return;
+          }
+
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              title: Row(
+                children: [
+                  const Icon(Icons.radar_rounded, color: AppColors.actionOrange, size: 28),
+                  const SizedBox(width: 10),
+                  Text(
+                    'Being Followed?',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
+                  ),
+                ],
+              ),
+              content: Text(
+                'This will activate high-alert mode:\n\n'
+                '• Notify your emergency contacts via SMS & live map link\n'
+                '• Start continuous GPS live tracking\n'
+                '• Guide you to the nearest police station or safe zone\n'
+                '• Require a safety check-in every 10 minutes\n\n'
+                'Are you sure you want to activate this mode now?',
+                style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.actionOrange,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(
+                    'Activate Now',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          );
+
+          if (confirmed != true || !mounted) return;
+
+          try {
+            await JourneyService.instance.startFollowedMode(notifySms: true);
+            if (!mounted) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const FollowedModeScreen()),
+            );
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Failed to start Followed Mode: $e'),
+                backgroundColor: AppColors.sosRed,
+              ),
+            );
+          }
         },
       );
       return;
@@ -1766,6 +1847,12 @@ class _QuickActionsGrid extends StatelessWidget {
       label: 'Silent Panic',
       iconColor: AppColors.sosRed,
       iconBackground: Color(0xFFFFEEEE),
+    ),
+    _QuickActionItem(
+      icon: Icons.radar_rounded,
+      label: 'Being Followed',
+      iconColor: AppColors.actionOrange,
+      iconBackground: Color(0xFFFFF3E0),
     ),
   ];
 

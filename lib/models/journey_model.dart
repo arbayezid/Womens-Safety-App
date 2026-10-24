@@ -27,6 +27,7 @@ class JourneyModel {
   final DateTime? lastSafetyCheckAt;
   final String? linkedSosAlertId;
   final bool startSmsSent;
+  final String mode; // 'safe_journey' | 'followed'
 
   const JourneyModel({
     required this.id,
@@ -46,11 +47,19 @@ class JourneyModel {
     this.lastSafetyCheckAt,
     this.linkedSosAlertId,
     this.startSmsSent = false,
+    this.mode = 'safe_journey',
   });
 
+  /// Whether this session is running in "I'm Being Followed" mode
+  bool get isFollowedMode => mode == 'followed';
+
   /// Destination label helper
-  String get destinationLabel =>
-      destination['label']?.toString() ?? destination['address']?.toString() ?? 'Destination';
+  String get destinationLabel {
+    final label = destination['label']?.toString() ?? destination['address']?.toString();
+    if (label != null && label.isNotEmpty) return label;
+    if (isFollowedMode) return 'Followed Mode (No fixed destination)';
+    return 'Destination';
+  }
 
   /// Destination latitude
   double get destinationLat => (destination['latitude'] as num?)?.toDouble() ?? 0.0;
@@ -94,6 +103,7 @@ class JourneyModel {
       if (lastSafetyCheckAt != null) 'lastSafetyCheckAt': Timestamp.fromDate(lastSafetyCheckAt!),
       if (linkedSosAlertId != null) 'linkedSosAlertId': linkedSosAlertId,
       'startSmsSent': startSmsSent,
+      'mode': mode,
     };
   }
 
@@ -145,6 +155,7 @@ class JourneyModel {
           : null,
       linkedSosAlertId: map['linkedSosAlertId']?.toString(),
       startSmsSent: map['startSmsSent'] as bool? ?? false,
+      mode: map['mode']?.toString() ?? 'safe_journey',
     );
   }
 
@@ -167,6 +178,7 @@ class JourneyModel {
     DateTime? lastSafetyCheckAt,
     String? linkedSosAlertId,
     bool? startSmsSent,
+    String? mode,
   }) {
     return JourneyModel(
       id: id ?? this.id,
@@ -186,6 +198,7 @@ class JourneyModel {
       lastSafetyCheckAt: lastSafetyCheckAt ?? this.lastSafetyCheckAt,
       linkedSosAlertId: linkedSosAlertId ?? this.linkedSosAlertId,
       startSmsSent: startSmsSent ?? this.startSmsSent,
+      mode: mode ?? this.mode,
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../models/journey_model.dart';
 import '../screens/journey_tracking_screen.dart';
+import '../screens/followed_mode_screen.dart';
 import '../services/journey_service.dart';
 import '../services/pin_security_service.dart';
 import 'pin_input_dialog.dart';
@@ -29,30 +30,37 @@ class ActiveJourneyCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDelayed = DateTime.now().isAfter(journey.expectedArrivalAt);
+    final isFollowed = journey.isFollowedMode;
+    final isDelayed = !isFollowed && DateTime.now().isAfter(journey.expectedArrivalAt);
 
     return GestureDetector(
       onTap: () {
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => JourneyTrackingScreen(journeyId: journey.id),
+            builder: (_) => isFollowed
+                ? const FollowedModeScreen()
+                : JourneyTrackingScreen(journeyId: journey.id),
           ),
         );
       },
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: isDelayed ? const Color(0xFFFFF7ED) : const Color(0xFFF0FDF4),
+          color: isFollowed
+              ? const Color(0xFFFFF7ED)
+              : (isDelayed ? const Color(0xFFFFF7ED) : const Color(0xFFF0FDF4)),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: isDelayed
-                ? AppColors.actionOrange.withValues(alpha: 0.5)
-                : AppColors.actionGreen.withValues(alpha: 0.5),
-            width: 1.5,
+            color: isFollowed
+                ? AppColors.actionOrange
+                : (isDelayed
+                    ? AppColors.actionOrange.withValues(alpha: 0.5)
+                    : AppColors.actionGreen.withValues(alpha: 0.5)),
+            width: isFollowed ? 1.8 : 1.5,
           ),
           boxShadow: [
             BoxShadow(
-              color: (isDelayed ? AppColors.actionOrange : AppColors.actionGreen)
+              color: (isFollowed || isDelayed ? AppColors.actionOrange : AppColors.actionGreen)
                   .withValues(alpha: 0.08),
               blurRadius: 14,
               offset: const Offset(0, 3),
@@ -62,17 +70,19 @@ class ActiveJourneyCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header Row: Walking icon, destination, and live indicator
+            // Header Row: Icon, title, and live indicator
             Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: isDelayed ? AppColors.actionOrange : AppColors.actionGreen,
+                    color: isFollowed
+                        ? AppColors.actionOrange
+                        : (isDelayed ? AppColors.actionOrange : AppColors.actionGreen),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
-                    Icons.directions_walk_rounded,
+                  child: Icon(
+                    isFollowed ? Icons.radar_rounded : Icons.directions_walk_rounded,
                     color: Colors.white,
                     size: 20,
                   ),
@@ -86,7 +96,9 @@ class ActiveJourneyCard extends StatelessWidget {
                         children: [
                           Flexible(
                             child: Text(
-                              'Safe Journey to ${journey.destinationLabel}',
+                              isFollowed
+                                  ? "⚠️ I'm Being Followed Mode"
+                                  : 'Safe Journey to ${journey.destinationLabel}',
                               style: GoogleFonts.poppins(
                                 fontSize: 13.5,
                                 fontWeight: FontWeight.w800,
@@ -99,15 +111,21 @@ class ActiveJourneyCard extends StatelessWidget {
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
-                              color: isDelayed ? const Color(0xFFFFEDD5) : const Color(0xFFDCFCE7),
+                              color: isFollowed
+                                  ? const Color(0xFFFFEDD5)
+                                  : (isDelayed ? const Color(0xFFFFEDD5) : const Color(0xFFDCFCE7)),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
-                              isDelayed ? 'Delayed' : 'Active',
+                              isFollowed
+                                  ? 'Feels Followed'
+                                  : (isDelayed ? 'Delayed' : 'Active'),
                               style: GoogleFonts.poppins(
                                 fontSize: 9.5,
                                 fontWeight: FontWeight.w700,
-                                color: isDelayed ? AppColors.actionOrange : AppColors.actionGreen,
+                                color: (isFollowed || isDelayed)
+                                    ? AppColors.actionOrange
+                                    : AppColors.actionGreen,
                               ),
                             ),
                           ),
@@ -115,11 +133,15 @@ class ActiveJourneyCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        _formatEta(journey.expectedArrivalAt),
+                        isFollowed
+                            ? 'Tracking live • 10m check-ins active • Tap to open'
+                            : _formatEta(journey.expectedArrivalAt),
                         style: GoogleFonts.poppins(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
-                          color: isDelayed ? AppColors.actionOrange : AppColors.actionGreen,
+                          color: (isFollowed || isDelayed)
+                              ? AppColors.actionOrange
+                              : AppColors.actionGreen,
                         ),
                       ),
                     ],
