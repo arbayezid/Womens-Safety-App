@@ -199,9 +199,39 @@ class SosCloudDispatcher {
         'triggeredAt': FieldValue.serverTimestamp(),
         'timestamp': FieldValue.serverTimestamp(),
         'notifiedUids': recipientUids,
+        'recentTrail': position != null
+            ? [
+                {
+                  'latitude': latitude,
+                  'longitude': longitude,
+                  'timestamp': DateTime.now().millisecondsSinceEpoch,
+                }
+              ]
+            : [],
       }).timeout(const Duration(seconds: 3), onTimeout: () {
         debugPrint('[SosCloud] ⏱️ Firestore write timed out after 3s (queued in local cache)');
       });
+
+      // Record initial event in events subcollection for Incident Room timeline
+      try {
+        await docRef.collection('events').add({
+          'type': 'sos_triggered',
+          'title': 'SOS Alert Dispatched',
+          'description': 'Emergency alert triggered via $source',
+          'actorName': senderName,
+          'actorUid': user.uid,
+          'timestamp': FieldValue.serverTimestamp(),
+          'metadata': {
+            'source': source,
+            'isDuress': isDuress,
+            'latitude': latitude,
+            'longitude': longitude,
+            'address': humanAddress,
+          },
+        }).timeout(const Duration(seconds: 2));
+      } catch (eventErr) {
+        debugPrint('[SosCloud] Event subcollection notice: $eventErr');
+      }
 
       debugPrint('[SosCloud] 🚨 Cloud SOS Alert logged in Firestore: $alertId');
       return alertId;
@@ -219,6 +249,18 @@ class SosCloudDispatcher {
         'resolvedAt': FieldValue.serverTimestamp(),
       });
       debugPrint('[SosCloud] ✅ Alert marked as resolved: $alertId');
+
+      // Record resolution event in timeline
+      try {
+        await _firestore.collection('sos_alerts').doc(alertId).collection('events').add({
+          'type': 'sos_resolved',
+          'title': 'Emergency Resolved ("I\'m Safe")',
+          'description': 'Alert was marked safe and live tracking stopped.',
+          'actorName': _auth.currentUser?.displayName ?? 'Sender',
+          'actorUid': _auth.currentUser?.uid,
+          'timestamp': FieldValue.serverTimestamp(),
+        }).timeout(const Duration(seconds: 2));
+      } catch (_) {}
     } catch (e) {
       debugPrint('[SosCloud] Error resolving alert: $e');
     }

@@ -16,6 +16,7 @@ import 'contacts_screen.dart';
 import 'settings_screen.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
+import 'incident_room_screen.dart';
 import '../widgets/fake_call_dialog.dart';
 import '../widgets/record_audio_sheet.dart';
 import '../models/journey_model.dart';
@@ -805,33 +806,67 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
             ],
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 44,
-            child: ElevatedButton.icon(
-              onPressed: _isResolving ? null : _handleMarkSafe,
-              icon: _isResolving
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-              label: Text(
-                _isResolving ? 'Resolving Alert...' : "I'M SAFE NOW",
-                style: GoogleFonts.poppins(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: 0.5,
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => IncidentRoomScreen(alertId: widget.alertId),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.meeting_room_rounded, size: 16, color: AppColors.sosRed),
+                    label: Text(
+                      'Incident Room',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.sosRed,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.sosRed, width: 1.5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                  ),
                 ),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.safeGreen,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                elevation: 0,
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 44,
+                  child: ElevatedButton.icon(
+                    onPressed: _isResolving ? null : _handleMarkSafe,
+                    icon: _isResolving
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
+                    label: Text(
+                      _isResolving ? 'Resolving...' : "I'M SAFE NOW",
+                      style: GoogleFonts.poppins(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.safeGreen,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
               ),
-            ),
+            ],
           ),
         ],
       ),

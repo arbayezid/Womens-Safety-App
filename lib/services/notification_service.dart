@@ -285,6 +285,20 @@ class NotificationService {
             },
             'lastRespondedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
+
+          // Log timeline event to events subcollection
+          await FirebaseFirestore.instance
+              .collection('sos_alerts')
+              .doc(alertId)
+              .collection('events')
+              .add({
+            'type': 'guardian_responding',
+            'title': 'Guardian Responding',
+            'description': '${user.displayName ?? 'Guardian'} acknowledged the alert and confirmed they are responding.',
+            'actorName': user.displayName ?? 'Guardian',
+            'actorUid': user.uid,
+            'timestamp': FieldValue.serverTimestamp(),
+          }).timeout(const Duration(seconds: 2));
         }
       }
     } catch (e) {

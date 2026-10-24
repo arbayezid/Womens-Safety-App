@@ -6,6 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/app_colors.dart';
 import '../services/notification_service.dart';
+import 'incident_room_screen.dart';
 
 /// Screen displaying the complete chronological history of all SOS emergency alerts
 /// (both received as a trusted guardian and dispatched by the current user).
@@ -418,10 +419,22 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           )
         ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(18),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => IncidentRoomScreen(alertId: alertId, initialData: data),
+              ),
+            );
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header Row: Avatar, Name/Role, Status Badge
             Row(
@@ -651,52 +664,74 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
             // Action Buttons
             Row(
               children: [
-                if (!isSender && senderPhone.isNotEmpty) ...[
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _callSender(senderPhone),
-                      icon: const Icon(Icons.call_rounded, size: 15, color: AppColors.actionGreen),
-                      label: Text(
-                        'Call',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.actionGreen,
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => IncidentRoomScreen(alertId: alertId, initialData: data),
                         ),
+                      );
+                    },
+                    icon: const Icon(Icons.meeting_room_rounded, size: 15, color: AppColors.sosRed),
+                    label: Text(
+                      'Incident Room',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.sosRed,
                       ),
-                      style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.actionGreen),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.sosRed, width: 1.2),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                if (!isSender && senderPhone.isNotEmpty) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => _callSender(senderPhone),
+                    icon: const Icon(Icons.call_rounded, size: 15, color: AppColors.actionGreen),
+                    label: Text(
+                      'Call',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.actionGreen,
                       ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.actionGreen),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     ),
                   ),
                   const SizedBox(width: 8),
                 ],
                 if (effectiveMapsUrl.isNotEmpty) ...[
-                  Expanded(
-                    child: ElevatedButton.icon(
-                      onPressed: () => _launchUrl(effectiveMapsUrl),
-                      icon: const Icon(Icons.map_rounded, size: 15, color: Colors.white),
-                      label: Text(
-                        isTrackingActive && isActive ? 'Track Live' : 'View Map',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
+                  ElevatedButton.icon(
+                    onPressed: () => _launchUrl(effectiveMapsUrl),
+                    icon: const Icon(Icons.map_rounded, size: 15, color: Colors.white),
+                    label: Text(
+                      isTrackingActive && isActive ? 'Live' : 'Map',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: isTrackingActive && isActive ? AppColors.sosRed : AppColors.primary,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        elevation: 0,
-                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isTrackingActive && isActive ? AppColors.sosRed : AppColors.primary,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      elevation: 0,
                     ),
                   ),
                 ],
                 if (!isSender && isActive) ...[
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   IconButton(
                     tooltip: 'Acknowledge / Dismiss Alert',
                     icon: const Icon(Icons.check_circle_outline_rounded, color: AppColors.textSecondary, size: 22),
@@ -722,6 +757,8 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           ],
         ),
       ),
-    );
+    ),
+  ),
+);
   }
 }

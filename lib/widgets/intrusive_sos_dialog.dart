@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/app_colors.dart';
 import '../screens/sos_history_screen.dart';
+import '../screens/incident_room_screen.dart';
 import '../services/notification_service.dart';
 
 /// Fullscreen-style intrusive dialog displayed when an incoming high-priority
@@ -618,6 +619,44 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 ),
                 const SizedBox(height: 8),
               ],
+
+              // Open Incident Room Button
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    final alertId = widget.data['alertId']?.toString() ?? '';
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    }
+                    if (alertId.isNotEmpty) {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => IncidentRoomScreen(
+                            alertId: alertId,
+                            initialData: liveDoc ?? widget.data,
+                          ),
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.meeting_room_rounded, size: 18, color: AppColors.sosRed),
+                  label: Text(
+                    'Open Incident Room',
+                    style: GoogleFonts.poppins(
+                      color: AppColors.sosRed,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: AppColors.sosRed, width: 1.5),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
 
               // Dismiss / Close Button
               SizedBox(

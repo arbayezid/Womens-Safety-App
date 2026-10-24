@@ -258,6 +258,18 @@ class SosEscalationService {
             .collection('sos_alerts')
             .doc(alertId)
             .update(updates);
+
+        // Record Stage 1 timeline event
+        await FirebaseFirestore.instance
+            .collection('sos_alerts')
+            .doc(alertId)
+            .collection('events')
+            .add({
+          'type': 'escalation_stage_1',
+          'title': 'Escalated to Stage 1 (Backup Contacts)',
+          'description': '3 minutes elapsed without response. ${backupContacts.length} backup contact(s) alerted via SMS and added to cloud alert.',
+          'timestamp': FieldValue.serverTimestamp(),
+        }).timeout(const Duration(seconds: 2));
       } catch (e) {
         debugPrint('[SosEscalation] Error updating Firestore for Stage 1: $e');
       }
@@ -323,6 +335,18 @@ class SosEscalationService {
             }
           ]),
         });
+
+        // Record Stage 2 timeline event
+        await FirebaseFirestore.instance
+            .collection('sos_alerts')
+            .doc(alertId)
+            .collection('events')
+            .add({
+          'type': 'escalation_stage_2',
+          'title': 'Escalated to Stage 2 (Emergency 999 Services)',
+          'description': '8 minutes elapsed without response. Dispatched urgent SMS round and prompted 999 emergency services.',
+          'timestamp': FieldValue.serverTimestamp(),
+        }).timeout(const Duration(seconds: 2));
       } catch (e) {
         debugPrint('[SosEscalation] Error updating Firestore for Stage 2: $e');
       }

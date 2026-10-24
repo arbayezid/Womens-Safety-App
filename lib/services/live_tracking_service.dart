@@ -217,6 +217,13 @@ class LiveTrackingService {
           'lastUpdatedAt': FieldValue.serverTimestamp(),
           'batteryLevel': batteryLevel,
           'isTrackingActive': true,
+          'recentTrail': FieldValue.arrayUnion([
+            {
+              'latitude': lat,
+              'longitude': lng,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            }
+          ]),
         }).timeout(const Duration(seconds: 4));
       } else if (type == 'journey') {
         await _firestore.collection('journeys').doc(docId).update({

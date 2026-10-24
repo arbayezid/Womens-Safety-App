@@ -111,7 +111,8 @@ service cloud.firestore {
           'recipientUids',
           'recipientEmails',
           'escalationLevel',
-          'escalationLog'
+          'escalationLog',
+          'recentTrail'
         ]))
         ||
         (isRecipient() &&
