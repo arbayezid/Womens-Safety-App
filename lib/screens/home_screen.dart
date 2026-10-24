@@ -24,6 +24,7 @@ import '../widgets/active_journey_card.dart';
 import '../widgets/safety_check_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
 import '../services/pin_security_service.dart';
+import '../services/motion_detection_service.dart';
 import 'start_journey_sheet.dart';
 
 /// Root shell widget for Smart Safety.
@@ -50,6 +51,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   /// Tracks loading state during SOS trigger pipeline execution
   bool _isSOSLoading = false;
+  bool _isSafetyCheckShowing = false;
+  bool _isFallCheckShowing = false;
 
   @override
   void initState() {
@@ -71,11 +74,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    // Restore any active SOS session, safe journey, and initialize battery monitoring
+    // Restore any active SOS session, safe journey, and initialize battery & motion monitoring
     EmergencyService.instance.restoreActiveAlertId();
     BatteryAlertService.instance.initialize();
     JourneyService.instance.restoreActiveJourney();
     JourneyService.instance.activeSafetyCheckNotifier.addListener(_handleSafetyCheckChange);
+    MotionDetectionService.instance.initialize();
+    MotionDetectionService.instance.activeCountdownNotifier.addListener(_handleFallCheckChange);
 
     // App open PIN check if required
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -96,14 +101,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   void _handleSafetyCheckChange() {
     final state = JourneyService.instance.activeSafetyCheckNotifier.value;
-    if (state != null && mounted) {
-      SafetyCheckDialog.show(context, state);
+    if (state != null && mounted && !_isSafetyCheckShowing) {
+      _isSafetyCheckShowing = true;
+      SafetyCheckDialog.show(context, state).whenComplete(() {
+        _isSafetyCheckShowing = false;
+      });
+    }
+  }
+
+  void _handleFallCheckChange() {
+    final seconds = MotionDetectionService.instance.activeCountdownNotifier.value;
+    if (seconds != null && mounted && !_isFallCheckShowing) {
+      _isFallCheckShowing = true;
+      SafetyCheckDialog.showFallCheck(context).whenComplete(() {
+        _isFallCheckShowing = false;
+      });
     }
   }
 
   @override
   void dispose() {
     JourneyService.instance.activeSafetyCheckNotifier.removeListener(_handleSafetyCheckChange);
+    MotionDetectionService.instance.activeCountdownNotifier.removeListener(_handleFallCheckChange);
     _pulseController.dispose();
     super.dispose();
   }

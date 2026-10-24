@@ -15,6 +15,7 @@ import 'contact_service.dart';
 import 'emergency_service.dart';
 import 'live_tracking_service.dart';
 import 'notification_service.dart';
+import 'motion_detection_service.dart';
 
 /// Categories of safety triggers evaluated by the Safe Journey monitor loop
 enum JourneySafetyTriggerType {
@@ -438,6 +439,9 @@ class JourneyService {
       ),
     );
 
+    // 7. Sync motion detection service
+    MotionDetectionService.instance.checkAndSyncMonitoringState();
+
     return journey;
   }
 
@@ -700,6 +704,7 @@ class JourneyService {
 
     await LiveTrackingService.instance.stopTrackingSession();
     await BackgroundServiceManager.instance.stopService();
+    MotionDetectionService.instance.checkAndSyncMonitoringState();
 
     ActivityService.instance.logActivity(
       ActivityItem(
@@ -729,6 +734,7 @@ class JourneyService {
 
     await LiveTrackingService.instance.stopTrackingSession();
     await BackgroundServiceManager.instance.stopService();
+    MotionDetectionService.instance.checkAndSyncMonitoringState();
 
     ActivityService.instance.logActivity(
       ActivityItem(

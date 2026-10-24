@@ -4,6 +4,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/emergency_service.dart';
 import '../services/journey_service.dart';
+import '../services/motion_detection_service.dart';
+import '../services/pin_security_service.dart';
+import 'pin_input_dialog.dart';
 
 /// Fullscreen intrusive countdown dialog for the Safe Journey Dead-Man's Switch.
 /// Prompts the user to confirm safety within 60 seconds before automated SOS dispatch.
@@ -17,6 +20,15 @@ class SafetyCheckDialog extends StatefulWidget {
       context: context,
       barrierDismissible: false,
       builder: (_) => SafetyCheckDialog(state: state),
+    );
+  }
+
+  /// Displays the modal 30-second countdown check for fall detection
+  static Future<void> showFallCheck(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const FallCheckDialog(),
     );
   }
 
@@ -259,6 +271,271 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                         ),
                       ),
                     ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Fullscreen countdown dialog for Fall Detection safety confirmation.
+/// Prompts the user to confirm safety within 30 seconds before automated FALL_SOS dispatch.
+class FallCheckDialog extends StatefulWidget {
+  const FallCheckDialog({super.key});
+
+  static Future<void> show(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const FallCheckDialog(),
+    );
+  }
+
+  @override
+  State<FallCheckDialog> createState() => _FallCheckDialogState();
+}
+
+class _FallCheckDialogState extends State<FallCheckDialog>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+    HapticFeedback.heavyImpact();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.08).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleImOk(BuildContext context) async {
+    final pinEnabled = await PinSecurityService.instance.isPinEnabled();
+    final realConfigured = await PinSecurityService.instance.isRealPinConfigured();
+
+    if (pinEnabled && realConfigured) {
+      if (!context.mounted) return;
+      final verified = await PinInputDialog.show(
+        context,
+        mode: PinDialogMode.verify,
+        customTitle: "Confirm You're Safe",
+        customSubtitle: 'Enter your Security PIN to cancel the fall alarm',
+      );
+      if (verified == true) {
+        MotionDetectionService.instance.confirmSafe();
+        if (context.mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+      } else if (verified == false) {
+        // Duress PIN entered: silent duress pipeline already executed in PinSecurityService
+        MotionDetectionService.instance.confirmSafe();
+        if (context.mounted && Navigator.of(context).canPop()) {
+          Navigator.of(context).pop();
+        }
+      }
+      return;
+    }
+
+    MotionDetectionService.instance.confirmSafe();
+    if (context.mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: ValueListenableBuilder<int?>(
+        valueListenable: MotionDetectionService.instance.activeCountdownNotifier,
+        builder: (context, seconds, _) {
+          // If fall check was resolved or expired, dismiss dialog
+          if (seconds == null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (Navigator.of(context).canPop()) {
+                Navigator.of(context).pop();
+              }
+            });
+            return const SizedBox.shrink();
+          }
+
+          final isUrgent = seconds <= 15;
+
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+            backgroundColor: AppColors.surface,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Animated Countdown Ring
+                  ScaleTransition(
+                    scale: _pulseAnimation,
+                    child: Container(
+                      width: 100,
+                      height: 100,
+                      decoration: BoxDecoration(
+                        color: (isUrgent ? AppColors.sosRed : AppColors.actionOrange)
+                            .withValues(alpha: 0.15),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Center(
+                        child: Container(
+                          width: 80,
+                          height: 80,
+                          decoration: BoxDecoration(
+                            color: isUrgent ? AppColors.sosRed : AppColors.actionOrange,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: (isUrgent ? AppColors.sosRed : AppColors.actionOrange)
+                                    .withValues(alpha: 0.35),
+                                blurRadius: 18,
+                                offset: const Offset(0, 4),
+                              )
+                            ],
+                          ),
+                          child: Center(
+                            child: Text(
+                              '$seconds',
+                              style: GoogleFonts.poppins(
+                                fontSize: 34,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+
+                  Text(
+                    '🚨 ARE YOU OK?',
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: isUrgent ? AppColors.sosRed : AppColors.actionOrange,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+
+                  Text(
+                    'Fall Impact Detected',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  Text(
+                    'Sudden impact and lack of movement detected.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 12.5,
+                      color: AppColors.textSecondary,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFEEEE),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.timer_outlined, size: 14, color: AppColors.sosRed),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Auto-SOS in $seconds seconds if unanswered',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.sosRed,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+
+                  // "I'M OK" Big Green Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _handleImOk(context),
+                      icon: const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
+                      label: Text(
+                        "I'M OK (CANCEL ALARM)",
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.actionGreen,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+
+                  // "SEND SOS NOW" Button
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        await MotionDetectionService.instance.sendSosNow();
+                        if (context.mounted && Navigator.of(context).canPop()) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                      icon: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                      label: Text(
+                        'SEND SOS NOW',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.sosRed,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                    ),
                   ),
                 ],
               ),

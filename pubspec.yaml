@@ -69,6 +69,9 @@ dependencies:
   # Cryptographic Hashing for Salted SHA-256 PIN Security
   crypto: ^3.0.6
 
+  # Accelerometer Sensor for Fall Detection
+  sensors_plus: ^5.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
