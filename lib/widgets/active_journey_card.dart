@@ -4,6 +4,8 @@ import '../core/app_colors.dart';
 import '../models/journey_model.dart';
 import '../screens/journey_tracking_screen.dart';
 import '../services/journey_service.dart';
+import '../services/pin_security_service.dart';
+import 'pin_input_dialog.dart';
 
 /// Card displayed on the home screen safety dashboard when a Safe Journey session is active.
 class ActiveJourneyCard extends StatelessWidget {
@@ -181,6 +183,24 @@ class ActiveJourneyCard extends StatelessWidget {
                   tooltip: 'Cancel Journey',
                   icon: const Icon(Icons.cancel_outlined, color: AppColors.textSecondary, size: 20),
                   onPressed: () async {
+                    final pinEnabled = await PinSecurityService.instance.isPinEnabled();
+                    final realConfigured = await PinSecurityService.instance.isRealPinConfigured();
+
+                    if (pinEnabled && realConfigured) {
+                      if (!context.mounted) return;
+                      final verified = await PinInputDialog.show(
+                        context,
+                        mode: PinDialogMode.verify,
+                        customTitle: 'Cancel Safe Journey',
+                        customSubtitle: 'Enter your Security PIN to stop journey tracking',
+                      );
+                      if (verified == true) {
+                        await JourneyService.instance.cancelJourney();
+                      }
+                      return;
+                    }
+
+                    if (!context.mounted) return;
                     final confirm = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(

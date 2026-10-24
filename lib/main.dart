@@ -8,6 +8,9 @@ import 'services/background_service.dart';
 import 'services/live_tracking_service.dart';
 import 'services/notification_service.dart';
 
+import 'screens/camouflage_calculator_screen.dart';
+import 'services/pin_security_service.dart';
+
 /// Global navigator key enabling intrusive dialog overlays from background or notification events
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
@@ -26,6 +29,13 @@ void main() async {
     await AuthService.instance.initialize();
   } catch (e) {
     debugPrint('[Main] AuthService init warning: $e');
+  }
+
+  // Initialize PIN security & restore camouflage state if active
+  try {
+    await PinSecurityService.instance.initialize();
+  } catch (e) {
+    debugPrint('[Main] PinSecurityService init warning: $e');
   }
 
   // Register the FCM background message handler safely
@@ -68,6 +78,20 @@ class SmartSafetyApp extends StatelessWidget {
 
       // Apply the centralized Material 3 theme
       theme: AppTheme.lightTheme,
+
+      // Seamlessly switch the entire application view to Camouflage Calculator
+      // when duress mode is triggered or camouflage mode is manually engaged.
+      builder: (context, child) {
+        return ValueListenableBuilder<bool>(
+          valueListenable: PinSecurityService.instance.isCamouflageActiveNotifier,
+          builder: (context, isCamouflage, _) {
+            if (isCamouflage) {
+              return const CamouflageCalculatorScreen();
+            }
+            return child ?? const SizedBox.shrink();
+          },
+        );
+      },
 
       // The app always starts at the WelcomeScreen
       home: const WelcomeScreen(),

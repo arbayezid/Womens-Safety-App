@@ -9,6 +9,8 @@ import '../models/activity_model.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import '../services/battery_alert_service.dart';
+import '../services/pin_security_service.dart';
+import '../widgets/pin_input_dialog.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
 
@@ -28,6 +30,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _shakeToSOS = false;
   bool _criticalBatteryAlert = true;
   bool _sirenOnAutoSos = false;
+  bool _pinProtection = false;
+  bool _requirePinOnOpen = false;
+  bool _hasRealPin = false;
+  bool _hasDuressPin = false;
 
   @override
   void initState() {
@@ -42,6 +48,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final criticalBattery = await BatteryAlertService.instance.isEnabled();
+    final pinEnabled = await PinSecurityService.instance.isPinEnabled();
+    final requireOnOpen = await PinSecurityService.instance.isPinRequiredOnOpen();
+    final hasReal = await PinSecurityService.instance.isRealPinConfigured();
+    final hasDuress = await PinSecurityService.instance.isDuressPinConfigured();
+
     if (!mounted) return;
     setState(() {
       _voiceActivation = prefs.getBool('pref_voice_activation') ?? true;
@@ -50,6 +61,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _shakeToSOS = prefs.getBool('pref_shake_to_sos') ?? false;
       _criticalBatteryAlert = criticalBattery;
       _sirenOnAutoSos = prefs.getBool('pref_siren_on_auto_sos') ?? false;
+      _pinProtection = pinEnabled;
+      _requirePinOnOpen = requireOnOpen;
+      _hasRealPin = hasReal;
+      _hasDuressPin = hasDuress;
     });
   }
 
@@ -173,6 +188,117 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) {
                       setState(() => _sirenOnAutoSos = v);
                       _saveSetting('pref_siren_on_auto_sos', v);
+                    },
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // ── Section: Security PIN & Camouflage ──────────────────
+              _buildSection(
+                title: 'Security PIN & Camouflage',
+                items: [
+                  _buildToggleItem(
+                    icon: Icons.shield_outlined,
+                    iconColor: AppColors.primary,
+                    iconBg: AppColors.primarySurface,
+                    label: 'PIN Protection',
+                    subtitle: 'Protect "I\'m Safe" & Safe Journey cancellation',
+                    value: _pinProtection,
+                    onChanged: (v) async {
+                      if (v && !_hasRealPin) {
+                        final set = await PinInputDialog.show(
+                          context,
+                          mode: PinDialogMode.setupReal,
+                        );
+                        if (set == true) {
+                          await PinSecurityService.instance.setPinEnabled(true);
+                          _loadSettings();
+                        }
+                      } else {
+                        await PinSecurityService.instance.setPinEnabled(v);
+                        setState(() => _pinProtection = v);
+                      }
+                    },
+                  ),
+                  _buildNavItem(
+                    icon: Icons.pin_rounded,
+                    iconColor: AppColors.actionGreen,
+                    iconBg: const Color(0xFFDFF5E3),
+                    label: 'Real Security PIN',
+                    subtitle: _hasRealPin ? 'Configured • Tap to change' : 'Tap to configure 4-digit PIN',
+                    onTap: () async {
+                      final set = await PinInputDialog.show(
+                        context,
+                        mode: PinDialogMode.setupReal,
+                      );
+                      if (set == true) {
+                        await _loadSettings();
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✅ Real PIN configured successfully'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  _buildNavItem(
+                    icon: Icons.warning_amber_rounded,
+                    iconColor: AppColors.sosRed,
+                    iconBg: const Color(0xFFFFEEEE),
+                    label: 'Duress Emergency PIN',
+                    subtitle: _hasDuressPin ? 'Configured • Silent panic & camouflage' : 'Tap to configure silent emergency PIN',
+                    onTap: () async {
+                      final set = await PinInputDialog.show(
+                        context,
+                        mode: PinDialogMode.setupDuress,
+                      );
+                      if (set == true) {
+                        await _loadSettings();
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('✅ Duress PIN configured successfully'),
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  _buildToggleItem(
+                    icon: Icons.lock_outline_rounded,
+                    iconColor: AppColors.actionPurple,
+                    iconBg: const Color(0xFFF0E6F9),
+                    label: 'Require PIN to open app',
+                    subtitle: 'Lock application on startup',
+                    value: _requirePinOnOpen,
+                    onChanged: (v) async {
+                      if (v && !_hasRealPin) {
+                        final set = await PinInputDialog.show(
+                          context,
+                          mode: PinDialogMode.setupReal,
+                        );
+                        if (set == true) {
+                          await PinSecurityService.instance.setPinRequiredOnOpen(true);
+                          _loadSettings();
+                        }
+                      } else {
+                        await PinSecurityService.instance.setPinRequiredOnOpen(v);
+                        setState(() => _requirePinOnOpen = v);
+                      }
+                    },
+                  ),
+                  _buildNavItem(
+                    icon: Icons.calculate_rounded,
+                    iconColor: AppColors.textPrimary,
+                    iconBg: const Color(0xFFEEEEF2),
+                    label: 'Camouflage Calculator Preview',
+                    subtitle: 'Test disguised calculator screen (Exit: Real PIN + =)',
+                    onTap: () async {
+                      await PinSecurityService.instance.enterCamouflageManually();
                     },
                   ),
                 ],

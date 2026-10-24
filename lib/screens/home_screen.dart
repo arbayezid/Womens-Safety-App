@@ -22,6 +22,8 @@ import '../models/journey_model.dart';
 import '../services/journey_service.dart';
 import '../widgets/active_journey_card.dart';
 import '../widgets/safety_check_dialog.dart';
+import '../widgets/pin_input_dialog.dart';
+import '../services/pin_security_service.dart';
 import 'start_journey_sheet.dart';
 
 /// Root shell widget for Smart Safety.
@@ -74,6 +76,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     BatteryAlertService.instance.initialize();
     JourneyService.instance.restoreActiveJourney();
     JourneyService.instance.activeSafetyCheckNotifier.addListener(_handleSafetyCheckChange);
+
+    // App open PIN check if required
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final pinEnabled = await PinSecurityService.instance.isPinEnabled();
+      final requireOnOpen = await PinSecurityService.instance.isPinRequiredOnOpen();
+      final hasRealPin = await PinSecurityService.instance.isRealPinConfigured();
+      if (pinEnabled && requireOnOpen && hasRealPin && mounted) {
+        await PinInputDialog.show(
+          context,
+          mode: PinDialogMode.verify,
+          customTitle: 'App Locked',
+          customSubtitle: 'Enter your security PIN to access Woman Guard',
+          cancellable: false,
+        );
+      }
+    });
   }
 
   void _handleSafetyCheckChange() {
@@ -322,6 +340,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         isScrollControlled: true,
         backgroundColor: Colors.transparent,
         builder: (_) => const RecordAudioSheet(),
+      );
+      return;
+    }
+
+    if (label == 'Camouflage') {
+      await PinSecurityService.instance.enterCamouflageManually();
+      return;
+    }
+
+    if (label == 'Silent Panic') {
+      await PinInputDialog.show(
+        context,
+        mode: PinDialogMode.verify,
+        customTitle: 'Discreet Verification',
+        customSubtitle: 'Enter security PIN to confirm emergency state',
       );
       return;
     }
@@ -608,45 +641,60 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
   }
 
   Future<void> _handleMarkSafe() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Row(
-          children: [
-            const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
-            const SizedBox(width: 10),
-            Text(
-              "I'm Safe Now",
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
+    final isPinEnabled = await PinSecurityService.instance.isPinEnabled();
+    final isRealConfigured = await PinSecurityService.instance.isRealPinConfigured();
+
+    if (isPinEnabled && isRealConfigured) {
+      if (!mounted) return;
+      final verified = await PinInputDialog.show(
+        context,
+        mode: PinDialogMode.verify,
+        customTitle: 'Confirm Safety',
+        customSubtitle: 'Enter your Security PIN to mark yourself safe and resolve this alert',
+      );
+      if (verified != true || !mounted) return;
+    } else {
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
+              const SizedBox(width: 10),
+              Text(
+                "I'm Safe Now",
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
+              ),
+            ],
+          ),
+          content: Text(
+            'Are you sure you are safe? This will resolve the active emergency SOS, stop live GPS tracking, and send an "I\'m safe now" SMS to your emergency contacts.',
+            style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.safeGreen,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: Text(
+                'Yes, I Am Safe',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
+              ),
             ),
           ],
         ),
-        content: Text(
-          'Are you sure you are safe? This will resolve the active emergency SOS, stop live GPS tracking, and send an "I\'m safe now" SMS to your emergency contacts.',
-          style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.safeGreen,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: Text(
-              'Yes, I Am Safe',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
-            ),
-          ),
-        ],
-      ),
-    );
+      );
 
-    if (confirmed != true || !mounted) return;
+      if (confirmed != true || !mounted) return;
+    }
 
     setState(() => _isResolving = true);
     try {
@@ -775,9 +823,32 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
 /// Custom header row: tappable avatar · greeting · ESP32 badge
 ///
 /// [onAvatarTap] is forwarded from the shell to open [ProfileScreen].
-class _TopAppBar extends StatelessWidget {
+class _TopAppBar extends StatefulWidget {
   final VoidCallback onAvatarTap;
   const _TopAppBar({required this.onAvatarTap});
+
+  @override
+  State<_TopAppBar> createState() => _TopAppBarState();
+}
+
+class _TopAppBarState extends State<_TopAppBar> {
+  int _secretTapCount = 0;
+  DateTime? _lastSecretTap;
+
+  void _onGreetingTapped() {
+    final now = DateTime.now();
+    if (_lastSecretTap == null || now.difference(_lastSecretTap!) > const Duration(milliseconds: 900)) {
+      _secretTapCount = 1;
+    } else {
+      _secretTapCount++;
+      if (_secretTapCount >= 3) {
+        _secretTapCount = 0;
+        PinSecurityService.instance.enterCamouflageManually();
+        return;
+      }
+    }
+    _lastSecretTap = now;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -794,7 +865,7 @@ class _TopAppBar extends StatelessWidget {
           children: [
             // ── Tappable avatar circle (opens Profile) ──────────────────
             GestureDetector(
-              onTap: onAvatarTap,
+              onTap: widget.onAvatarTap,
               child: Container(
                 width: 46,
                 height: 46,
@@ -824,37 +895,41 @@ class _TopAppBar extends StatelessWidget {
 
             const SizedBox(width: 12),
 
-            // ── Greeting + guardian mode subtitle ───────────────────────
+            // ── Greeting + guardian mode subtitle (triple-tap enters Camouflage) ──
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    greeting,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.textPrimary,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _onGreetingTapped,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      greeting,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
-                  ),
-                  Text(
-                    isAuthenticated
-                        ? 'Guardian Mode: Active'
-                        : 'Guest Mode: Tap to Sign In',
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      color: isAuthenticated
-                          ? AppColors.textSecondary
-                          : AppColors.actionOrange,
-                      fontWeight: isAuthenticated
-                          ? FontWeight.normal
-                          : FontWeight.w600,
+                    Text(
+                      isAuthenticated
+                          ? 'Guardian Mode: Active'
+                          : 'Guest Mode: Tap to Sign In',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: isAuthenticated
+                            ? AppColors.textSecondary
+                            : AppColors.actionOrange,
+                        fontWeight: isAuthenticated
+                            ? FontWeight.normal
+                            : FontWeight.w600,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
 
@@ -1625,6 +1700,18 @@ class _QuickActionsGrid extends StatelessWidget {
       label: 'Safe Journey',
       iconColor: AppColors.actionGreen,
       iconBackground: Color(0xFFDFF5E3),
+    ),
+    _QuickActionItem(
+      icon: Icons.calculate_rounded,
+      label: 'Camouflage',
+      iconColor: AppColors.textPrimary,
+      iconBackground: Color(0xFFEEEEF2),
+    ),
+    _QuickActionItem(
+      icon: Icons.security_rounded,
+      label: 'Silent Panic',
+      iconColor: AppColors.sosRed,
+      iconBackground: Color(0xFFFFEEEE),
     ),
   ];
 
