@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/emergency_service.dart';
 import '../services/pin_security_service.dart';
+import '../widgets/pin_input_dialog.dart';
 
 /// Full-screen working calculator that serves as the camouflage disguise
 /// during active Duress Mode or when Camouflage Mode is manually engaged.
@@ -94,17 +95,35 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
   Future<void> _onEquals() async {
     HapticFeedback.selectionClick();
 
+    final isConfigured = await PinSecurityService.instance.isRealPinConfigured();
+    if (!isConfigured) {
+      // If no PIN is configured yet, pressing '=' exits camouflage cleanly
+      await PinSecurityService.instance.exitCamouflage();
+      return;
+    }
+
     // 1. Evaluate secret buffer against PIN security hashes
-    final testPin = _secretBuffer.trim();
-    if (testPin.isNotEmpty) {
-      final pinResult = await PinSecurityService.instance.verifyPin(testPin);
-      if (pinResult == PinVerificationResult.real) {
-        if (!mounted) return;
-        _showExitDisclosureDialog();
-        return;
-      } else if (pinResult == PinVerificationResult.duress) {
-        // Stays in camouflage, evaluate normally or reset buffer
-        _secretBuffer = '';
+    final buffer = _secretBuffer.trim();
+    if (buffer.isNotEmpty) {
+      final candidates = <String>{buffer};
+      for (int len = 4; len <= 6; len++) {
+        if (buffer.length >= len) {
+          candidates.add(buffer.substring(buffer.length - len));
+        }
+      }
+
+      for (final candidate in candidates) {
+        final wasDuress = PinSecurityService.instance.isDuressActive;
+        final pinResult = await PinSecurityService.instance.verifyPin(candidate);
+        if (pinResult == PinVerificationResult.real) {
+          if (!mounted) return;
+          if (wasDuress) {
+            _showExitDisclosureDialog();
+          }
+          return;
+        } else if (pinResult == PinVerificationResult.duress) {
+          _secretBuffer = '';
+        }
       }
     }
 
@@ -206,6 +225,25 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
     );
   }
 
+  Future<void> _handleSecretExit() async {
+    HapticFeedback.heavyImpact();
+    final isConfigured = await PinSecurityService.instance.isRealPinConfigured();
+    if (!isConfigured) {
+      await PinSecurityService.instance.exitCamouflage();
+      return;
+    }
+    if (!mounted) return;
+    final verified = await PinInputDialog.show(
+      context,
+      mode: PinDialogMode.verify,
+      customTitle: 'Exit Camouflage',
+      customSubtitle: 'Enter your Security PIN to return to the app',
+    );
+    if (verified == true) {
+      await PinSecurityService.instance.exitCamouflage();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -216,36 +254,40 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
           child: Column(
             children: [
               const Spacer(),
-              // Expression & Calculation Result Screen
-              Container(
-                alignment: Alignment.bottomRight,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      _expression,
-                      style: GoogleFonts.robotoMono(
-                        fontSize: 20,
-                        color: Colors.white.withValues(alpha: 0.5),
+              // Expression & Calculation Result Screen (Long-press to escape)
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onLongPress: _handleSecretExit,
+                child: Container(
+                  alignment: Alignment.bottomRight,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        _expression,
+                        style: GoogleFonts.robotoMono(
+                          fontSize: 20,
+                          color: Colors.white.withValues(alpha: 0.5),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 6),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        _display,
-                        style: GoogleFonts.roboto(
-                          fontSize: 64,
-                          fontWeight: FontWeight.w300,
-                          color: Colors.white,
+                      const SizedBox(height: 6),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Text(
+                          _display,
+                          style: GoogleFonts.roboto(
+                            fontSize: 64,
+                            fontWeight: FontWeight.w300,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -286,6 +328,7 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
               label: label,
               bgColor: bg,
               fgColor: fg,
+              onLongPress: label == 'C' ? _handleSecretExit : null,
               onTap: () {
                 if (label == 'C') {
                   _onClear();
@@ -368,11 +411,13 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
     required Color bgColor,
     required Color fgColor,
     required VoidCallback onTap,
+    VoidCallback? onLongPress,
   }) {
     return SizedBox(
       height: 72,
       child: ElevatedButton(
         onPressed: onTap,
+        onLongPress: onLongPress,
         style: ElevatedButton.styleFrom(
           backgroundColor: bgColor,
           shape: const CircleBorder(),
