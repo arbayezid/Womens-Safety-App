@@ -6,6 +6,7 @@ import '../core/app_colors.dart';
 import '../screens/sos_history_screen.dart';
 import '../screens/incident_room_screen.dart';
 import '../services/notification_service.dart';
+import '../services/siren_service.dart';
 
 /// Fullscreen-style intrusive dialog displayed when an incoming high-priority
 /// SOS Alert push notification is received while the app is active.
@@ -31,6 +32,9 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
   @override
   void initState() {
     super.initState();
+    // Play loud siren emergency audio to immediately alert the receiver
+    SirenService.instance.startSiren();
+
     _animController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -43,6 +47,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
 
   @override
   void dispose() {
+    SirenService.instance.stopSiren();
     _animController.dispose();
     super.dispose();
   }
@@ -211,6 +216,10 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
         (widget.data['totalPresses'] as int?) ??
         1;
 
+    if (isResolved) {
+      SirenService.instance.stopSiren();
+    }
+
     return PopScope(
       canPop: false,
       child: Dialog(
@@ -222,6 +231,59 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              // Mute Siren Quick Toggle Button
+              if (!isResolved)
+                Align(
+                  alignment: Alignment.topRight,
+                  child: ValueListenableBuilder<bool>(
+                    valueListenable: SirenService.instance.isPlayingNotifier,
+                    builder: (context, isPlaying, _) {
+                      return InkWell(
+                        onTap: () {
+                          if (isPlaying) {
+                            SirenService.instance.stopSiren();
+                          } else {
+                            SirenService.instance.startSiren();
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(16),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: isPlaying ? const Color(0xFFFFEEEE) : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isPlaying
+                                  ? AppColors.sosRed.withValues(alpha: 0.3)
+                                  : Colors.transparent,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isPlaying ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                                size: 14,
+                                color: isPlaying ? AppColors.sosRed : AppColors.textSecondary,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                isPlaying ? 'Mute Siren' : 'Siren Muted',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  color: isPlaying ? AppColors.sosRed : AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              const SizedBox(height: 6),
+
               // Flashing SOS Alert Beacon or Resolved Shield
               ScaleTransition(
                 scale: isResolved ? const AlwaysStoppedAnimation(1.0) : _pulseAnim,
@@ -571,6 +633,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     onPressed: () async {
                       final messenger = ScaffoldMessenger.maybeOf(context);
                       final alertId = widget.data['alertId']?.toString() ?? '';
+                      SirenService.instance.stopSiren();
                       if (alertId.isNotEmpty) {
                         await NotificationService.instance.acknowledgeAlert(alertId);
                       }
@@ -626,6 +689,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 height: 44,
                 child: OutlinedButton.icon(
                   onPressed: () {
+                    SirenService.instance.stopSiren();
                     final alertId = widget.data['alertId']?.toString() ?? '';
                     if (Navigator.of(context).canPop()) {
                       Navigator.of(context).pop();
@@ -663,6 +727,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 width: double.infinity,
                 child: TextButton(
                   onPressed: () async {
+                    SirenService.instance.stopSiren();
                     final alertId = widget.data['alertId']?.toString() ?? '';
                     if (alertId.isNotEmpty) {
                       await NotificationService.instance.dismissAlert(alertId);

@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -9,6 +10,7 @@ import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import '../services/contact_sync_service.dart';
 import '../services/battery_alert_service.dart';
+import '../services/notification_service.dart';
 import '../utils/auth_guard.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'map_screen.dart';
@@ -84,8 +86,17 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     MotionDetectionService.instance.initialize();
     MotionDetectionService.instance.activeCountdownNotifier.addListener(_handleFallCheckChange);
 
-    // App open PIN check if required
+    // Initialize real-time incoming guardian emergency alerts
+    NotificationService.instance.startSosAlertStreamListener();
+    NotificationService.instance.activeIncomingSosNotifier.addListener(_handleIncomingSosChange);
+
+    // App open PIN check and incoming emergency modal verification
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // Check if an incoming emergency alert is active and pop up modal immediately
+      if (mounted) {
+        NotificationService.instance.showActiveSosDialogIfAvailable(context);
+      }
+
       final pinEnabled = await PinSecurityService.instance.isPinEnabled();
       final requireOnOpen = await PinSecurityService.instance.isPinRequiredOnOpen();
       final hasRealPin = await PinSecurityService.instance.isRealPinConfigured();
@@ -99,6 +110,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         );
       }
     });
+  }
+
+  void _handleIncomingSosChange() {
+    final alert = NotificationService.instance.activeIncomingSosNotifier.value;
+    if (alert != null && mounted && !NotificationService.instance.isSosDialogShowing) {
+      NotificationService.instance.showActiveSosDialogIfAvailable(context);
+    }
   }
 
   void _handleSafetyCheckChange() {
@@ -123,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    NotificationService.instance.activeIncomingSosNotifier.removeListener(_handleIncomingSosChange);
     JourneyService.instance.activeSafetyCheckNotifier.removeListener(_handleSafetyCheckChange);
     MotionDetectionService.instance.activeCountdownNotifier.removeListener(_handleFallCheckChange);
     _pulseController.dispose();
@@ -205,11 +224,18 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!mounted) return;
 
       if (result.isSuccess) {
+        final bool needsManualSmsFallback =
+            result.contactsSentCount == 0 && result.recipientPhones.isNotEmpty;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Row(
               children: [
-                const Icon(Icons.check_circle_rounded, color: Colors.white),
+                Icon(
+                  needsManualSmsFallback
+                      ? Icons.mark_email_read_rounded
+                      : Icons.check_circle_rounded,
+                  color: Colors.white,
+                ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
@@ -221,11 +247,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ],
             ),
-            backgroundColor: AppColors.successForeground,
+            action: needsManualSmsFallback
+                ? SnackBarAction(
+                    label: 'SMS App',
+                    textColor: Colors.amberAccent,
+                    onPressed: () {
+                      EmergencyService.instance.launchNativeSmsApp(
+                        phoneNumber: result.recipientPhones.first,
+                        mapUrl: result.googleMapsUrl,
+                      );
+                    },
+                  )
+                : null,
+            backgroundColor: needsManualSmsFallback
+                ? AppColors.primaryViolet
+                : AppColors.successForeground,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             margin: const EdgeInsets.all(16),
-            duration: const Duration(seconds: 4),
+            duration: Duration(seconds: needsManualSmsFallback ? 6 : 4),
           ),
         );
       } else if (result.hasNoRecipients) {
@@ -595,10 +635,9 @@ class _SafetyDashboard extends StatelessWidget {
             _TopAppBar(onAvatarTap: onAvatarTap),
 
             // ── Incoming Guardian Requests Alert Banner ─────────────
-            StreamBuilder<List<Map<String, dynamic>>>(
-              stream: ContactSyncService.instance.streamIncomingRequests(),
-              builder: (context, snapshot) {
-                final requests = snapshot.data ?? [];
+            ValueListenableBuilder<List<Map<String, dynamic>>>(
+              valueListenable: ContactSyncService.instance.incomingRequestsNotifier,
+              builder: (context, requests, _) {
                 if (requests.isEmpty) return const SizedBox.shrink();
 
                 final first = requests.first;
@@ -661,6 +700,18 @@ class _SafetyDashboard extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: _ActiveSosEmergencyBanner(alertId: activeAlertId),
+                );
+              },
+            ),
+
+            // ── Active Incoming Guardian SOS Alert Banner ───────────
+            ValueListenableBuilder<Map<String, dynamic>?>(
+              valueListenable: NotificationService.instance.activeIncomingSosNotifier,
+              builder: (context, incomingSos, _) {
+                if (incomingSos == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: _ActiveIncomingGuardianSosBanner(alertData: incomingSos),
                 );
               },
             ),
@@ -968,6 +1019,291 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                       elevation: 0,
                     ),
                   ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Prominent, high-urgency banner displayed on the Safety dashboard when an emergency SOS alert
+/// has been triggered by a contact/ward and the current user is an emergency guardian.
+class _ActiveIncomingGuardianSosBanner extends StatefulWidget {
+  final Map<String, dynamic> alertData;
+
+  const _ActiveIncomingGuardianSosBanner({required this.alertData});
+
+  @override
+  State<_ActiveIncomingGuardianSosBanner> createState() =>
+      _ActiveIncomingGuardianSosBannerState();
+}
+
+class _ActiveIncomingGuardianSosBannerState
+    extends State<_ActiveIncomingGuardianSosBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseScale;
+  bool _isResponding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..repeat(reverse: true);
+    _pulseScale = Tween<double>(begin: 0.95, end: 1.08).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleAcknowledge() async {
+    final alertId = widget.alertData['alertId']?.toString() ?? '';
+    if (alertId.isEmpty) return;
+
+    setState(() => _isResponding = true);
+    HapticFeedback.heavyImpact();
+    SirenService.instance.stopSiren();
+
+    try {
+      await NotificationService.instance.acknowledgeAlert(alertId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '✅ Confirmed: You are responding to this emergency!',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.actionGreen,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isResponding = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final alertId = widget.alertData['alertId']?.toString() ?? '';
+    final senderName = widget.alertData['senderName']?.toString() ??
+        widget.alertData['sender_name']?.toString() ??
+        'Emergency Contact';
+    final address = widget.alertData['address']?.toString() ??
+        widget.alertData['location']?['address']?.toString() ??
+        'Live GPS Tracking Active';
+
+    final dynamic rawTime = widget.alertData['triggeredAt'] ?? widget.alertData['timestamp'];
+    String timeAgo = 'Just now';
+    if (rawTime != null) {
+      DateTime? dt;
+      if (rawTime is Timestamp) dt = rawTime.toDate();
+      if (rawTime is DateTime) dt = rawTime;
+      if (rawTime is String) dt = DateTime.tryParse(rawTime);
+      if (dt != null) {
+        final diff = DateTime.now().difference(dt);
+        if (diff.inSeconds < 45) {
+          timeAgo = 'Just now';
+        } else if (diff.inMinutes < 60) {
+          timeAgo = '${diff.inMinutes}m ago';
+        } else {
+          timeAgo = '${diff.inHours}h ago';
+        }
+      }
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF0F0),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.sosRed, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.sosRed.withValues(alpha: 0.18),
+            blurRadius: 18,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ScaleTransition(
+                scale: _pulseScale,
+                child: Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: const BoxDecoration(
+                    color: AppColors.sosRed,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.warning_rounded, color: Colors.white, size: 22),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '🚨 INCOMING EMERGENCY SOS',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.sosRed,
+                        letterSpacing: 0.4,
+                      ),
+                    ),
+                    Text(
+                      '$senderName needs immediate assistance!',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    Text(
+                      '$timeAgo • $address',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              ValueListenableBuilder<bool>(
+                valueListenable: SirenService.instance.isPlayingNotifier,
+                builder: (context, isPlaying, _) {
+                  return IconButton(
+                    onPressed: () {
+                      if (isPlaying) {
+                        SirenService.instance.stopSiren();
+                      } else {
+                        SirenService.instance.startSiren();
+                      }
+                    },
+                    icon: Icon(
+                      isPlaying ? Icons.volume_off_rounded : Icons.volume_up_rounded,
+                      color: isPlaying ? AppColors.sosRed : AppColors.textSecondary,
+                      size: 22,
+                    ),
+                    tooltip: isPlaying ? 'Mute Siren' : 'Play Siren',
+                  );
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 42,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      SirenService.instance.stopSiren();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => IncidentRoomScreen(
+                            alertId: alertId,
+                            initialData: widget.alertData,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.meeting_room_rounded, size: 17, color: Colors.white),
+                    label: Text(
+                      'Incident Room',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppColors.sosRed,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      elevation: 0,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 42,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      NotificationService.instance.showActiveSosDialogIfAvailable(context);
+                    },
+                    icon: const Icon(Icons.visibility_rounded, size: 16, color: AppColors.sosRed),
+                    label: Text(
+                      'View Details',
+                      style: GoogleFonts.poppins(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.sosRed,
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: AppColors.sosRed, width: 1.5),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              SizedBox(
+                height: 42,
+                child: ElevatedButton(
+                  onPressed: _isResponding ? null : _handleAcknowledge,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppColors.actionGreen,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    elevation: 0,
+                  ),
+                  child: _isResponding
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                        )
+                      : Text(
+                          "RESPOND",
+                          style: GoogleFonts.poppins(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                          ),
+                        ),
                 ),
               ),
             ],
@@ -2042,10 +2378,10 @@ class _AppBottomNav extends StatelessWidget {
             label: 'Map',
           ),
           BottomNavigationBarItem(
-            icon: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: ContactSyncService.instance.streamIncomingRequests(),
-              builder: (context, snapshot) {
-                final count = snapshot.data?.length ?? 0;
+            icon: ValueListenableBuilder<List<Map<String, dynamic>>>(
+              valueListenable: ContactSyncService.instance.incomingRequestsNotifier,
+              builder: (context, requests, _) {
+                final count = requests.length;
                 return Badge(
                   isLabelVisible: count > 0,
                   label: Text('$count', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
@@ -2054,10 +2390,10 @@ class _AppBottomNav extends StatelessWidget {
                 );
               },
             ),
-            activeIcon: StreamBuilder<List<Map<String, dynamic>>>(
-              stream: ContactSyncService.instance.streamIncomingRequests(),
-              builder: (context, snapshot) {
-                final count = snapshot.data?.length ?? 0;
+            activeIcon: ValueListenableBuilder<List<Map<String, dynamic>>>(
+              valueListenable: ContactSyncService.instance.incomingRequestsNotifier,
+              builder: (context, requests, _) {
+                final count = requests.length;
                 return Badge(
                   isLabelVisible: count > 0,
                   label: Text('$count', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),

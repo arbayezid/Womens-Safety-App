@@ -9,6 +9,7 @@ import 'services/live_tracking_service.dart';
 import 'services/notification_service.dart';
 
 import 'screens/camouflage_calculator_screen.dart';
+import 'services/contact_sync_service.dart';
 import 'services/pin_security_service.dart';
 
 /// Global navigator key enabling intrusive dialog overlays from background or notification events
@@ -48,8 +49,10 @@ void main() async {
   // Launch UI immediately so the user never sees a white screen
   runApp(const SmartSafetyApp());
 
-  // Initialize notifications & background tracking services asynchronously after the first frame renders
+  // Initialize notifications, contact sync & background tracking services asynchronously after the first frame renders
   WidgetsBinding.instance.addPostFrameCallback((_) {
+    ContactSyncService.instance.initialize();
+
     NotificationService.instance.init(rootNavigatorKey).catchError((err) {
       debugPrint('[Main] NotificationService init error: $err');
     });

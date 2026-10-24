@@ -207,33 +207,52 @@ exports.onSosAlertTriggered = onDocumentCreated("sos_alerts/{alertId}", async (e
   const messageText = alertData.message || alertData.note || `${senderName} has triggered an SOS alert!`;
 
   try {
-    // 1. Query contacts in Sender's `contacts` subcollection
-    const contactsSnap = await db.collection("users").doc(senderId).collection("contacts").get();
+    // 1. Gather candidate recipient UIDs from multiple sources:
+    // a) Explicit recipientUids written into sos_alerts document
+    const candidateUids = new Set(
+      Array.isArray(alertData.recipientUids) ? alertData.recipientUids.filter((u) => u && !u.startsWith("offline_")) : []
+    );
 
-    if (contactsSnap.empty) {
-      console.warn(`[SOS] User ${senderId} has 0 emergency contacts registered.`);
-      return;
+    // b) Query contacts in Sender's `contacts` subcollection (include both synced and pending contacts)
+    try {
+      const contactsSnap = await db.collection("users").doc(senderId).collection("contacts").get();
+      contactsSnap.docs.forEach((doc) => {
+        const d = doc.data();
+        const uid = d.contact_uid || d.contactUid || doc.id;
+        if (uid && !uid.startsWith("offline_") && !uid.startsWith("pending_")) {
+          candidateUids.add(uid);
+        }
+      });
+    } catch (e) {
+      console.warn("[SOS] Error reading sender contacts subcollection:", e);
     }
 
-    // Filter for contacts that are synced app users
-    const contactUids = [];
-    contactsSnap.docs.forEach((doc) => {
-      const d = doc.data();
-      const isSynced = d.is_synced_app_user === true || d.isSyncedAppUser === true || d.sync_status === "synced";
-      const uid = d.contact_uid || d.contactUid || doc.id;
-      if (isSynced && uid && !uid.startsWith("offline_")) {
-        contactUids.push(uid);
-      }
-    });
+    // c) If recipientEmails are present, resolve any missing UIDs
+    const recipientEmails = Array.isArray(alertData.recipientEmails)
+      ? alertData.recipientEmails.map((e) => String(e).toLowerCase().trim()).filter((e) => e.length > 0)
+      : [];
 
-    if (contactUids.length === 0) {
-      console.warn(`[SOS] User ${senderId} has no synced app users.`);
+    if (recipientEmails.length > 0) {
+      try {
+        const emailDocs = await db.collection("users")
+          .where("email", "in", recipientEmails.slice(0, 30))
+          .get();
+        emailDocs.docs.forEach((doc) => candidateUids.add(doc.id));
+      } catch (emailErr) {
+        console.warn("[SOS] Error resolving recipient emails to UIDs:", emailErr);
+      }
+    }
+
+    const targetUids = Array.from(candidateUids).filter((uid) => uid !== senderId);
+
+    if (targetUids.length === 0) {
+      console.warn(`[SOS] User ${senderId} has 0 target recipient UIDs.`);
       return;
     }
 
     // 2. Fetch fresh FCM tokens of all contacts from `users` collection
     const userDocsSnap = await db.collection("users")
-      .where(admin.firestore.FieldPath.documentId(), "in", contactUids)
+      .where(admin.firestore.FieldPath.documentId(), "in", targetUids.slice(0, 30))
       .get();
 
     const tokens = [];
@@ -249,7 +268,7 @@ exports.onSosAlertTriggered = onDocumentCreated("sos_alerts/{alertId}", async (e
     });
 
     if (tokens.length === 0) {
-      console.warn(`[SOS] No valid FCM tokens available for contacts of user ${senderId}.`);
+      console.warn(`[SOS] No valid FCM tokens available for recipients of user ${senderId}.`);
       return;
     }
 
@@ -279,8 +298,8 @@ exports.onSosAlertTriggered = onDocumentCreated("sos_alerts/{alertId}", async (e
         priority: "high",
         ttl: 0, // Instant delivery
         notification: {
-          channelId: "sos_emergency_channel",
-          sound: "emergency_siren",
+          channelId: "sos_emergency_channel_v2",
+          sound: "siren",
           defaultVibrateTimings: true,
           visibility: "public",
           color: "#FF3B30",

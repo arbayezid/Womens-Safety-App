@@ -11,6 +11,7 @@ import '../models/user_profile_model.dart';
 import 'activity_service.dart';
 import 'contact_service.dart';
 import 'contact_sync_service.dart';
+import 'notification_service.dart';
 
 /// Result wrapper for Google Authentication attempts.
 class AuthResult {
@@ -156,6 +157,8 @@ class AuthService {
         if (user != null) {
           _isGuestMode = false;
           ContactService.instance.bindUser(user.uid);
+          ContactSyncService.instance.initialize();
+          NotificationService.instance.startSosAlertStreamListener();
         } else {
           await ContactService.instance.purgeOnSignOut();
           ContactSyncService.instance.purgeOnSignOut();
@@ -169,6 +172,8 @@ class AuthService {
       if (user != null) {
         _isGuestMode = false;
         ContactService.instance.bindUser(user.uid);
+        ContactSyncService.instance.initialize();
+        NotificationService.instance.startSosAlertStreamListener();
       }
       await _loadProfileForUser(user);
     } catch (e) {
@@ -220,8 +225,9 @@ class AuthService {
         profileNotifier.value = UserProfile.fromFirebaseUser(user);
       }
 
-      // Automatically bind contacts to the active user UID
+      // Automatically bind contacts and requests to the active user UID
       ContactService.instance.bindUser(user.uid);
+      ContactSyncService.instance.initialize();
     } catch (e) {
       debugPrint('[AuthService] Error loading cloud profile: $e');
       if (user != null) {
@@ -251,6 +257,7 @@ class AuthService {
         'uid': user.uid,
         'userId': user.uid,
         'email': email,
+        'email_lowercase': email,
         'displayName': name,
         'name': name,
         'photoUrl': user.photoURL ?? currentProfile.photoUrl ?? '',
@@ -287,12 +294,14 @@ class AuthService {
           await currentUser!.reload();
           userNotifier.value = FirebaseAuth.instance.currentUser;
 
+          final normalizedEmail = (currentUser!.email ?? updatedProfile.email).toLowerCase().trim();
           // Update Firestore users/{uid} document directly
           await FirebaseFirestore.instance.collection('users').doc(currentUser!.uid).set({
             'uid': currentUser!.uid,
             'name': updatedProfile.name.trim(),
             'displayName': updatedProfile.name.trim(),
-            'email': currentUser!.email ?? updatedProfile.email,
+            'email': normalizedEmail,
+            'email_lowercase': normalizedEmail,
             'phone': updatedProfile.phone,
             'phoneNumber': updatedProfile.phone,
             'city': updatedProfile.city,

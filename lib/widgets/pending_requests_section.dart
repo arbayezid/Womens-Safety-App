@@ -10,11 +10,9 @@ class PendingRequestsSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Map<String, dynamic>>>(
-      initialData: ContactSyncService.instance.currentPendingRequests,
-      stream: ContactSyncService.instance.streamIncomingRequests(),
-      builder: (context, snapshot) {
-        final requests = snapshot.data ?? ContactSyncService.instance.currentPendingRequests;
+    return ValueListenableBuilder<List<Map<String, dynamic>>>(
+      valueListenable: ContactSyncService.instance.incomingRequestsNotifier,
+      builder: (context, requests, _) {
         if (requests.isEmpty) {
           return const SizedBox.shrink();
         }

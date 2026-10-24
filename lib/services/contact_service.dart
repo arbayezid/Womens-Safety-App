@@ -124,7 +124,7 @@ class ContactService extends ChangeNotifier {
   /// Dynamically binds the contact service to the authenticated user's Firestore subcollection:
   /// `users/{uid}/contacts`.
   void bindUser(String? uid) {
-    if (uid == _currentBoundUid && _isInitialized) return;
+    if (uid == _currentBoundUid && _isInitialized && _firestoreSubscription != null) return;
 
     _firestoreSubscription?.cancel();
     _firestoreSubscription = null;
@@ -164,6 +164,12 @@ class ContactService extends ChangeNotifier {
         saveToDiskCache(uid);
       }, onError: (e) {
         debugPrint('[ContactService] Firestore contacts stream notice: $e');
+        _firestoreSubscription = null;
+        Timer(const Duration(seconds: 4), () {
+          if (_currentBoundUid == uid && _firestoreSubscription == null) {
+            bindUser(uid);
+          }
+        });
       });
     }
   }

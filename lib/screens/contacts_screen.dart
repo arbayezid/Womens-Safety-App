@@ -48,6 +48,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
     ContactService.instance.contactsNotifier.addListener(_onContactsChanged);
     ContactSyncService.instance.incomingRequestsNotifier.addListener(_onIncomingRequestsChanged);
 
+    ContactSyncService.instance.initialize();
     _loadContacts();
     _subscribeToSyncedContacts();
   }
@@ -57,6 +58,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     super.didUpdateWidget(oldWidget);
     // When tab becomes active in IndexedStack, immediately refresh both contacts and requests
     if (!oldWidget.isActive && widget.isActive) {
+      ContactSyncService.instance.initialize();
+      _subscribeToSyncedContacts();
       _loadContacts();
     }
   }
@@ -72,7 +75,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _onIncomingRequestsChanged() {
     if (mounted) {
-      setState(() {});
+      setState(() {
+        _contacts = ContactService.instance.contacts;
+      });
     }
   }
 
@@ -81,6 +86,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
     _contactsSubscription =
         ContactSyncService.instance.streamSyncedContacts().listen((synced) {
       ContactService.instance.syncFromCloud(synced);
+    }, onError: (err) {
+      debugPrint('[ContactsScreen] synced contacts stream error: $err');
     });
   }
 
@@ -510,6 +517,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
         );
 
         if (confirmed == true) {
+          if (mounted) {
+            setState(() {
+              _contacts.removeWhere((c) => c.id == contact.id || (contact.contactUid != null && c.contactUid == contact.contactUid));
+            });
+          }
           // Permanently delete across Firestore (both directions) and local storage
           await ContactSyncService.instance.deleteSyncedContact(contact);
           await _loadContacts();

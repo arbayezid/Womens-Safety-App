@@ -428,10 +428,14 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 decoration: InputDecoration(
                   hintText: 'e.g. +88017XXXXXXXX',
                   helperText: _phoneCtrl.text.trim().isEmpty
-                      ? 'Without a phone number, this contact will only receive alerts if they use the Woman Guard app, and cannot receive alerts when you are offline.'
-                      : 'No OTP verification required. Used for direct offline SMS.',
+                      ? '⚠️ Recommended: Without a phone number, emergency SMS cannot be dispatched to this person.'
+                      : '✅ Configured for direct emergency SMS with live GPS location.',
                   helperMaxLines: 3,
-                  helperStyle: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
+                  helperStyle: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: _phoneCtrl.text.trim().isEmpty ? Colors.orange.shade800 : AppColors.actionGreen,
+                    fontWeight: FontWeight.w500,
+                  ),
                   prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.actionGreen),
                   filled: true,
                   fillColor: AppColors.background,

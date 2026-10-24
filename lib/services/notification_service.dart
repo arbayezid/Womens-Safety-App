@@ -1,15 +1,19 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../firebase_options.dart';
+import '../screens/incident_room_screen.dart';
 import '../widgets/intrusive_sos_dialog.dart';
 import 'activity_service.dart';
 import 'contact_sync_service.dart';
+import 'siren_service.dart';
 
 /// Top-level background message handler for FCM.
 @pragma('vm:entry-point')
@@ -42,10 +46,18 @@ class NotificationService {
   StreamSubscription<QuerySnapshot>? _sosAlertsSubscription;
   StreamSubscription<QuerySnapshot>? _sosAlertsSubUid;
   StreamSubscription<QuerySnapshot>? _sosAlertsSubEmail;
+  Timer? _heartbeatTimer;
   final Map<String, Map<String, dynamic>> _liveActiveAlerts = {};
   final Set<String> _shownAlertIds = {};
   final Set<String> _dismissedAlertIds = {};
   bool _isSosDialogShowing = false;
+
+  /// Observable reactive notifier emitting the latest active incoming SOS alert payload (or null when none active).
+  /// Listened by [HomeScreen] and [IntrusiveSosDialog] for immediate real-time UI reaction without reload.
+  final ValueNotifier<Map<String, dynamic>?> activeIncomingSosNotifier =
+      ValueNotifier<Map<String, dynamic>?>(null);
+
+  bool get isSosDialogShowing => _isSosDialogShowing;
 
   StreamSubscription<List<Map<String, dynamic>>>? _requestsSubscription;
   final Set<String> _shownRequestIds = {};
@@ -75,17 +87,40 @@ class NotificationService {
           initSettings,
           onDidReceiveNotificationResponse: (NotificationResponse response) {
             debugPrint('[LocalNotification] Clicked notification: ${response.payload}');
+            // Stop siren immediately when notification is tapped
+            SirenService.instance.stopSiren();
+            final context = _navigatorKey?.currentContext;
+            if (context != null) {
+              final activeAlert = activeIncomingSosNotifier.value;
+              if (activeAlert != null) {
+                final alertId = activeAlert['alertId']?.toString() ?? '';
+                if (alertId.isNotEmpty) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => IncidentRoomScreen(
+                        alertId: alertId,
+                        initialData: activeAlert,
+                      ),
+                    ),
+                  );
+                }
+              }
+            }
           },
         );
 
-        // Create high-importance Android Notification Channel for SOS
-        const AndroidNotificationChannel sosChannel = AndroidNotificationChannel(
-          'sos_emergency_channel',
+        // High-importance Android Notification Channel with Siren Sound for SOS
+        final AndroidNotificationChannel sosChannelV2 = AndroidNotificationChannel(
+          'sos_emergency_channel_v2',
           'SOS Emergency Alerts',
-          description: 'High-priority emergency alerts triggered by mutual contacts.',
+          description: 'High-priority emergency alerts with audible siren sound triggered by mutual contacts.',
           importance: Importance.max,
+          sound: const RawResourceAndroidNotificationSound('siren'),
           playSound: true,
           enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 1000, 500, 1000, 500, 1000]),
+          enableLights: true,
+          ledColor: const Color(0xFFFF3B30),
         );
 
         // High-importance Android Notification Channel for Safe Journey Dead-Man's safety check
@@ -101,9 +136,13 @@ class NotificationService {
         final androidPlugin = _localNotifications
             .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
         if (androidPlugin != null) {
-          await androidPlugin.createNotificationChannel(sosChannel);
+          await androidPlugin.createNotificationChannel(sosChannelV2);
           await androidPlugin.createNotificationChannel(safetyCheckChannel);
+          await androidPlugin.requestNotificationsPermission();
         }
+        try {
+          await Permission.notification.request();
+        } catch (_) {}
       } catch (localErr) {
         debugPrint('[FCM] Local notifications init error: $localErr');
       }
@@ -134,6 +173,7 @@ class NotificationService {
           final alertId = message.data['alertId']?.toString() ?? '';
           if (alertId.isEmpty || !_shownAlertIds.contains(alertId)) {
             if (alertId.isNotEmpty) _shownAlertIds.add(alertId);
+            SirenService.instance.startSiren();
             _showIntrusiveSosDialog(message.data);
           }
         } else {
@@ -144,6 +184,7 @@ class NotificationService {
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         debugPrint('[FCM App Opened] Message clicked: ${message.data}');
         if (message.data['type'] == 'SOS_ALERT') {
+          SirenService.instance.startSiren();
           _showIntrusiveSosDialog(message.data);
         }
       });
@@ -153,9 +194,9 @@ class NotificationService {
       // 4. Obtain and synchronize device FCM Token safely with timeout
       try {
         final token = await _fcm.getToken().timeout(
-          const Duration(seconds: 6),
+          const Duration(seconds: 4),
           onTimeout: () {
-            debugPrint('[FCM] getToken() timed out after 6s. Continuing.');
+            debugPrint('[FCM] getToken() timed out after 4s. Continuing.');
             return null;
           },
         );
@@ -188,6 +229,8 @@ class NotificationService {
         } else {
           _cancelSosAlertsSubscriptions();
           _requestsSubscription?.cancel();
+          activeIncomingSosNotifier.value = null;
+          SirenService.instance.stopSiren();
         }
       });
 
@@ -217,6 +260,11 @@ class NotificationService {
   Future<void> dismissAlert(String alertId) async {
     _shownAlertIds.add(alertId);
     _dismissedAlertIds.add(alertId);
+    SirenService.instance.stopSiren();
+
+    if (activeIncomingSosNotifier.value?['alertId'] == alertId) {
+      activeIncomingSosNotifier.value = null;
+    }
 
     // 1. Persist locally to SharedPreferences so it never re-shows even across process kill
     try {
@@ -255,6 +303,7 @@ class NotificationService {
   Future<void> acknowledgeAlert(String alertId) async {
     _shownAlertIds.add(alertId);
     _dismissedAlertIds.add(alertId);
+    SirenService.instance.stopSiren();
 
     // 1. Persist locally to SharedPreferences
     try {
@@ -311,11 +360,7 @@ class NotificationService {
     } catch (_) {}
   }
 
-  /// Subscribes to real-time Cloud Firestore `sos_alerts` collection to receive
-  /// instant in-app alerts directly, without requiring deployed Cloud Functions.
-  ///
-  /// Deduplicates multiple SOS button presses from the same sender and shows
-  /// ONLY the single latest alert with timing, and never re-shows dismissed alerts.
+  /// Cancels all active Firestore subscriptions and timers
   void _cancelSosAlertsSubscriptions() {
     _sosAlertsSubscription?.cancel();
     _sosAlertsSubscription = null;
@@ -323,6 +368,8 @@ class NotificationService {
     _sosAlertsSubUid = null;
     _sosAlertsSubEmail?.cancel();
     _sosAlertsSubEmail = null;
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
   }
 
   /// Subscribes to real-time Cloud Firestore `sos_alerts` collection to receive
@@ -359,29 +406,45 @@ class NotificationService {
       _processIncomingSosAlerts(myUid, myEmail);
     }
 
-    // 1. Rule-compatible query: recipientUids arrayContains myUid
+    // 1. Single-field query: recipientUids arrayContains myUid (Zero composite index required!)
     _sosAlertsSubUid = FirebaseFirestore.instance
         .collection('sos_alerts')
         .where('recipientUids', arrayContains: myUid)
-        .where('status', isEqualTo: 'active')
         .snapshots()
         .listen(
           (snap) => handleAlertSnapshot('uid', snap),
-          onError: (err) => debugPrint('[NotificationService] SOS UID stream error: $err'),
+          onError: (err) {
+            debugPrint('[NotificationService] SOS UID stream error: $err');
+            _sosAlertsSubUid = null;
+          },
         );
 
-    // 2. Rule-compatible query: recipientEmails arrayContains myEmail
+    // 2. Single-field query: recipientEmails arrayContains myEmail (Zero composite index required!)
     if (myEmail.isNotEmpty) {
       _sosAlertsSubEmail = FirebaseFirestore.instance
           .collection('sos_alerts')
           .where('recipientEmails', arrayContains: myEmail)
-          .where('status', isEqualTo: 'active')
           .snapshots()
           .listen(
             (snap) => handleAlertSnapshot('email', snap),
-            onError: (err) => debugPrint('[NotificationService] SOS Email stream error: $err'),
+            onError: (err) {
+              debugPrint('[NotificationService] SOS Email stream error: $err');
+              _sosAlertsSubEmail = null;
+            },
           );
     }
+
+    // 3. Periodic heartbeat timer (every 4 seconds) ensuring real-time resilience and sync
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) return;
+      if (_sosAlertsSubUid == null || (myEmail.isNotEmpty && _sosAlertsSubEmail == null)) {
+        startSosAlertStreamListener();
+      } else {
+        _processIncomingSosAlerts(myUid, myEmail);
+      }
+    });
   }
 
   void _processIncomingSosAlerts(String myUid, String myEmail) {
@@ -391,6 +454,12 @@ class NotificationService {
       final alertId = entry.key;
       final data = entry.value['data'] as Map<String, dynamic>;
       final doc = entry.value['doc'];
+
+      // Only process actively running alerts
+      final status = (data['status'] ?? '').toString().toLowerCase();
+      if (status != 'active') {
+        continue;
+      }
 
       final senderId = (data['senderId'] ?? data['sender_uid'])?.toString();
       if (senderId == myUid) {
@@ -410,14 +479,30 @@ class NotificationService {
         continue;
       }
 
-      // Check timestamp: ignore stale alerts older than 60 minutes
+      // Robust timestamp parsing (Timestamp, DateTime, int, or String)
       final dynamic rawTime = data['triggeredAt'] ?? data['timestamp'];
       DateTime alertDate = DateTime.now();
       if (rawTime is Timestamp) {
         alertDate = rawTime.toDate();
-        if (DateTime.now().difference(alertDate).inMinutes > 60) {
-          continue;
+      } else if (rawTime is DateTime) {
+        alertDate = rawTime;
+      } else if (rawTime is int) {
+        alertDate = DateTime.fromMillisecondsSinceEpoch(rawTime);
+      } else if (rawTime is String) {
+        final parsed = DateTime.tryParse(rawTime);
+        if (parsed != null) {
+          alertDate = parsed;
+        } else {
+          final ms = int.tryParse(rawTime);
+          if (ms != null) {
+            alertDate = DateTime.fromMillisecondsSinceEpoch(ms);
+          }
         }
+      }
+
+      // Ignore stale alerts older than 3 hours
+      if (DateTime.now().difference(alertDate).inHours.abs() > 3) {
+        continue;
       }
 
       // Check if current user is an intended recipient
@@ -439,7 +524,13 @@ class NotificationService {
       });
     }
 
-    if (eligibleAlerts.isEmpty) return;
+    if (eligibleAlerts.isEmpty) {
+      if (activeIncomingSosNotifier.value != null) {
+        activeIncomingSosNotifier.value = null;
+        SirenService.instance.stopSiren();
+      }
+      return;
+    }
 
     // Deduplicate: Sort by alertDate descending so newest is first
     eligibleAlerts.sort((a, b) =>
@@ -458,7 +549,30 @@ class NotificationService {
       return sid == senderId;
     }).length;
 
-    // Only present if this latest alert hasn't already been displayed
+    final alertPayload = {
+      'type': 'SOS_ALERT',
+      'alertId': latestAlertId,
+      'senderName': latestData['senderName'] ?? latestData['sender_name'] ?? 'Emergency Contact',
+      'senderEmail': latestData['senderEmail'] ?? latestData['sender_email'] ?? '',
+      'senderPhone': latestData['senderPhone'] ?? latestData['sender_phone'] ?? '',
+      'address': latestData['location']?['address'] ?? latestData['address'] ?? 'Live GPS Location Available',
+      'googleMapsUrl': latestData['google_maps_url'] ?? latestData['location']?['googleMapsUrl'] ?? '',
+      'latitude': latestData['latitude']?.toString() ?? latestData['location']?['latitude']?.toString() ?? '',
+      'longitude': latestData['longitude']?.toString() ?? latestData['location']?['longitude']?.toString() ?? '',
+      'message': latestData['message'] ?? latestData['note'] ?? 'Emergency SOS Alert triggered!',
+      'triggeredAt': latestDate.toIso8601String(),
+      'alertDate': latestDate,
+      'totalPresses': totalPresses,
+      'isDuress': latestData['isDuress'] == true,
+      'status': 'active',
+      'batteryLevel': (latestData['batteryLevel'] as num?)?.toInt(),
+      'liveLocation': latestData['liveLocation'],
+    };
+
+    // Update active incoming alert notifier for homepage & reactive UI
+    activeIncomingSosNotifier.value = alertPayload;
+
+    // Only present notification / modal once per unique active alert
     if (!_shownAlertIds.contains(latestAlertId)) {
       // Mark all older alerts from this sender as processed so they don't trigger subsequently
       for (final a in eligibleAlerts) {
@@ -467,29 +581,16 @@ class NotificationService {
 
       debugPrint('[NotificationService] 🚨 In-App SOS alert (latest of $totalPresses) detected for $myEmail from ${latestData['senderName']}!');
 
-      final alertPayload = {
-        'type': 'SOS_ALERT',
-        'alertId': latestAlertId,
-        'senderName': latestData['senderName'] ?? latestData['sender_name'] ?? 'Emergency Contact',
-        'senderEmail': latestData['senderEmail'] ?? latestData['sender_email'] ?? '',
-        'senderPhone': latestData['senderPhone'] ?? latestData['sender_phone'] ?? '',
-        'address': latestData['location']?['address'] ?? latestData['address'] ?? 'Live GPS Location Available',
-        'googleMapsUrl': latestData['google_maps_url'] ?? latestData['location']?['googleMapsUrl'] ?? '',
-        'latitude': latestData['latitude']?.toString() ?? latestData['location']?['latitude']?.toString() ?? '',
-        'longitude': latestData['longitude']?.toString() ?? latestData['location']?['longitude']?.toString() ?? '',
-        'message': latestData['message'] ?? latestData['note'] ?? 'Emergency SOS Alert triggered!',
-        'triggeredAt': latestDate.toIso8601String(),
-        'alertDate': latestDate,
-        'totalPresses': totalPresses,
-      };
+      // 1. Start loud siren sound immediately!
+      SirenService.instance.startSiren();
 
-      // 1. Pop up intrusive fullscreen dialog
+      // 2. Pop up intrusive fullscreen dialog
       _showIntrusiveSosDialog(alertPayload);
 
-      // 2. Show local heads-up notification banner with sound
+      // 3. Show local heads-up notification banner with siren sound
       _showLocalSosAlertBanner(
         title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
-        body: '${latestData['senderName']} needs immediate help! Tap to view live location.',
+        body: '${latestData['senderName']} needs immediate help! Tap to view live location & incident command.',
         payload: alertPayload,
       );
     }
@@ -526,7 +627,7 @@ class NotificationService {
     if (notification == null) return;
 
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'sos_emergency_channel',
+      'sos_emergency_channel_v2',
       'SOS Emergency Alerts',
       channelDescription: 'High-priority notifications',
       importance: Importance.max,
@@ -545,32 +646,49 @@ class NotificationService {
     );
   }
 
-  /// Displays high-priority heads-up local alert banner for active SOS emergencies
+  /// Displays high-priority heads-up local alert banner for active SOS emergencies with siren sound
   Future<void> _showLocalSosAlertBanner({
     required String title,
     required String body,
     required Map<String, dynamic> payload,
   }) async {
-    const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'sos_emergency_channel',
+    final Int64List vibrationPattern = Int64List.fromList([0, 1000, 500, 1000, 500, 1000]);
+
+    final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+      'sos_emergency_channel_v2',
       'SOS Emergency Alerts',
       channelDescription: 'High-priority emergency alerts triggered by mutual contacts.',
       importance: Importance.max,
       priority: Priority.max,
+      sound: const RawResourceAndroidNotificationSound('siren'),
       playSound: true,
       enableVibration: true,
-      color: Color(0xFFFF3B30),
+      vibrationPattern: vibrationPattern,
+      color: const Color(0xFFFF3B30),
       fullScreenIntent: true,
+      category: AndroidNotificationCategory.alarm,
+      ticker: 'EMERGENCY SOS ALERT',
     );
 
-    const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+    const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      sound: 'siren.mp3',
+      interruptionLevel: InterruptionLevel.critical,
+    );
+
+    final NotificationDetails platformDetails = NotificationDetails(
+      android: androidDetails,
+      iOS: iosDetails,
+    );
 
     await _localNotifications.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       platformDetails,
-      payload: payload['type'],
+      payload: 'SOS_ALERT',
     );
   }
 
@@ -580,7 +698,7 @@ class NotificationService {
     required String senderEmail,
   }) async {
     const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
-      'sos_emergency_channel',
+      'sos_emergency_channel_v2',
       'SOS Emergency Alerts',
       channelDescription: 'Emergency guardian connection requests.',
       importance: Importance.max,
@@ -601,21 +719,31 @@ class NotificationService {
     );
   }
 
-  /// Displays the full-featured Intrusive SOS Dialog overlay without stacking multiple dialogs
+  /// Displays the full-featured Intrusive SOS Dialog overlay with multi-attempt context polling
   void _showIntrusiveSosDialog(Map<String, dynamic> data) {
-    final context = _navigatorKey?.currentContext;
-    if (context == null) {
-      debugPrint('[NotificationService] Navigator context temporarily unavailable, retrying in 500ms...');
-      Future.delayed(const Duration(milliseconds: 500), () {
-        final retryContext = _navigatorKey?.currentContext;
-        if (retryContext != null && retryContext.mounted) {
-          _displayDialog(retryContext, data);
-        }
-      });
-      return;
+    int attempts = 0;
+    void tryDisplay() {
+      final context = _navigatorKey?.currentContext;
+      if (context != null && context.mounted) {
+        _displayDialog(context, data);
+      } else if (attempts < 15) {
+        attempts++;
+        Future.delayed(const Duration(milliseconds: 300), tryDisplay);
+      } else {
+        debugPrint('[NotificationService] Navigator context unavailable after 15 attempts.');
+      }
     }
+    tryDisplay();
+  }
 
-    _displayDialog(context, data);
+  /// Displays the full-featured Intrusive SOS Dialog overlay if there is an active incoming alert
+  /// that has not been dismissed. Can be called when [HomeScreen] mounts or returns to foreground.
+  void showActiveSosDialogIfAvailable(BuildContext context) {
+    final alert = activeIncomingSosNotifier.value;
+    if (alert == null || _isSosDialogShowing) return;
+    final alertId = alert['alertId']?.toString() ?? '';
+    if (alertId.isNotEmpty && _dismissedAlertIds.contains(alertId)) return;
+    _displayDialog(context, alert);
   }
 
   void _displayDialog(BuildContext context, Map<String, dynamic> data) {
@@ -633,10 +761,12 @@ class NotificationService {
         data: data,
         onDismissed: () {
           _isSosDialogShowing = false;
+          SirenService.instance.stopSiren();
         },
       ),
     ).then((_) {
       _isSosDialogShowing = false;
+      SirenService.instance.stopSiren();
     });
   }
 

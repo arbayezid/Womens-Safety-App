@@ -134,17 +134,25 @@ class SosCloudDispatcher {
       }
 
       // Resolve any missing recipient UIDs from their emails in parallel
-      if (resolvedUids.isEmpty && resolvedEmails.isNotEmpty) {
+      if (resolvedEmails.isNotEmpty) {
         try {
           await Future.wait(
             resolvedEmails.map((email) async {
               try {
-                final snap = await _firestore
+                var snap = await _firestore
                     .collection('users')
                     .where('email', isEqualTo: email)
                     .limit(1)
                     .get()
                     .timeout(const Duration(seconds: 2));
+                if (snap.docs.isEmpty) {
+                  snap = await _firestore
+                      .collection('users')
+                      .where('user_email', isEqualTo: email)
+                      .limit(1)
+                      .get()
+                      .timeout(const Duration(seconds: 2));
+                }
                 if (snap.docs.isNotEmpty) {
                   final foundUid = snap.docs.first.id;
                   if (!resolvedUids.contains(foundUid)) {

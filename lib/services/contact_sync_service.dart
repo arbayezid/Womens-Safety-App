@@ -43,6 +43,13 @@ class ContactSyncService {
   StreamSubscription? _subUidSnake;
   StreamSubscription? _subEmail;
   StreamSubscription? _subEmailCamel;
+  StreamSubscription? _subSentRequests;
+  Timer? _heartbeatTimer;
+
+  final Map<String, Map<String, dynamic>> _docsByReceiverId = {};
+  final Map<String, Map<String, dynamic>> _docsByReceiverUid = {};
+  final Map<String, Map<String, dynamic>> _docsByReceiverEmail = {};
+  final Map<String, Map<String, dynamic>> _docsByReceiverEmailCamel = {};
   final Map<String, Map<String, dynamic>> _requestsMap = {};
   final StreamController<List<Map<String, dynamic>>> _broadcastRequestsController =
       StreamController<List<Map<String, dynamic>>>.broadcast();
@@ -55,6 +62,30 @@ class ContactSyncService {
   List<Map<String, dynamic>> get currentPendingRequests =>
       List.unmodifiable(incomingRequestsNotifier.value);
 
+  /// Ensures active listener to Firebase Auth state, real-time requests, and auto-sync heartbeat.
+  void initialize() {
+    _initAuthAndRequestsListener();
+    _startHeartbeatTimer();
+    final uid = _currentUid;
+    final email = _currentEmail;
+    if (uid != null || email != null) {
+      _startRequestsListeners(uid ?? '', email ?? '');
+      refreshIncomingRequests();
+    }
+  }
+
+  void _startHeartbeatTimer() {
+    _heartbeatTimer?.cancel();
+    // Periodic auto-sync guarantees real-time UI updates without requiring manual reload
+    _heartbeatTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      final user = _auth.currentUser;
+      if (user != null) {
+        refreshIncomingRequests();
+        ContactService.instance.getContacts(forceRefresh: true);
+      }
+    });
+  }
+
   void _initAuthAndRequestsListener() {
     if (!_isFirebaseReady) return;
     try {
@@ -64,11 +95,11 @@ class ContactSyncService {
           final uid = user.uid;
           final email = (user.email ?? '').toLowerCase().trim();
           _startRequestsListeners(uid, email);
+          _startHeartbeatTimer();
           refreshIncomingRequests();
         } else {
           _cancelRequestsSubscriptions();
-          _requestsMap.clear();
-          _notifyIncomingRequests();
+          _clearAllRequests();
         }
       }, onError: (e) {
         debugPrint('[ContactSync] Auth state listener notice: $e');
@@ -79,6 +110,10 @@ class ContactSyncService {
   }
 
   void _cancelRequestsSubscriptions() {
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = null;
+    _subSentRequests?.cancel();
+    _subSentRequests = null;
     _subUid?.cancel();
     _subUidSnake?.cancel();
     _subEmail?.cancel();
@@ -89,47 +124,91 @@ class ContactSyncService {
     _subEmailCamel = null;
   }
 
+  void _clearAllRequests() {
+    _docsByReceiverId.clear();
+    _docsByReceiverUid.clear();
+    _docsByReceiverEmail.clear();
+    _docsByReceiverEmailCamel.clear();
+    _requestsMap.clear();
+    _notifyIncomingRequests();
+  }
+
   /// Cancels all active Firestore subscriptions and clears in-memory pending request state.
   void purgeOnSignOut() {
     _cancelRequestsSubscriptions();
-    _requestsMap.clear();
-    _notifyIncomingRequests();
+    _clearAllRequests();
   }
 
   void _startRequestsListeners(String uid, String email) {
     _cancelRequestsSubscriptions();
     final normalizedEmail = email.toLowerCase().trim();
 
-    void updateSource(String sourceKey, QuerySnapshot<Map<String, dynamic>> snap) {
-      _requestsMap.removeWhere((key, val) => val['_source'] == sourceKey);
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        if (data['status'] == 'pending') {
-          _requestsMap[doc.id] = {'docId': doc.id, '_source': sourceKey, ...data};
-        }
-      }
-      _notifyIncomingRequests();
-    }
-
     if (uid.isNotEmpty) {
       _subUid = _firestore
           .collection('connection_requests')
           .where('receiverId', isEqualTo: uid)
-          .where('status', isEqualTo: 'pending')
           .snapshots()
           .listen(
-            (snap) => updateSource('uid', snap),
-            onError: (e) => debugPrint('[ContactSync] receiverId listener error: $e'),
+            (snap) {
+              _docsByReceiverId.clear();
+              for (final doc in snap.docs) {
+                final data = doc.data();
+                if (data['status'] == 'pending') {
+                  _docsByReceiverId[doc.id] = {'docId': doc.id, ...data};
+                }
+              }
+              _updateMergedRequests();
+            },
+            onError: (e) {
+              debugPrint('[ContactSync] receiverId listener error: $e');
+              _subUid = null;
+            },
           );
 
       _subUidSnake = _firestore
           .collection('connection_requests')
           .where('receiver_uid', isEqualTo: uid)
-          .where('status', isEqualTo: 'pending')
           .snapshots()
           .listen(
-            (snap) => updateSource('uid_snake', snap),
-            onError: (e) => debugPrint('[ContactSync] receiver_uid listener error: $e'),
+            (snap) {
+              _docsByReceiverUid.clear();
+              for (final doc in snap.docs) {
+                final data = doc.data();
+                if (data['status'] == 'pending') {
+                  _docsByReceiverUid[doc.id] = {'docId': doc.id, ...data};
+                }
+              }
+              _updateMergedRequests();
+            },
+            onError: (e) {
+              debugPrint('[ContactSync] receiver_uid listener error: $e');
+              _subUidSnake = null;
+            },
+          );
+
+      // Real-time listener for requests SENT by the current user:
+      // When the recipient accepts or declines, this updates the contact list instantly without reload!
+      _subSentRequests = _firestore
+          .collection('connection_requests')
+          .where('senderId', isEqualTo: uid)
+          .snapshots()
+          .listen(
+            (snap) {
+              bool needsRefresh = false;
+              for (final doc in snap.docs) {
+                final status = doc.data()['status'];
+                if (status == 'accepted' || status == 'rejected' || status == 'cancelled') {
+                  needsRefresh = true;
+                }
+              }
+              if (needsRefresh) {
+                ContactService.instance.getContacts(forceRefresh: true);
+              }
+            },
+            onError: (e) {
+              debugPrint('[ContactSync] senderId listener notice: $e');
+              _subSentRequests = null;
+            },
           );
     }
 
@@ -137,23 +216,62 @@ class ContactSyncService {
       _subEmail = _firestore
           .collection('connection_requests')
           .where('receiver_email', isEqualTo: normalizedEmail)
-          .where('status', isEqualTo: 'pending')
           .snapshots()
           .listen(
-            (snap) => updateSource('email', snap),
-            onError: (e) => debugPrint('[ContactSync] receiver_email listener error: $e'),
+            (snap) {
+              _docsByReceiverEmail.clear();
+              for (final doc in snap.docs) {
+                final data = doc.data();
+                if (data['status'] == 'pending') {
+                  _docsByReceiverEmail[doc.id] = {'docId': doc.id, ...data};
+                }
+              }
+              _updateMergedRequests();
+            },
+            onError: (e) {
+              debugPrint('[ContactSync] receiver_email listener notice: $e');
+              _subEmail = null;
+            },
           );
 
       _subEmailCamel = _firestore
           .collection('connection_requests')
           .where('receiverEmail', isEqualTo: normalizedEmail)
-          .where('status', isEqualTo: 'pending')
           .snapshots()
           .listen(
-            (snap) => updateSource('email_camel', snap),
-            onError: (e) => debugPrint('[ContactSync] receiverEmail listener error: $e'),
+            (snap) {
+              _docsByReceiverEmailCamel.clear();
+              for (final doc in snap.docs) {
+                final data = doc.data();
+                if (data['status'] == 'pending') {
+                  _docsByReceiverEmailCamel[doc.id] = {'docId': doc.id, ...data};
+                }
+              }
+              _updateMergedRequests();
+            },
+            onError: (e) {
+              debugPrint('[ContactSync] receiverEmail listener notice: $e');
+              _subEmailCamel = null;
+            },
           );
     }
+  }
+
+  void _updateMergedRequests() {
+    final Map<String, Map<String, dynamic>> merged = {};
+    for (final map in [
+      _docsByReceiverId,
+      _docsByReceiverUid,
+      _docsByReceiverEmail,
+      _docsByReceiverEmailCamel,
+    ]) {
+      merged.addAll(map);
+    }
+
+    _requestsMap
+      ..clear()
+      ..addAll(merged);
+    _notifyIncomingRequests();
   }
 
   void _notifyIncomingRequests() {
@@ -201,7 +319,7 @@ class ContactSyncService {
           .where('email', isEqualTo: normalized)
           .limit(1)
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 10));
 
       if (query.docs.isEmpty) {
         // Fallback check with trimmed original casing
@@ -210,7 +328,7 @@ class ContactSyncService {
             .where('email', isEqualTo: rawEmail.trim())
             .limit(1)
             .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 3));
+            .timeout(const Duration(seconds: 8));
       }
 
       if (query.docs.isEmpty) {
@@ -220,7 +338,17 @@ class ContactSyncService {
             .where('user_email', isEqualTo: normalized)
             .limit(1)
             .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 3));
+            .timeout(const Duration(seconds: 8));
+      }
+
+      if (query.docs.isEmpty) {
+        // Fallback check with email_lowercase field
+        query = await _firestore
+            .collection('users')
+            .where('email_lowercase', isEqualTo: normalized)
+            .limit(1)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 8));
       }
 
       if (query.docs.isEmpty) {
@@ -325,7 +453,7 @@ class ContactSyncService {
           .collection('connection_requests')
           .doc(requestId)
           .get(const GetOptions(source: Source.serverAndCache))
-          .timeout(const Duration(seconds: 2));
+          .timeout(const Duration(seconds: 6));
       if (existingReq.exists && existingReq.data()?['status'] == 'pending') {
         throw Exception('A connection request is already pending for this user.');
       }
@@ -334,7 +462,7 @@ class ContactSyncService {
       debugPrint('[ContactSync] Existing request check notice: $e');
     }
 
-    // 3. Write new pending connection request to Firestore (with timeout and offline queuing)
+    // 3. Write new pending connection request to Firestore (with 15s timeout and offline queuing)
     try {
       await _firestore.collection('connection_requests').doc(requestId).set({
         'requestId': requestId,
@@ -357,9 +485,10 @@ class ContactSyncService {
         'status': 'pending',
         'createdAt': FieldValue.serverTimestamp(),
         'respondedAt': null,
-      }, SetOptions(merge: true)).timeout(const Duration(seconds: 3));
+      }, SetOptions(merge: true)).timeout(const Duration(seconds: 15));
+      debugPrint('[ContactSync] ✅ Connection request uploaded to Firestore: $requestId');
     } catch (e) {
-      debugPrint('[ContactSync] Firestore connection request queued in offline cache: $e');
+      debugPrint('[ContactSync] ⚠️ Firestore connection request queued in offline cache: $e');
     }
 
     // 4. Save into Sender A's contacts list as pending
@@ -387,13 +516,15 @@ class ContactSyncService {
           .collection('contacts')
           .doc(contactId)
           .set(contactModel.toMap(), SetOptions(merge: true))
-          .timeout(const Duration(seconds: 3));
+          .timeout(const Duration(seconds: 10));
     } catch (e) {
       debugPrint('[ContactSync] Firestore contact write queued in offline cache: $e');
     }
 
     // 5. Always persist locally in SharedPreferences for offline SMS fallback
     await ContactService.instance.addContact(contactModel);
+    unawaited(ContactService.instance.getContacts(forceRefresh: true));
+    unawaited(refreshIncomingRequests());
 
     debugPrint('[ContactSync] ✅ Successfully saved contact and dispatched request: $requestId');
   }
@@ -473,43 +604,67 @@ class ContactSyncService {
       debugPrint('[ContactSync] 🔄 Actively refreshing incoming connection requests...');
       final normalizedEmail = (email ?? '').toLowerCase().trim();
 
-      final List<QuerySnapshot<Map<String, dynamic>>> results = await Future.wait([
-        if (uid != null && uid.isNotEmpty) ...[
-          _firestore
-              .collection('connection_requests')
-              .where('receiverId', isEqualTo: uid)
-              .where('status', isEqualTo: 'pending')
-              .get(const GetOptions(source: Source.serverAndCache)),
-          _firestore
-              .collection('connection_requests')
-              .where('receiver_uid', isEqualTo: uid)
-              .where('status', isEqualTo: 'pending')
-              .get(const GetOptions(source: Source.serverAndCache)),
-        ],
-        if (normalizedEmail.isNotEmpty) ...[
-          _firestore
-              .collection('connection_requests')
-              .where('receiver_email', isEqualTo: normalizedEmail)
-              .where('status', isEqualTo: 'pending')
-              .get(const GetOptions(source: Source.serverAndCache)),
-          _firestore
-              .collection('connection_requests')
-              .where('receiverEmail', isEqualTo: normalizedEmail)
-              .where('status', isEqualTo: 'pending')
-              .get(const GetOptions(source: Source.serverAndCache)),
-        ],
-      ]);
-
-      _requestsMap.clear();
-      for (final snap in results) {
-        for (final doc in snap.docs) {
-          final data = doc.data();
-          if (data['status'] == 'pending') {
-            _requestsMap[doc.id] = {'docId': doc.id, ...data};
-          }
+      Future<QuerySnapshot<Map<String, dynamic>>?> safeGet(Query<Map<String, dynamic>> q) async {
+        try {
+          return await q
+              .get(const GetOptions(source: Source.serverAndCache))
+              .timeout(const Duration(seconds: 8));
+        } catch (e) {
+          debugPrint('[ContactSync] Safe get notice: $e');
+          return null;
         }
       }
-      _notifyIncomingRequests();
+
+      final futures = <Future<void>>[];
+
+      if (uid != null && uid.isNotEmpty) {
+        futures.add(safeGet(_firestore.collection('connection_requests').where('receiverId', isEqualTo: uid)).then((snap) {
+          if (snap != null) {
+            _docsByReceiverId.clear();
+            for (final doc in snap.docs) {
+              if (doc.data()['status'] == 'pending') {
+                _docsByReceiverId[doc.id] = {'docId': doc.id, ...doc.data()};
+              }
+            }
+          }
+        }));
+        futures.add(safeGet(_firestore.collection('connection_requests').where('receiver_uid', isEqualTo: uid)).then((snap) {
+          if (snap != null) {
+            _docsByReceiverUid.clear();
+            for (final doc in snap.docs) {
+              if (doc.data()['status'] == 'pending') {
+                _docsByReceiverUid[doc.id] = {'docId': doc.id, ...doc.data()};
+              }
+            }
+          }
+        }));
+      }
+
+      if (normalizedEmail.isNotEmpty) {
+        futures.add(safeGet(_firestore.collection('connection_requests').where('receiver_email', isEqualTo: normalizedEmail)).then((snap) {
+          if (snap != null) {
+            _docsByReceiverEmail.clear();
+            for (final doc in snap.docs) {
+              if (doc.data()['status'] == 'pending') {
+                _docsByReceiverEmail[doc.id] = {'docId': doc.id, ...doc.data()};
+              }
+            }
+          }
+        }));
+        futures.add(safeGet(_firestore.collection('connection_requests').where('receiverEmail', isEqualTo: normalizedEmail)).then((snap) {
+          if (snap != null) {
+            _docsByReceiverEmailCamel.clear();
+            for (final doc in snap.docs) {
+              if (doc.data()['status'] == 'pending') {
+                _docsByReceiverEmailCamel[doc.id] = {'docId': doc.id, ...doc.data()};
+              }
+            }
+          }
+        }));
+      }
+
+      await Future.wait(futures);
+      _updateMergedRequests();
       return currentPendingRequests;
     } catch (e) {
       debugPrint('[ContactSync] Error actively refreshing requests: $e');
@@ -666,6 +821,8 @@ class ContactSyncService {
       isPrimary: true,
     );
     await ContactService.instance.addContact(localContact);
+    unawaited(ContactService.instance.getContacts(forceRefresh: true));
+    unawaited(refreshIncomingRequests());
   }
 
   /// Rejects an incoming connection request and updates its state to `rejected`.
@@ -679,6 +836,8 @@ class ContactSyncService {
       'respondedAt': FieldValue.serverTimestamp(),
     });
     debugPrint('[ContactSync] ❌ Request rejected: $requestId');
+    unawaited(ContactService.instance.getContacts(forceRefresh: true));
+    unawaited(refreshIncomingRequests());
   }
 
   /// Permanently removes a contact from the user's Firestore list, mutual partner's list,
@@ -803,6 +962,8 @@ class ContactSyncService {
       email: normalizedEmail,
       phone: resolvedPhone,
     );
+    unawaited(ContactService.instance.getContacts(forceRefresh: true));
+    unawaited(refreshIncomingRequests());
 
     debugPrint('[ContactSync] 🗑️ Permanently deleted contact: $contactId / $resolvedUid / $normalizedEmail');
   }

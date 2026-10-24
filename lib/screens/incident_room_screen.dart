@@ -16,6 +16,7 @@ import '../services/emergency_service.dart';
 import '../services/incident_service.dart';
 import '../services/notification_service.dart';
 import '../services/pin_security_service.dart';
+import '../services/siren_service.dart';
 import '../widgets/pin_input_dialog.dart';
 
 /// Comprehensive Emergency Incident Room screen coordinating real-time SOS tracking,
@@ -51,6 +52,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
   @override
   void initState() {
     super.initState();
+    // Silence any active alarm siren once inside the incident room
+    SirenService.instance.stopSiren();
     _screenLoadedAt = DateTime.now();
 
     _pulseController = AnimationController(

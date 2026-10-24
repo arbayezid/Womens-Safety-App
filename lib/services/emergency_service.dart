@@ -8,6 +8,7 @@ import 'package:geolocator/geolocator.dart' hide ActivityType;
 import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/activity_model.dart';
 import '../models/contact_model.dart';
 import 'activity_service.dart';
@@ -27,6 +28,7 @@ class EmergencyResult {
   final String? googleMapsUrl;
   final int contactsSentCount;
   final List<String> failedContacts;
+  final List<String> recipientPhones;
   final DateTime timestamp;
   final bool isPermissionDenied;
   final bool hasNoRecipients;
@@ -38,6 +40,7 @@ class EmergencyResult {
     this.googleMapsUrl,
     this.contactsSentCount = 0,
     this.failedContacts = const [],
+    this.recipientPhones = const [],
     this.isPermissionDenied = false,
     this.hasNoRecipients = false,
     DateTime? timestamp,
@@ -45,7 +48,7 @@ class EmergencyResult {
 
   @override
   String toString() {
-    return 'EmergencyResult(isSuccess: $isSuccess, message: $message, mapsUrl: $googleMapsUrl, sentCount: $contactsSentCount, permissionDenied: $isPermissionDenied, noRecipients: $hasNoRecipients)';
+    return 'EmergencyResult(isSuccess: $isSuccess, message: $message, mapsUrl: $googleMapsUrl, sentCount: $contactsSentCount, recipientPhones: $recipientPhones, permissionDenied: $isPermissionDenied, noRecipients: $hasNoRecipients)';
   }
 }
 
@@ -472,6 +475,8 @@ class EmergencyService {
         resultSummary = '🚨 Cloud SOS alert broadcast to guardian(s)! Add a mobile number to contact to also send SMS.';
       } else if (!smsResult.permissionGranted) {
         resultSummary = '🚨 In-App alert sent to guardians! (SMS skipped: allow SMS in phone Settings).';
+      } else if (sentCount == 0 && recipients.isNotEmpty) {
+        resultSummary = '🚨 Alert broadcast to guardians. (SMS not sent automatically; tap below to send via SMS app).';
       } else {
         resultSummary = '🚨 Emergency cloud alert broadcast to all mutual guardians.';
       }
@@ -500,6 +505,7 @@ class EmergencyService {
       googleMapsUrl: mapUrl,
       contactsSentCount: sentCount,
       failedContacts: failedList,
+      recipientPhones: recipients,
       isPermissionDenied: !smsResult.permissionGranted,
       hasNoRecipients: localContacts.isEmpty && recipients.isEmpty,
     );
@@ -632,6 +638,30 @@ class EmergencyService {
       context: context,
       customMessage: customMessage,
     );
+  }
+
+  /// Opens the device's native messaging application with pre-filled emergency SMS.
+  /// Works reliably across all Android versions, dual-SIM devices, and cellular carriers.
+  Future<bool> launchNativeSmsApp({
+    String? phoneNumber,
+    String? customMessage,
+    String? mapUrl,
+  }) async {
+    try {
+      final String phone = phoneNumber != null ? formatRecipientPhone(phoneNumber) : '';
+      final String body = customMessage ?? buildEmergencyMessage(mapUrl);
+      final Uri uri = Uri(
+        scheme: 'sms',
+        path: phone,
+        queryParameters: <String, String>{'body': body},
+      );
+      if (await canLaunchUrl(uri)) {
+        return await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      debugPrint('[EmergencyService] Native SMS app launch notice: $e');
+    }
+    return false;
   }
 
   /// Formats an ultra-concise, single-segment GSM-7 emergency SMS message.

@@ -21,23 +21,52 @@ service cloud.firestore {
       // Emergency Contacts Subcollection
       match /contacts/{contactId} {
         allow read: if isOwner(userId);
-        // Can be written by the user themselves or mutual contact sync
-        allow write: if isOwner(userId) || isOwner(contactId);
+        // Can be written by the user themselves or mutual contact sync or cleanup of pending placeholders
+        allow write: if isAuthenticated() && (
+          isOwner(userId) || 
+          isOwner(contactId) ||
+          contactId.matches('pending_.*')
+        );
       }
     }
 
     // Connection Requests Collection
     match /connection_requests/{requestId} {
-      allow read: if isAuthenticated() && (
-        resource.data.senderId == request.auth.uid || 
-        resource.data.receiverId == request.auth.uid ||
-        resource.data.sender_uid == request.auth.uid || 
-        resource.data.receiver_uid == request.auth.uid ||
-        (request.auth.token.email != null && (
-          resource.data.receiver_email == request.auth.token.email ||
-          resource.data.receiverEmail == request.auth.token.email
-        ))
-      );
+      function isSender() {
+        return isAuthenticated() && (
+          ('senderId' in resource.data && resource.data.senderId == request.auth.uid) ||
+          ('sender_uid' in resource.data && resource.data.sender_uid == request.auth.uid) ||
+          (request.auth.token.email != null && (
+            ('sender_email' in resource.data && (
+              resource.data.sender_email == request.auth.token.email ||
+              resource.data.sender_email == request.auth.token.email.lower()
+            )) ||
+            ('senderEmail' in resource.data && (
+              resource.data.senderEmail == request.auth.token.email ||
+              resource.data.senderEmail == request.auth.token.email.lower()
+            ))
+          ))
+        );
+      }
+
+      function isReceiver() {
+        return isAuthenticated() && (
+          ('receiverId' in resource.data && resource.data.receiverId == request.auth.uid) ||
+          ('receiver_uid' in resource.data && resource.data.receiver_uid == request.auth.uid) ||
+          (request.auth.token.email != null && (
+            ('receiver_email' in resource.data && (
+              resource.data.receiver_email == request.auth.token.email ||
+              resource.data.receiver_email == request.auth.token.email.lower()
+            )) ||
+            ('receiverEmail' in resource.data && (
+              resource.data.receiverEmail == request.auth.token.email ||
+              resource.data.receiverEmail == request.auth.token.email.lower()
+            ))
+          ))
+        );
+      }
+
+      allow read: if isSender() || isReceiver();
       
       // Only authenticated users can create requests for themselves as sender
       allow create: if isAuthenticated() 
@@ -45,24 +74,11 @@ service cloud.firestore {
         && request.resource.data.status == 'pending';
 
       // Sender can cancel or re-invite, receiver can accept or reject
-      allow update: if isAuthenticated() && (
-        (((resource.data.receiverId == request.auth.uid || resource.data.receiver_uid == request.auth.uid) ||
-          (request.auth.token.email != null && (resource.data.receiver_email == request.auth.token.email || resource.data.receiverEmail == request.auth.token.email)))
-          && request.resource.data.status in ['accepted', 'rejected']) ||
-        ((resource.data.senderId == request.auth.uid || resource.data.sender_uid == request.auth.uid) && request.resource.data.status in ['cancelled', 'pending'])
-      );
+      allow update: if (isReceiver() && request.resource.data.status in ['accepted', 'rejected'])
+        || (isSender() && request.resource.data.status in ['cancelled', 'pending']);
 
       // Sender or receiver can permanently delete connection requests
-      allow delete: if isAuthenticated() && (
-        resource.data.senderId == request.auth.uid || 
-        resource.data.receiverId == request.auth.uid ||
-        resource.data.sender_uid == request.auth.uid || 
-        resource.data.receiver_uid == request.auth.uid ||
-        (request.auth.token.email != null && (
-          resource.data.receiver_email == request.auth.token.email ||
-          resource.data.receiverEmail == request.auth.token.email
-        ))
-      );
+      allow delete: if isSender() || isReceiver();
     }
 
     // SOS Alerts Collection
@@ -78,7 +94,8 @@ service cloud.firestore {
         return isAuthenticated() && (
           ('recipientUids' in resource.data && request.auth.uid in resource.data.recipientUids) ||
           (request.auth.token.email != null && 'recipientEmails' in resource.data &&
-           request.auth.token.email.lower() in resource.data.recipientEmails)
+           (request.auth.token.email in resource.data.recipientEmails ||
+            request.auth.token.email.lower() in resource.data.recipientEmails))
         );
       }
 

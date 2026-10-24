@@ -8,14 +8,13 @@ import 'activity_service.dart';
 /// Uses [AudioPlayer] to play an emergency alarm loop at maximum volume.
 /// Exposes reactive state via [isPlayingNotifier] for seamless UI binding.
 class SirenService {
-  SirenService._internal() {
-    _initAudioPlayer();
-  }
+  SirenService._internal();
 
   /// Singleton instance
   static final SirenService instance = SirenService._internal();
 
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  AudioPlayer? _audioPlayer;
+  bool _isInitAttempted = false;
 
   /// Reactive notifier for UI bindings
   final ValueNotifier<bool> isPlayingNotifier = ValueNotifier<bool>(false);
@@ -27,17 +26,26 @@ class SirenService {
   static const String _fallbackSirenUrl =
       'https://actions.google.com/sounds/v1/emergency/police_siren_short.ogg';
 
-  /// Initializes player configuration
-  void _initAudioPlayer() {
-    _audioPlayer.setReleaseMode(ReleaseMode.loop);
-
-    // Listen to player state changes
-    _audioPlayer.onPlayerStateChanged.listen((state) {
-      final playing = (state == PlayerState.playing);
-      if (isPlayingNotifier.value != playing) {
-        isPlayingNotifier.value = playing;
-      }
-    });
+  /// Lazily and safely creates the [AudioPlayer] instance, tolerating headless/test environments
+  AudioPlayer? _getOrCreatePlayer() {
+    if (_audioPlayer != null) return _audioPlayer;
+    if (_isInitAttempted) return null;
+    _isInitAttempted = true;
+    try {
+      final player = AudioPlayer();
+      player.setReleaseMode(ReleaseMode.loop).catchError((_) {});
+      player.onPlayerStateChanged.listen((state) {
+        final playing = (state == PlayerState.playing);
+        if (isPlayingNotifier.value != playing) {
+          isPlayingNotifier.value = playing;
+        }
+      }, onError: (_) {});
+      _audioPlayer = player;
+      return player;
+    } catch (e) {
+      debugPrint('[SirenService] AudioPlayer initialization note (e.g. test environment): $e');
+      return null;
+    }
   }
 
   /// Starts the loud emergency siren audio at max volume (1.0) on continuous loop.
@@ -45,16 +53,19 @@ class SirenService {
     try {
       debugPrint('[SirenService] 🚨 Starting Loud Emergency Siren...');
 
-      // Ensure max volume
-      await _audioPlayer.setVolume(1.0);
-      await _audioPlayer.setReleaseMode(ReleaseMode.loop);
+      final player = _getOrCreatePlayer();
+      if (player != null) {
+        // Ensure max volume
+        await player.setVolume(1.0);
+        await player.setReleaseMode(ReleaseMode.loop);
 
-      // Try playing local asset first, fallback to URL if asset fails
-      try {
-        await _audioPlayer.play(AssetSource('sounds/siren.mp3'));
-      } catch (assetErr) {
-        debugPrint('[SirenService] Asset play failed ($assetErr). Playing fallback online siren...');
-        await _audioPlayer.play(UrlSource(_fallbackSirenUrl));
+        // Try playing local asset first, fallback to URL if asset fails
+        try {
+          await player.play(AssetSource('sounds/siren.mp3'));
+        } catch (assetErr) {
+          debugPrint('[SirenService] Asset play failed ($assetErr). Playing fallback online siren...');
+          await player.play(UrlSource(_fallbackSirenUrl));
+        }
       }
 
       isPlayingNotifier.value = true;
@@ -70,12 +81,16 @@ class SirenService {
   Future<void> stopSiren() async {
     try {
       debugPrint('[SirenService] 🔇 Stopping Emergency Siren...');
-      await _audioPlayer.stop();
+      final player = _audioPlayer;
+      if (player != null) {
+        await player.stop();
+      }
       isPlayingNotifier.value = false;
       ActivityService.instance.logSiren(isPlaying: false);
       debugPrint('[SirenService] ✅ Siren stopped.');
     } catch (e) {
       debugPrint('[SirenService] ❌ Error stopping siren audio: $e');
+      isPlayingNotifier.value = false;
     }
   }
 
@@ -91,7 +106,9 @@ class SirenService {
 
   /// Dispose player resources
   void dispose() {
-    _audioPlayer.dispose();
+    try {
+      _audioPlayer?.dispose();
+    } catch (_) {}
     isPlayingNotifier.dispose();
   }
 }
