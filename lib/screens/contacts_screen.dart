@@ -949,30 +949,56 @@ class _ContactCard extends StatelessWidget {
                           fontWeight: FontWeight.w600,
                           color: colorStyle.text),
                     ),
-                    // Sync Status Badge
-                    if (contact.isSynced)
+                    // Alert Channel Badges
+                    if (contact.hasPhone)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                         decoration: BoxDecoration(
                           color: AppColors.successBackground,
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.verified_rounded, size: 10, color: AppColors.actionGreen),
-                            const SizedBox(width: 3),
-                            Text(
-                              'Synced App User',
-                              style: GoogleFonts.poppins(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.actionGreen),
-                            ),
-                          ],
+                        child: Text(
+                          '📱 SMS',
+                          style: GoogleFonts.poppins(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.actionGreen,
+                          ),
                         ),
-                      )
-                    else if (contact.isPending)
+                      ),
+                    if (contact.isSynced)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEDE7F6),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '🔔 App',
+                          style: GoogleFonts.poppins(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.primaryViolet,
+                          ),
+                        ),
+                      ),
+                    if (!contact.hasPhone && !contact.isSynced)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEEEE),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          '⚠️ No alert channel',
+                          style: GoogleFonts.poppins(
+                            fontSize: 8.5,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.sosRed,
+                          ),
+                        ),
+                      ),
+                    if (contact.isPending)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                         decoration: BoxDecoration(
@@ -987,31 +1013,10 @@ class _ContactCard extends StatelessWidget {
                             Text(
                               'Sync Pending',
                               style: GoogleFonts.poppins(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.actionOrange),
-                            ),
-                          ],
-                        ),
-                      )
-                    else
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEEF2F6),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(Icons.sms_outlined, size: 10, color: AppColors.textSecondary),
-                            const SizedBox(width: 3),
-                            Text(
-                              contact.hasPhone ? 'Offline SMS' : 'Email Only',
-                              style: GoogleFonts.poppins(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.textSecondary),
+                                fontSize: 8.5,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.actionOrange,
+                              ),
                             ),
                           ],
                         ),

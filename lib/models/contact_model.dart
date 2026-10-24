@@ -36,6 +36,24 @@ class ContactModel {
   /// True if waiting for the recipient to accept the connection request.
   bool get isPending => syncStatus == 'pending';
 
+  /// Active emergency alert channels available for this contact:
+  /// - 'SMS' if the contact has a valid phone number
+  /// - 'App' if the contact is a synced app user
+  /// - 'No alert channel' if the contact has no phone and is not a synced app user
+  List<String> get alertChannels {
+    final channels = <String>[];
+    if (hasPhone) {
+      channels.add('SMS');
+    }
+    if (isSynced) {
+      channels.add('App');
+    }
+    if (channels.isEmpty) {
+      channels.add('No alert channel');
+    }
+    return channels;
+  }
+
   /// Converts this [ContactModel] to a key-value [Map] for local or remote storage.
   Map<String, dynamic> toMap() {
     return <String, dynamic>{

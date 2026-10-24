@@ -22,6 +22,8 @@ class SosCloudDispatcher {
     Position? position,
     String? customNote,
     String source = 'SOS Button',
+    List<String>? recipientEmails,
+    List<String>? recipientUids,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -61,57 +63,80 @@ class SosCloudDispatcher {
         }
       }
 
-      // 2. Fetch all recipient emails and UIDs from Firestore contacts and local cache
-      final List<String> recipientEmails = [];
-      final List<String> recipientUids = [];
+      // 2. Fetch and merge recipient emails and UIDs
+      final List<String> resolvedEmails = [];
+      final List<String> resolvedUids = [];
 
-      try {
-        final contactsSnap = await _firestore
-            .collection('users')
-            .doc(user.uid)
-            .collection('contacts')
-            .get(const GetOptions(source: Source.serverAndCache))
-            .timeout(const Duration(seconds: 2), onTimeout: () {
-          debugPrint('[SosCloud] ⏱️ Contacts fetch timed out after 2s');
-          throw Exception('Timeout');
-        });
-
-        for (final doc in contactsSnap.docs) {
-          final d = doc.data();
-          final email = (d['contact_email'] ?? d['email'] ?? '').toString().toLowerCase().trim();
-          final uid = (d['contact_uid'] ?? d['contactUid'] ?? doc.id).toString().trim();
-          if (email.isNotEmpty && !recipientEmails.contains(email)) {
-            recipientEmails.add(email);
-          }
-          if (uid.isNotEmpty && !uid.startsWith('offline_') && !recipientUids.contains(uid)) {
-            recipientUids.add(uid);
+      if (recipientEmails != null) {
+        for (final e in recipientEmails) {
+          final norm = e.trim().toLowerCase();
+          if (norm.isNotEmpty && !resolvedEmails.contains(norm)) {
+            resolvedEmails.add(norm);
           }
         }
-      } catch (e) {
-        debugPrint('[SosCloud] Firestore contacts fetch notice: $e');
+      }
+
+      if (recipientUids != null) {
+        for (final u in recipientUids) {
+          final clean = u.trim();
+          if (clean.isNotEmpty && !clean.startsWith('offline_') && !resolvedUids.contains(clean)) {
+            resolvedUids.add(clean);
+          }
+        }
+      }
+
+      // If either list is empty, fetch from Firestore contacts
+      if (resolvedEmails.isEmpty || resolvedUids.isEmpty) {
+        try {
+          final contactsSnap = await _firestore
+              .collection('users')
+              .doc(user.uid)
+              .collection('contacts')
+              .get(const GetOptions(source: Source.serverAndCache))
+              .timeout(const Duration(seconds: 2), onTimeout: () {
+            debugPrint('[SosCloud] ⏱️ Contacts fetch timed out after 2s');
+            throw Exception('Timeout');
+          });
+
+          for (final doc in contactsSnap.docs) {
+            final d = doc.data();
+            final email = (d['contact_email'] ?? d['email'] ?? '').toString().toLowerCase().trim();
+            final uid = (d['contact_uid'] ?? d['contactUid'] ?? doc.id).toString().trim();
+            if (email.isNotEmpty && !resolvedEmails.contains(email)) {
+              resolvedEmails.add(email);
+            }
+            if (uid.isNotEmpty && !uid.startsWith('offline_') && !resolvedUids.contains(uid)) {
+              resolvedUids.add(uid);
+            }
+          }
+        } catch (e) {
+          debugPrint('[SosCloud] Firestore contacts fetch notice: $e');
+        }
       }
 
       // Also include any locally cached contacts
-      try {
-        final localContacts = await ContactService.instance.getContacts();
-        for (final c in localContacts) {
-          final email = c.email.toLowerCase().trim();
-          if (email.isNotEmpty && !recipientEmails.contains(email)) {
-            recipientEmails.add(email);
+      if (resolvedEmails.isEmpty || resolvedUids.isEmpty) {
+        try {
+          final localContacts = await ContactService.instance.getContacts();
+          for (final c in localContacts) {
+            final email = c.email.toLowerCase().trim();
+            if (email.isNotEmpty && !resolvedEmails.contains(email)) {
+              resolvedEmails.add(email);
+            }
+            if (c.contactUid != null && c.contactUid!.isNotEmpty && !resolvedUids.contains(c.contactUid)) {
+              resolvedUids.add(c.contactUid!);
+            }
           }
-          if (c.contactUid != null && c.contactUid!.isNotEmpty && !recipientUids.contains(c.contactUid)) {
-            recipientUids.add(c.contactUid!);
-          }
+        } catch (e) {
+          debugPrint('[SosCloud] Local contacts fetch notice: $e');
         }
-      } catch (e) {
-        debugPrint('[SosCloud] Local contacts fetch notice: $e');
       }
 
       // Resolve any missing recipient UIDs from their emails in parallel
-      if (recipientUids.isEmpty && recipientEmails.isNotEmpty) {
+      if (resolvedUids.isEmpty && resolvedEmails.isNotEmpty) {
         try {
           await Future.wait(
-            recipientEmails.map((email) async {
+            resolvedEmails.map((email) async {
               try {
                 final snap = await _firestore
                     .collection('users')
@@ -121,8 +146,8 @@ class SosCloudDispatcher {
                     .timeout(const Duration(seconds: 2));
                 if (snap.docs.isNotEmpty) {
                   final foundUid = snap.docs.first.id;
-                  if (!recipientUids.contains(foundUid)) {
-                    recipientUids.add(foundUid);
+                  if (!resolvedUids.contains(foundUid)) {
+                    resolvedUids.add(foundUid);
                   }
                 }
               } catch (_) {}
@@ -131,7 +156,7 @@ class SosCloudDispatcher {
         } catch (_) {}
       }
 
-      debugPrint('[SosCloud] 👥 Recipient emails: $recipientEmails | UIDs: $recipientUids');
+      debugPrint('[SosCloud] 👥 Recipient emails: $resolvedEmails | UIDs: $resolvedUids');
 
       // 3. Create document in `sos_alerts`
       final senderEmail = (user.email ?? '').toLowerCase().trim();
@@ -153,8 +178,8 @@ class SosCloudDispatcher {
         'sender_email': senderEmail,
         'senderPhone': senderPhone,
         'sender_phone': senderPhone,
-        'recipientEmails': recipientEmails,
-        'recipientUids': recipientUids,
+        'recipientEmails': resolvedEmails,
+        'recipientUids': resolvedUids,
         'source': source,
         'note': message,
         'message': message,

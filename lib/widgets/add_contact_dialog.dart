@@ -44,6 +44,14 @@ class _AddContactDialogState extends State<AddContactDialog> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    _phoneCtrl.addListener(() {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
   void dispose() {
     _nameCtrl.dispose();
     _emailCtrl.dispose();
@@ -415,7 +423,10 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 keyboardType: TextInputType.phone,
                 decoration: InputDecoration(
                   hintText: 'e.g. +88017XXXXXXXX',
-                  helperText: 'No OTP verification required. Used for direct offline SMS.',
+                  helperText: _phoneCtrl.text.trim().isEmpty
+                      ? 'Without a phone number, this contact will only receive alerts if they use the Woman Guard app, and cannot receive alerts when you are offline.'
+                      : 'No OTP verification required. Used for direct offline SMS.',
+                  helperMaxLines: 3,
                   helperStyle: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                   prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.actionGreen),
                   filled: true,

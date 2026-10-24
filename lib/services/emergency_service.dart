@@ -158,20 +158,40 @@ class EmergencyService {
       }
     }
 
-    if (recipients.isEmpty) {
-      // Loosen and validate contact selection:
-      // Condition check: contact.phone.trim().isNotEmpty
-      // Dispatches to all contacts that have a valid phone number, regardless of whether
-      // their app sync status is Synced App User or Sync Pending.
-      final validContacts = localContacts
-          .where((c) => c.phone.trim().isNotEmpty)
-          .toList();
+    // Step 1.1: Explicit per-contact routing across free channels:
+    // - Non-empty phone -> Offline SMS channel (E.164 formatted)
+    // - Email (always present) -> In-app Firestore alert document recipient list (normalized lowercase)
+    // - Synced App User -> Included in recipient UIDs for in-app alert listener
+    // - Phone + Synced App User -> Receives both SMS and in-app alert
+    final List<String> routedSmsRecipients = [];
+    final List<String> routedCloudEmails = [];
+    final List<String> routedCloudUids = [];
 
-      recipients = validContacts
-          .map((c) => formatRecipientPhone(c.phone))
-          .where((p) => p.isNotEmpty)
-          .toSet()
-          .toList();
+    for (final contact in localContacts) {
+      // Channel 1: Offline SMS
+      if (contact.phone.trim().isNotEmpty) {
+        final formatted = formatRecipientPhone(contact.phone);
+        if (formatted.isNotEmpty && !routedSmsRecipients.contains(formatted)) {
+          routedSmsRecipients.add(formatted);
+        }
+      }
+
+      // Channel 2: In-app Cloud SOS
+      final normEmail = contact.email.trim().toLowerCase();
+      if (normEmail.isNotEmpty && !routedCloudEmails.contains(normEmail)) {
+        routedCloudEmails.add(normEmail);
+      }
+
+      if (contact.contactUid != null &&
+          contact.contactUid!.isNotEmpty &&
+          !contact.contactUid!.startsWith('offline_') &&
+          !routedCloudUids.contains(contact.contactUid)) {
+        routedCloudUids.add(contact.contactUid!);
+      }
+    }
+
+    if (recipients.isEmpty) {
+      recipients = routedSmsRecipients;
     }
 
     // Step 2: Validate recipients presence
@@ -229,6 +249,8 @@ class EmergencyService {
       position: position,
       source: source,
       customNote: customMessage,
+      recipientEmails: routedCloudEmails,
+      recipientUids: routedCloudUids,
     ).timeout(
       const Duration(seconds: 4),
       onTimeout: () {
