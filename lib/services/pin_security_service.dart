@@ -110,8 +110,19 @@ class PinSecurityService {
   Future<void> initialize() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      isCamouflageActiveNotifier.value = prefs.getBool(prefKeyCamouflageActive) ?? false;
-      isDuressActiveNotifier.value = prefs.getBool(prefKeyDuressActive) ?? false;
+      final hasRealPin = prefs.containsKey(prefKeyRealPinHash) && prefs.containsKey(prefKeyRealPinSalt);
+      final camouflageActive = prefs.getBool(prefKeyCamouflageActive) ?? false;
+
+      // Never trap users in camouflage if no Real PIN is configured
+      if (camouflageActive && !hasRealPin) {
+        await prefs.setBool(prefKeyCamouflageActive, false);
+        await prefs.setBool(prefKeyDuressActive, false);
+        isCamouflageActiveNotifier.value = false;
+        isDuressActiveNotifier.value = false;
+      } else {
+        isCamouflageActiveNotifier.value = camouflageActive;
+        isDuressActiveNotifier.value = prefs.getBool(prefKeyDuressActive) ?? false;
+      }
     } catch (_) {}
   }
 
@@ -200,8 +211,11 @@ class PinSecurityService {
 
   /// Manually engages camouflage calculator mode for preview or privacy
   Future<void> enterCamouflageManually() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(prefKeyCamouflageActive, true);
+    final hasRealPin = await isRealPinConfigured();
+    if (hasRealPin) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(prefKeyCamouflageActive, true);
+    }
     isCamouflageActiveNotifier.value = true;
   }
 

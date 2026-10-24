@@ -26,6 +26,20 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
   double? _firstOperand;
   String? _operator;
   bool _shouldResetDisplay = false;
+  bool _isPinConfigured = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPinConfig();
+  }
+
+  Future<void> _checkPinConfig() async {
+    final configured = await PinSecurityService.instance.isRealPinConfigured();
+    if (mounted) {
+      setState(() => _isPinConfigured = configured);
+    }
+  }
 
   void _onDigit(String digit) {
     HapticFeedback.lightImpact();
@@ -140,8 +154,13 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
     });
   }
 
-  void _onClear() {
+  Future<void> _onClear() async {
     HapticFeedback.lightImpact();
+    final isConfigured = await PinSecurityService.instance.isRealPinConfigured();
+    if (!isConfigured) {
+      await PinSecurityService.instance.exitCamouflage();
+      return;
+    }
     setState(() {
       _display = '0';
       _expression = '';
@@ -246,64 +265,112 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF1C1C1E),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Column(
-            children: [
-              const Spacer(),
-              // Expression & Calculation Result Screen (Long-press to escape)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onLongPress: _handleSecretExit,
-                child: Container(
-                  alignment: Alignment.bottomRight,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _expression,
-                        style: GoogleFonts.robotoMono(
-                          fontSize: 20,
-                          color: Colors.white.withValues(alpha: 0.5),
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 6),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerRight,
-                        child: Text(
-                          _display,
-                          style: GoogleFonts.roboto(
-                            fontSize: 64,
-                            fontWeight: FontWeight.w300,
-                            color: Colors.white,
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+        final isConfigured = await PinSecurityService.instance.isRealPinConfigured();
+        if (!isConfigured) {
+          await PinSecurityService.instance.exitCamouflage();
+        } else {
+          _handleSecretExit();
+        }
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF1C1C1E),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              children: [
+                if (!_isPinConfigured)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C2C2E),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.info_outline_rounded, color: Colors.orangeAccent, size: 20),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'Camouflage Preview (No PIN Set)',
+                            style: GoogleFonts.poppins(color: Colors.white70, fontSize: 13),
                           ),
                         ),
-                      ),
-                    ],
+                        ElevatedButton(
+                          onPressed: () => PinSecurityService.instance.exitCamouflage(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.actionGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            minimumSize: Size.zero,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: Text(
+                            'Exit',
+                            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                const Spacer(),
+                // Expression & Calculation Result Screen (Long-press to escape)
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onLongPress: _handleSecretExit,
+                  child: Container(
+                    alignment: Alignment.bottomRight,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Text(
+                          _expression,
+                          style: GoogleFonts.robotoMono(
+                            fontSize: 20,
+                            color: Colors.white.withValues(alpha: 0.5),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 6),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: Text(
+                            _display,
+                            style: GoogleFonts.roboto(
+                              fontSize: 64,
+                              fontWeight: FontWeight.w300,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
+                const SizedBox(height: 16),
 
-              // Keypad Buttons
-              _buildKeypadRow(['C', '+/-', '%', '÷'], isTop: true),
-              const SizedBox(height: 12),
-              _buildKeypadRow(['7', '8', '9', '×']),
-              const SizedBox(height: 12),
-              _buildKeypadRow(['4', '5', '6', '−']),
-              const SizedBox(height: 12),
-              _buildKeypadRow(['1', '2', '3', '+']),
-              const SizedBox(height: 12),
-              _buildBottomKeypadRow(),
-              const SizedBox(height: 8),
-            ],
+                // Keypad Buttons
+                _buildKeypadRow(['C', '+/-', '%', '÷'], isTop: true),
+                const SizedBox(height: 12),
+                _buildKeypadRow(['7', '8', '9', '×']),
+                const SizedBox(height: 12),
+                _buildKeypadRow(['4', '5', '6', '−']),
+                const SizedBox(height: 12),
+                _buildKeypadRow(['1', '2', '3', '+']),
+                const SizedBox(height: 12),
+                _buildBottomKeypadRow(),
+                const SizedBox(height: 8),
+              ],
+            ),
           ),
         ),
       ),

@@ -330,6 +330,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     label: 'Camouflage Calculator Preview',
                     subtitle: 'Test disguised calculator screen (Exit: Real PIN + =)',
                     onTap: () async {
+                      if (!_hasRealPin) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              'Please set up your Security PIN first to test Camouflage mode.',
+                              style: GoogleFonts.poppins(color: Colors.white),
+                            ),
+                            backgroundColor: AppColors.primary,
+                          ),
+                        );
+                        return;
+                      }
                       await PinSecurityService.instance.enterCamouflageManually();
                     },
                   ),

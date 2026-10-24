@@ -366,6 +366,29 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     if (label == 'Camouflage') {
+      final isConfigured = await PinSecurityService.instance.isRealPinConfigured();
+      if (!isConfigured) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Please set up your Security PIN in Settings before using Camouflage.',
+              style: GoogleFonts.poppins(color: Colors.white),
+            ),
+            backgroundColor: AppColors.primary,
+            action: SnackBarAction(
+              label: 'Setup PIN',
+              textColor: Colors.white,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const SettingsScreen()),
+                );
+              },
+            ),
+          ),
+        );
+        return;
+      }
       await PinSecurityService.instance.enterCamouflageManually();
       return;
     }
@@ -978,7 +1001,11 @@ class _TopAppBarState extends State<_TopAppBar> {
       _secretTapCount++;
       if (_secretTapCount >= 3) {
         _secretTapCount = 0;
-        PinSecurityService.instance.enterCamouflageManually();
+        PinSecurityService.instance.isRealPinConfigured().then((configured) {
+          if (configured) {
+            PinSecurityService.instance.enterCamouflageManually();
+          }
+        });
         return;
       }
     }
