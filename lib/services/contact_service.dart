@@ -525,6 +525,7 @@ class ContactService extends ChangeNotifier {
   Future<bool> clearContacts() async {
     final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
     _cachedContacts = [];
+    _isInitialized = true;
     _emitChange();
     if (uid != null && uid.isNotEmpty) {
       try {
