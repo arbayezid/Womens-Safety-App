@@ -79,7 +79,7 @@ class ContactModel {
   /// Creates a [ContactModel] from a key-value [Map].
   factory ContactModel.fromMap(Map<String, dynamic> map) {
     final String resolvedEmail =
-        map['email']?.toString() ?? map['contact_email']?.toString() ?? '';
+        (map['email']?.toString() ?? map['contact_email']?.toString() ?? '').toLowerCase().trim();
     final String resolvedPhone =
         map['phone']?.toString() ?? map['contact_optional_phone']?.toString() ?? '';
     final String? resolvedUid =

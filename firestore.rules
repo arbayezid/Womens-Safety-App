@@ -67,9 +67,42 @@ service cloud.firestore {
 
     // SOS Alerts Collection
     match /sos_alerts/{alertId} {
-      allow create: if isAuthenticated() && (request.resource.data.senderId == request.auth.uid || request.resource.data.sender_uid == request.auth.uid);
-      allow read: if isAuthenticated();
-      allow update: if isAuthenticated();
+      function isSender() {
+        return isAuthenticated() && (
+          ('senderId' in resource.data && resource.data.senderId == request.auth.uid) ||
+          ('sender_uid' in resource.data && resource.data.sender_uid == request.auth.uid)
+        );
+      }
+
+      function isRecipient() {
+        return isAuthenticated() && (
+          ('recipientUids' in resource.data && request.auth.uid in resource.data.recipientUids) ||
+          (request.auth.token.email != null && 'recipientEmails' in resource.data &&
+           request.auth.token.email.lower() in resource.data.recipientEmails)
+        );
+      }
+
+      // Create: Authenticated AND sender field equals request.auth.uid
+      allow create: if isAuthenticated() && (
+        ('senderId' in request.resource.data && request.resource.data.senderId == request.auth.uid) ||
+        ('sender_uid' in request.resource.data && request.resource.data.sender_uid == request.auth.uid)
+      );
+
+      // Read: Authenticated AND (sender OR recipient)
+      allow read: if isSender() || isRecipient();
+
+      // Update: Only sender or recipients, and only allowed client fields
+      allow update: if (isSender() || isRecipient()) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'resolvedAt',
+          'dismissedBy',
+          'acknowledgedBy',
+          'lastRespondedAt'
+        ]);
+
+      // Delete: Denied (alerts are immutable emergency records)
+      allow delete: if false;
     }
   }
 }

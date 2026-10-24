@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -15,14 +16,102 @@ class SosHistoryScreen extends StatefulWidget {
   State<SosHistoryScreen> createState() => _SosHistoryScreenState();
 }
 
+/// Merges multiple streams emitting lists of items and deduplicates them by ID.
+/// Emits an updated combined list whenever any source stream emits.
+Stream<List<T>> mergeAndDeduplicateStreams<T, K>({
+  required List<Stream<List<T>>> streams,
+  required K Function(T item) idExtractor,
+}) {
+  final controller = StreamController<List<T>>.broadcast();
+  final Map<int, List<T>> latestPerStream = {};
+  final List<StreamSubscription<List<T>>> subscriptions = [];
+
+  void emitMerged() {
+    if (controller.isClosed) return;
+    final Map<K, T> deduped = {};
+    for (final list in latestPerStream.values) {
+      for (final item in list) {
+        deduped[idExtractor(item)] = item;
+      }
+    }
+    controller.add(deduped.values.toList());
+  }
+
+  for (int i = 0; i < streams.length; i++) {
+    final index = i;
+    final sub = streams[index].listen(
+      (list) {
+        latestPerStream[index] = list;
+        emitMerged();
+      },
+      onError: (err) {
+        if (!controller.isClosed) controller.addError(err);
+      },
+    );
+    subscriptions.add(sub);
+  }
+
+  controller.onCancel = () {
+    for (final s in subscriptions) {
+      s.cancel();
+    }
+  };
+
+  return controller.stream;
+}
+
 class _SosHistoryScreenState extends State<SosHistoryScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  late Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _alertsStream;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    final user = FirebaseAuth.instance.currentUser;
+    final myUid = user?.uid ?? '';
+    final myEmail = (user?.email ?? '').toLowerCase().trim();
+    _alertsStream = _buildHistoryStream(myUid, myEmail);
+  }
+
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _buildHistoryStream(
+      String myUid, String myEmail) {
+    if (myUid.isEmpty) {
+      return Stream.value([]);
+    }
+
+    final streams = <Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>>>[
+      // (a) Recipient UID query
+      FirebaseFirestore.instance
+          .collection('sos_alerts')
+          .where('recipientUids', arrayContains: myUid)
+          .snapshots()
+          .map((snap) => snap.docs),
+
+      // (b) Sender UID query
+      FirebaseFirestore.instance
+          .collection('sos_alerts')
+          .where('senderId', isEqualTo: myUid)
+          .snapshots()
+          .map((snap) => snap.docs),
+    ];
+
+    // (c) Recipient Email query (normalized lowercase)
+    if (myEmail.isNotEmpty) {
+      streams.add(
+        FirebaseFirestore.instance
+            .collection('sos_alerts')
+            .where('recipientEmails', arrayContains: myEmail)
+            .snapshots()
+            .map((snap) => snap.docs),
+      );
+    }
+
+    return mergeAndDeduplicateStreams<QueryDocumentSnapshot<Map<String, dynamic>>, String>(
+      streams: streams,
+      idExtractor: (doc) => doc.id,
+    );
   }
 
   @override
@@ -127,11 +216,8 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           ),
         ),
       ),
-      body: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('sos_alerts')
-            .orderBy('triggeredAt', descending: true)
-            .snapshots(),
+      body: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+        stream: _alertsStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
             return const Center(child: CircularProgressIndicator(color: AppColors.sosRed));
@@ -141,7 +227,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
             debugPrint('[SosHistory] Firestore stream error: ${snapshot.error}');
           }
 
-          final allDocs = snapshot.data?.docs ?? [];
+          final allDocs = snapshot.data ?? [];
 
           // Map and filter alerts related to this user
           final List<Map<String, dynamic>> userAlerts = [];

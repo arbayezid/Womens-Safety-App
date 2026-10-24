@@ -40,6 +40,9 @@ class NotificationService {
   bool _isInitialized = false;
 
   StreamSubscription<QuerySnapshot>? _sosAlertsSubscription;
+  StreamSubscription<QuerySnapshot>? _sosAlertsSubUid;
+  StreamSubscription<QuerySnapshot>? _sosAlertsSubEmail;
+  final Map<String, Map<String, dynamic>> _liveActiveAlerts = {};
   final Set<String> _shownAlertIds = {};
   final Set<String> _dismissedAlertIds = {};
   bool _isSosDialogShowing = false;
@@ -172,7 +175,7 @@ class NotificationService {
             }
           } catch (_) {}
         } else {
-          _sosAlertsSubscription?.cancel();
+          _cancelSosAlertsSubscriptions();
           _requestsSubscription?.cancel();
         }
       });
@@ -248,6 +251,21 @@ class NotificationService {
   ///
   /// Deduplicates multiple SOS button presses from the same sender and shows
   /// ONLY the single latest alert with timing, and never re-shows dismissed alerts.
+  void _cancelSosAlertsSubscriptions() {
+    _sosAlertsSubscription?.cancel();
+    _sosAlertsSubscription = null;
+    _sosAlertsSubUid?.cancel();
+    _sosAlertsSubUid = null;
+    _sosAlertsSubEmail?.cancel();
+    _sosAlertsSubEmail = null;
+  }
+
+  /// Subscribes to real-time Cloud Firestore `sos_alerts` collection to receive
+  /// instant in-app alerts directly, without requiring deployed Cloud Functions.
+  ///
+  /// Uses separate rule-compatible queries for recipient UIDs and recipient emails,
+  /// deduplicates multiple SOS button presses from the same sender, and shows
+  /// ONLY the single latest alert with timing, and never re-shows dismissed alerts.
   void startSosAlertStreamListener() {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -259,125 +277,157 @@ class NotificationService {
     final String myUid = user.uid;
 
     _loadDismissedAlertIds();
+    _cancelSosAlertsSubscriptions();
+    _liveActiveAlerts.clear();
 
-    _sosAlertsSubscription?.cancel();
-    debugPrint('[NotificationService] 🛡️ Starting real-time Firestore SOS stream for $myEmail (UID: $myUid)...');
+    debugPrint('[NotificationService] 🛡️ Starting real-time Firestore SOS streams for $myEmail (UID: $myUid)...');
 
-    _sosAlertsSubscription = FirebaseFirestore.instance
+    void handleAlertSnapshot(String sourceKey, QuerySnapshot<Map<String, dynamic>> snapshot) {
+      _liveActiveAlerts.removeWhere((key, val) => val['_source'] == sourceKey);
+      for (final doc in snapshot.docs) {
+        _liveActiveAlerts[doc.id] = {
+          '_source': sourceKey,
+          'doc': doc,
+          'data': doc.data(),
+        };
+      }
+      _processIncomingSosAlerts(myUid, myEmail);
+    }
+
+    // 1. Rule-compatible query: recipientUids arrayContains myUid
+    _sosAlertsSubUid = FirebaseFirestore.instance
         .collection('sos_alerts')
+        .where('recipientUids', arrayContains: myUid)
         .where('status', isEqualTo: 'active')
         .snapshots()
-        .listen((snapshot) {
-      final List<Map<String, dynamic>> eligibleAlerts = [];
-
-      for (final doc in snapshot.docs) {
-        final data = doc.data();
-        final alertId = doc.id;
-
-        final senderId = (data['senderId'] ?? data['sender_uid'])?.toString();
-        if (senderId == myUid) {
-          // Do not alert the sender on their own device
-          continue;
-        }
-
-        // Check if already dismissed locally
-        if (_dismissedAlertIds.contains(alertId)) {
-          continue;
-        }
-
-        // Check if dismissed in cloud by my UID
-        final List<dynamic> dismissedBy = (data['dismissedBy'] as List<dynamic>?) ?? [];
-        if (dismissedBy.map((e) => e.toString()).contains(myUid)) {
-          _dismissedAlertIds.add(alertId);
-          continue;
-        }
-
-        // Check timestamp: ignore stale alerts older than 60 minutes
-        final dynamic rawTime = data['triggeredAt'] ?? data['timestamp'];
-        DateTime alertDate = DateTime.now();
-        if (rawTime is Timestamp) {
-          alertDate = rawTime.toDate();
-          if (DateTime.now().difference(alertDate).inMinutes > 60) {
-            continue;
-          }
-        }
-
-        // Check if current user is an intended recipient:
-        final List<dynamic> recEmails = (data['recipientEmails'] as List<dynamic>?) ?? [];
-        final List<dynamic> recUids = (data['recipientUids'] as List<dynamic>?) ?? [];
-
-        final bool matchesEmail = myEmail.isNotEmpty &&
-            recEmails.map((e) => e.toString().toLowerCase().trim()).contains(myEmail);
-        final bool matchesUid = recUids.map((u) => u.toString()).contains(myUid);
-        final bool isRecipient = matchesEmail || matchesUid || (recEmails.isEmpty && recUids.isEmpty);
-
-        if (!isRecipient) continue;
-
-        eligibleAlerts.add({
-          'alertId': alertId,
-          'doc': doc,
-          'data': data,
-          'alertDate': alertDate,
-        });
-      }
-
-      if (eligibleAlerts.isEmpty) return;
-
-      // Deduplicate: Sort by alertDate descending so newest is first
-      eligibleAlerts.sort((a, b) =>
-          (b['alertDate'] as DateTime).compareTo(a['alertDate'] as DateTime));
-
-      // Pick ONLY the single latest active alert
-      final latest = eligibleAlerts.first;
-      final latestAlertId = latest['alertId'] as String;
-      final latestData = latest['data'] as Map<String, dynamic>;
-      final latestDate = latest['alertDate'] as DateTime;
-
-      // Count total active presses from this sender
-      final senderId = (latestData['senderId'] ?? latestData['sender_uid'])?.toString();
-      final totalPresses = eligibleAlerts.where((a) {
-        final sid = (a['data']['senderId'] ?? a['data']['sender_uid'])?.toString();
-        return sid == senderId;
-      }).length;
-
-      // Only present if this latest alert hasn't already been displayed
-      if (!_shownAlertIds.contains(latestAlertId)) {
-        // Mark all older alerts from this sender as processed so they don't trigger subsequently
-        for (final a in eligibleAlerts) {
-          _shownAlertIds.add(a['alertId'] as String);
-        }
-
-        debugPrint('[NotificationService] 🚨 In-App SOS alert (latest of $totalPresses) detected for $myEmail from ${latestData['senderName']}!');
-
-        final alertPayload = {
-          'type': 'SOS_ALERT',
-          'alertId': latestAlertId,
-          'senderName': latestData['senderName'] ?? latestData['sender_name'] ?? 'Emergency Contact',
-          'senderEmail': latestData['senderEmail'] ?? latestData['sender_email'] ?? '',
-          'senderPhone': latestData['senderPhone'] ?? latestData['sender_phone'] ?? '',
-          'address': latestData['location']?['address'] ?? latestData['address'] ?? 'Live GPS Location Available',
-          'googleMapsUrl': latestData['google_maps_url'] ?? latestData['location']?['googleMapsUrl'] ?? '',
-          'latitude': latestData['latitude']?.toString() ?? latestData['location']?['latitude']?.toString() ?? '',
-          'longitude': latestData['longitude']?.toString() ?? latestData['location']?['longitude']?.toString() ?? '',
-          'message': latestData['message'] ?? latestData['note'] ?? 'Emergency SOS Alert triggered!',
-          'triggeredAt': latestDate.toIso8601String(),
-          'alertDate': latestDate,
-          'totalPresses': totalPresses,
-        };
-
-        // 1. Pop up intrusive fullscreen dialog
-        _showIntrusiveSosDialog(alertPayload);
-
-        // 2. Show local heads-up notification banner with sound
-        _showLocalSosAlertBanner(
-          title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
-          body: '${latestData['senderName']} needs immediate help! Tap to view live location.',
-          payload: alertPayload,
+        .listen(
+          (snap) => handleAlertSnapshot('uid', snap),
+          onError: (err) => debugPrint('[NotificationService] SOS UID stream error: $err'),
         );
+
+    // 2. Rule-compatible query: recipientEmails arrayContains myEmail
+    if (myEmail.isNotEmpty) {
+      _sosAlertsSubEmail = FirebaseFirestore.instance
+          .collection('sos_alerts')
+          .where('recipientEmails', arrayContains: myEmail)
+          .where('status', isEqualTo: 'active')
+          .snapshots()
+          .listen(
+            (snap) => handleAlertSnapshot('email', snap),
+            onError: (err) => debugPrint('[NotificationService] SOS Email stream error: $err'),
+          );
+    }
+  }
+
+  void _processIncomingSosAlerts(String myUid, String myEmail) {
+    final List<Map<String, dynamic>> eligibleAlerts = [];
+
+    for (final entry in _liveActiveAlerts.entries) {
+      final alertId = entry.key;
+      final data = entry.value['data'] as Map<String, dynamic>;
+      final doc = entry.value['doc'];
+
+      final senderId = (data['senderId'] ?? data['sender_uid'])?.toString();
+      if (senderId == myUid) {
+        // Do not alert the sender on their own device
+        continue;
       }
-    }, onError: (err) {
-      debugPrint('[NotificationService] Real-time SOS stream error: $err');
-    });
+
+      // Check if already dismissed locally
+      if (_dismissedAlertIds.contains(alertId)) {
+        continue;
+      }
+
+      // Check if dismissed in cloud by my UID
+      final List<dynamic> dismissedBy = (data['dismissedBy'] as List<dynamic>?) ?? [];
+      if (dismissedBy.map((e) => e.toString()).contains(myUid)) {
+        _dismissedAlertIds.add(alertId);
+        continue;
+      }
+
+      // Check timestamp: ignore stale alerts older than 60 minutes
+      final dynamic rawTime = data['triggeredAt'] ?? data['timestamp'];
+      DateTime alertDate = DateTime.now();
+      if (rawTime is Timestamp) {
+        alertDate = rawTime.toDate();
+        if (DateTime.now().difference(alertDate).inMinutes > 60) {
+          continue;
+        }
+      }
+
+      // Check if current user is an intended recipient
+      final List<dynamic> recEmails = (data['recipientEmails'] as List<dynamic>?) ?? [];
+      final List<dynamic> recUids = (data['recipientUids'] as List<dynamic>?) ?? [];
+
+      final bool matchesEmail = myEmail.isNotEmpty &&
+          recEmails.map((e) => e.toString().toLowerCase().trim()).contains(myEmail);
+      final bool matchesUid = recUids.map((u) => u.toString()).contains(myUid);
+      final bool isRecipient = matchesEmail || matchesUid;
+
+      if (!isRecipient) continue;
+
+      eligibleAlerts.add({
+        'alertId': alertId,
+        'doc': doc,
+        'data': data,
+        'alertDate': alertDate,
+      });
+    }
+
+    if (eligibleAlerts.isEmpty) return;
+
+    // Deduplicate: Sort by alertDate descending so newest is first
+    eligibleAlerts.sort((a, b) =>
+        (b['alertDate'] as DateTime).compareTo(a['alertDate'] as DateTime));
+
+    // Pick ONLY the single latest active alert
+    final latest = eligibleAlerts.first;
+    final latestAlertId = latest['alertId'] as String;
+    final latestData = latest['data'] as Map<String, dynamic>;
+    final latestDate = latest['alertDate'] as DateTime;
+
+    // Count total active presses from this sender
+    final senderId = (latestData['senderId'] ?? latestData['sender_uid'])?.toString();
+    final totalPresses = eligibleAlerts.where((a) {
+      final sid = (a['data']['senderId'] ?? a['data']['sender_uid'])?.toString();
+      return sid == senderId;
+    }).length;
+
+    // Only present if this latest alert hasn't already been displayed
+    if (!_shownAlertIds.contains(latestAlertId)) {
+      // Mark all older alerts from this sender as processed so they don't trigger subsequently
+      for (final a in eligibleAlerts) {
+        _shownAlertIds.add(a['alertId'] as String);
+      }
+
+      debugPrint('[NotificationService] 🚨 In-App SOS alert (latest of $totalPresses) detected for $myEmail from ${latestData['senderName']}!');
+
+      final alertPayload = {
+        'type': 'SOS_ALERT',
+        'alertId': latestAlertId,
+        'senderName': latestData['senderName'] ?? latestData['sender_name'] ?? 'Emergency Contact',
+        'senderEmail': latestData['senderEmail'] ?? latestData['sender_email'] ?? '',
+        'senderPhone': latestData['senderPhone'] ?? latestData['sender_phone'] ?? '',
+        'address': latestData['location']?['address'] ?? latestData['address'] ?? 'Live GPS Location Available',
+        'googleMapsUrl': latestData['google_maps_url'] ?? latestData['location']?['googleMapsUrl'] ?? '',
+        'latitude': latestData['latitude']?.toString() ?? latestData['location']?['latitude']?.toString() ?? '',
+        'longitude': latestData['longitude']?.toString() ?? latestData['location']?['longitude']?.toString() ?? '',
+        'message': latestData['message'] ?? latestData['note'] ?? 'Emergency SOS Alert triggered!',
+        'triggeredAt': latestDate.toIso8601String(),
+        'alertDate': latestDate,
+        'totalPresses': totalPresses,
+      };
+
+      // 1. Pop up intrusive fullscreen dialog
+      _showIntrusiveSosDialog(alertPayload);
+
+      // 2. Show local heads-up notification banner with sound
+      _showLocalSosAlertBanner(
+        title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
+        body: '${latestData['senderName']} needs immediate help! Tap to view live location.',
+        payload: alertPayload,
+      );
+    }
   }
 
   /// Subscribes to incoming connection requests to notify the user in real time.

@@ -804,7 +804,7 @@ class ContactSyncService {
   /// Upgrades an existing offline contact by dispatching a Guardian Connection Request.
   /// Works even if the contact has not yet initialized their Firestore profile.
   Future<bool> upgradeOfflineToSynced(ContactModel offlineContact) async {
-    final email = offlineContact.email.trim();
+    final email = offlineContact.email.trim().toLowerCase();
     if (email.isEmpty) return false;
 
     final targetUser = await searchUserByEmail(email);

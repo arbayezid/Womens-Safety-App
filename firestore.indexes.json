@@ -24,6 +24,46 @@
       "fields": [
         { "fieldPath": "phoneNumber", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "sos_alerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "recipientUids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sos_alerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "recipientEmails", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sos_alerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "senderId", "order": "ASCENDING" },
+        { "fieldPath": "triggeredAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sos_alerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "recipientUids", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "triggeredAt", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "sos_alerts",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "recipientEmails", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "triggeredAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

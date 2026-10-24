@@ -246,10 +246,14 @@ class ContactService extends ChangeNotifier {
         return false;
       });
 
+      final contactToSave = contact.email == normalizedEmail
+          ? contact
+          : contact.copyWith(email: normalizedEmail);
+
       if (existingIndex >= 0) {
-        current[existingIndex] = contact;
+        current[existingIndex] = contactToSave;
       } else {
-        current.add(contact);
+        current.add(contactToSave);
       }
 
       _cachedContacts = current;
@@ -264,8 +268,8 @@ class ContactService extends ChangeNotifier {
               .collection('users')
               .doc(user.uid)
               .collection('contacts')
-              .doc(contact.id)
-              .set(contact.toMap(), SetOptions(merge: true))
+              .doc(contactToSave.id)
+              .set(contactToSave.toMap(), SetOptions(merge: true))
               .timeout(const Duration(seconds: 4));
         }
       }
