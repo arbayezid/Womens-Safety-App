@@ -6,7 +6,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
 import '../core/app_colors.dart';
 import '../models/safe_zone_model.dart';
+import '../models/safety_report_model.dart';
 import '../services/location_service.dart';
+import '../services/safety_report_service.dart';
+import '../widgets/report_unsafe_spot_sheet.dart';
+import '../utils/auth_guard.dart';
 import '../utils/url_launcher_helper.dart';
 
 /// Available map tile styling presets.
@@ -69,6 +73,7 @@ class _MapScreenState extends State<MapScreen>
   final MapController _mapController = MapController();
 
   bool _safeRouteEnabled = true;
+  bool _showHeatmap = true;
   bool _isLoadingLocation = false;
   MapTileTheme _currentTileTheme = MapTileTheme.standard;
 
@@ -117,6 +122,7 @@ class _MapScreenState extends State<MapScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _loadSafeZonesDatabase();
       _fetchLiveLocation(animateCamera: true);
+      SafetyReportService.instance.getReports();
     });
   }
 
@@ -180,6 +186,7 @@ class _MapScreenState extends State<MapScreen>
         final loc = result.data!;
         final newPos = LatLng(loc.latitude, loc.longitude);
         _applyLocationData(newPos, loc.formattedAddress);
+        SafetyReportService.instance.evaluateAndNotifyProximityRisk(loc.latitude, loc.longitude);
 
         if (animateCamera && mounted) {
           _animatedMapMove(newPos, 15.0);
@@ -297,6 +304,41 @@ class _MapScreenState extends State<MapScreen>
     );
   }
 
+  /// Opens the community safety report modal sheet (guarded by AuthGuard)
+  Future<void> _openReportSpotSheet() async {
+    await AuthGuard.run(
+      context,
+      actionName: 'submit a community safety report',
+      customSubtitle:
+          'To report safety concerns and keep fellow women informed, please sign in with Google.',
+      onAuthenticated: () async {
+        final reported = await showModalBottomSheet<bool>(
+          context: context,
+          isScrollControlled: true,
+          backgroundColor: Colors.transparent,
+          builder: (_) => ReportUnsafeSpotSheet(
+            initialLat: _userPosition.latitude,
+            initialLng: _userPosition.longitude,
+          ),
+        );
+        if (reported == true) {
+          await SafetyReportService.instance.getReports(forceRefresh: true);
+        }
+      },
+    );
+  }
+
+  /// Displays detail sheet for a tapped hazard cluster
+  void _showClusterDetailsSheet(BuildContext context, SafetyCluster cluster) {
+    HapticFeedback.selectionClick();
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => _ClusterDetailsSheet(cluster: cluster),
+    );
+  }
+
   /// Selects a safe zone and focuses the map camera onto it.
   void _selectZone(SafeZone zone) {
     setState(() => _selectedZone = zone);
@@ -382,6 +424,25 @@ class _MapScreenState extends State<MapScreen>
             onTap: () => _fetchLiveLocation(animateCamera: true),
           ),
           const SizedBox(width: 8),
+          // Heatmap Toggle Button
+          _IconBtn(
+            icon: _showHeatmap
+                ? Icons.local_fire_department_rounded
+                : Icons.local_fire_department_outlined,
+            color: _showHeatmap ? AppColors.sosRed : AppColors.textSecondary,
+            onTap: () {
+              HapticFeedback.selectionClick();
+              setState(() => _showHeatmap = !_showHeatmap);
+            },
+          ),
+          const SizedBox(width: 8),
+          // Report Hazard Spot Button
+          _IconBtn(
+            icon: Icons.add_location_alt_rounded,
+            color: AppColors.actionOrange,
+            onTap: _openReportSpotSheet,
+          ),
+          const SizedBox(width: 8),
           // Layer Theme Switcher Button
           _IconBtn(
             icon: _currentTileTheme.icon,
@@ -450,6 +511,72 @@ class _MapScreenState extends State<MapScreen>
                   ],
                 ),
               ],
+
+              // Community Safety Heatmap & Risk Clusters (when enabled)
+              if (_showHeatmap)
+                ValueListenableBuilder<List<SafetyCluster>>(
+                  valueListenable: SafetyReportService.instance.clustersNotifier,
+                  builder: (context, clusters, _) {
+                    if (clusters.isEmpty) return const SizedBox.shrink();
+
+                    return CircleLayer(
+                      circles: clusters.map((c) {
+                        return CircleMarker(
+                          point: LatLng(c.centerLat, c.centerLng),
+                          radius: c.radiusMeters,
+                          useRadiusInMeter: true,
+                          color: c.clusterColor,
+                          borderColor: c.clusterColor.withValues(alpha: 0.9),
+                          borderStrokeWidth: 1.5,
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+
+              // Hazard Cluster Warning Markers (when heatmap enabled)
+              if (_showHeatmap)
+                ValueListenableBuilder<List<SafetyCluster>>(
+                  valueListenable: SafetyReportService.instance.clustersNotifier,
+                  builder: (context, clusters, _) {
+                    if (clusters.isEmpty) return const SizedBox.shrink();
+
+                    return MarkerLayer(
+                      markers: clusters.map((c) {
+                        return Marker(
+                          point: LatLng(c.centerLat, c.centerLng),
+                          width: 36,
+                          height: 36,
+                          alignment: Alignment.center,
+                          child: GestureDetector(
+                            onTap: () => _showClusterDetailsSheet(context, c),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: c.clusterColor.withValues(alpha: 0.95),
+                                border: Border.all(color: Colors.white, width: 2),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.2),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: Icon(
+                                c.totalRiskScore >= 5.0
+                                    ? Icons.warning_rounded
+                                    : Icons.report_problem_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
+                            ),
+                          ),
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
 
               // Safe Zone & User Position Markers
               MarkerLayer(
@@ -651,6 +778,45 @@ class _MapScreenState extends State<MapScreen>
                         fontSize: 9.5,
                         fontWeight: FontWeight.w600,
                         color: AppColors.successForeground,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          // ── Heatmap Active Indicator Pill (Top Right) ─────────────
+          if (_showHeatmap)
+            Positioned(
+              top: _safeRouteEnabled ? 40 : 12,
+              right: 12,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF7ED).withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: AppColors.actionOrange.withValues(alpha: 0.4),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: AppColors.actionOrange,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      'Safety Heatmap Active',
+                      style: GoogleFonts.poppins(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.actionOrange,
                       ),
                     ),
                   ],
@@ -1116,3 +1282,196 @@ class _SafeZoneCard extends StatelessWidget {
     );
   }
 }
+
+/// Detail modal sheet displayed when a user taps a safety hazard cluster on the map.
+class _ClusterDetailsSheet extends StatefulWidget {
+  final SafetyCluster cluster;
+
+  const _ClusterDetailsSheet({required this.cluster});
+
+  @override
+  State<_ClusterDetailsSheet> createState() => _ClusterDetailsSheetState();
+}
+
+class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
+  final Set<String> _verifyingIds = {};
+
+  Future<void> _verify(String reportId) async {
+    setState(() => _verifyingIds.add(reportId));
+    HapticFeedback.mediumImpact();
+    await SafetyReportService.instance.verifyReport(reportId);
+    if (mounted) setState(() => _verifyingIds.remove(reportId));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cluster = widget.cluster;
+    final isDanger = cluster.totalRiskScore >= 5.0;
+    final isWarning = cluster.totalRiskScore >= 2.0;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(
+              width: 44,
+              height: 4,
+              decoration: BoxDecoration(
+                color: Colors.grey.shade300,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: cluster.clusterColor.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  isDanger ? Icons.warning_rounded : Icons.report_problem_rounded,
+                  color: cluster.clusterColor,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      isDanger
+                          ? 'High-Risk Safety Zone'
+                          : (isWarning ? 'Moderate Caution Zone' : 'Community Hazard Zone'),
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                    Text(
+                      '${cluster.reports.length} report(s) • Decayed risk score: ${cluster.totalRiskScore.toStringAsFixed(1)}',
+                      style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            'Community Reports in this area:',
+            style: GoogleFonts.poppins(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Flexible(
+            child: ListView.separated(
+              shrinkWrap: true,
+              physics: const BouncingScrollPhysics(),
+              itemCount: cluster.reports.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 10),
+              itemBuilder: (ctx, i) {
+                final r = cluster.reports[i];
+                final isVerifying = _verifyingIds.contains(r.id);
+                final daysAgo = DateTime.now().difference(r.createdAt).inDays;
+                final timeAgoStr = daysAgo == 0
+                    ? 'Today'
+                    : (daysAgo == 1 ? 'Yesterday' : '$daysAgo days ago');
+
+                return Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(r.incidentType.icon, size: 16, color: r.incidentType.color),
+                          const SizedBox(width: 6),
+                          Text(
+                            r.incidentType.label,
+                            style: GoogleFonts.poppins(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: r.incidentType.color,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            timeAgoStr,
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        r.description,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: AppColors.textPrimary,
+                          height: 1.35,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Text(
+                            '🛡️ Verified by ${r.verifiedCount} women',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              color: AppColors.textSecondary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: isVerifying ? null : () => _verify(r.id),
+                            icon: const Icon(Icons.thumb_up_alt_rounded, size: 13),
+                            label: Text(
+                              isVerifying ? 'Verifying...' : 'Confirm Concern',
+                              style: GoogleFonts.poppins(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppColors.primary,
+                              visualDensity: VisualDensity.compact,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+

@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import 'safety_report_service.dart';
 
 /// Reusable singleton service managing live GPS location tracking and throttled
 /// Firestore synchronization for active SOS emergencies and Safe Journeys.
@@ -152,6 +153,9 @@ class LiveTrackingService {
 
   /// Evaluates throttling conditions and triggers cloud sync if met.
   void _checkAndSyncPosition(Position position) {
+    // Proximity Risk Check for community hazards
+    SafetyReportService.instance.evaluateAndNotifyProximityRisk(position.latitude, position.longitude);
+
     final now = DateTime.now();
     final shouldWrite = shouldWriteUpdate(
       lastWriteTime: _lastWriteTime,

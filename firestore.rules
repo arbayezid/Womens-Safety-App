@@ -167,5 +167,20 @@ service cloud.firestore {
       // Delete: Denied or only owner when cancelled/arrived
       allow delete: if isJourneyOwner() && resource.data.status in ['cancelled', 'arrived'];
     }
+
+    // Community Safety Reports Collection (Heatmap & Crowdsourced hazards)
+    match /safety_reports/{reportId} {
+      // Anyone can read safety reports (even guest users for public safety awareness)
+      allow read: if true;
+
+      // Only authenticated users can submit safety reports with their own userId
+      allow create: if isAuthenticated() &&
+        request.resource.data.userId == request.auth.uid;
+
+      // Authenticated users can increment verification count
+      allow update: if isAuthenticated();
+
+      allow delete: if false;
+    }
   }
 }
