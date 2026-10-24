@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -8,12 +9,12 @@ import '../models/contact_model.dart';
 import 'activity_service.dart';
 
 /// Service managing emergency contacts purely in cloud storage (Firestore)
-/// and reactive in-memory state.
+/// with real-time in-memory state and secure per-user local disk caching.
 ///
-/// **Zero Physical Device Persistence**: No contact names, phone numbers, or emails
-/// are saved to [SharedPreferences] or local SQLite. All data is dynamically fetched
-/// from `users/{currentUser.uid}/contacts` based strictly on the currently logged-in
-/// Google/Gmail account and purged from memory upon sign-out.
+/// **Per-User Disk Cache**: Contact lists are locally cached in [SharedPreferences]
+/// strictly keyed by user UID (`contacts_cache_<uid>`) to ensure zero-latency offline
+/// availability during life-threatening emergencies. The cache is updated on cloud sync
+/// and completely wiped when the user signs out.
 class ContactService extends ChangeNotifier {
   ContactService._internal();
 
@@ -22,6 +23,12 @@ class ContactService extends ChangeNotifier {
 
   /// Legacy storage key used only for purging legacy unencrypted data on upgrade/signout
   static const String _legacyStorageKey = 'emergency_contacts_list';
+
+  /// Storage key prefix for per-user local contact disk cache
+  static const String _diskCachePrefix = 'contacts_cache_';
+
+  /// Generates the SharedPreferences key for a specific user's contact cache
+  static String cacheKeyForUid(String uid) => '$_diskCachePrefix$uid';
 
   /// Initial sample contacts for offline unit test harness only (never persisted to disk)
   static final List<ContactModel> _defaultContacts = [
@@ -78,6 +85,42 @@ class ContactService extends ChangeNotifier {
     _emitChange();
   }
 
+  /// Saves current in-memory contacts to SharedPreferences under `contacts_cache_<uid>`
+  Future<void> saveToDiskCache(String? uid) async {
+    if (uid == null || uid.isEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final jsonString = json.encode(_cachedContacts.map((c) => c.toMap()).toList());
+      await prefs.setString(cacheKeyForUid(uid), jsonString);
+      debugPrint('[ContactService] 💾 Saved ${_cachedContacts.length} contacts to disk cache for $uid');
+    } catch (e) {
+      debugPrint('[ContactService] Error saving contacts disk cache: $e');
+    }
+  }
+
+  /// Loads cached contacts from SharedPreferences for [uid]
+  Future<List<ContactModel>> loadFromDiskCache(String? uid) async {
+    if (uid == null || uid.isEmpty) return [];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(cacheKeyForUid(uid));
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = json.decode(raw);
+        if (decoded is List) {
+          final list = decoded
+              .whereType<Map>()
+              .map((item) => ContactModel.fromMap(Map<String, dynamic>.from(item)))
+              .toList();
+          debugPrint('[ContactService] 📂 Loaded ${list.length} contacts from disk cache for $uid');
+          return list;
+        }
+      }
+    } catch (e) {
+      debugPrint('[ContactService] Error loading contacts disk cache: $e');
+    }
+    return [];
+  }
+
   /// Dynamically binds the contact service to the authenticated user's Firestore subcollection:
   /// `users/{uid}/contacts`.
   void bindUser(String? uid) {
@@ -91,6 +134,15 @@ class ContactService extends ChangeNotifier {
     _emitChange();
 
     if (uid == null || uid.isEmpty) return;
+
+    // Immediately load from disk cache so contacts are accessible offline
+    loadFromDiskCache(uid).then((cached) {
+      if (_currentBoundUid == uid && cached.isNotEmpty && (_cachedContacts.isEmpty || !_isInitialized)) {
+        _cachedContacts = cached;
+        _isInitialized = true;
+        _emitChange();
+      }
+    });
 
     if (Firebase.apps.isNotEmpty) {
       _firestoreSubscription = FirebaseFirestore.instance
@@ -109,6 +161,7 @@ class ContactService extends ChangeNotifier {
         }).toList();
         _isInitialized = true;
         _emitChange();
+        saveToDiskCache(uid);
       }, onError: (e) {
         debugPrint('[ContactService] Firestore contacts stream notice: $e');
       });
@@ -120,17 +173,36 @@ class ContactService extends ChangeNotifier {
     _cachedContacts = List<ContactModel>.from(synced);
     _isInitialized = true;
     _emitChange();
+    final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
+    if (uid != null) {
+      saveToDiskCache(uid);
+    }
   }
 
-  /// Retrieves all contacts dynamically from Cloud Firestore or active in-memory cache.
-  /// Zero device-side disk storage is used.
+  /// Retrieves all contacts dynamically from Cloud Firestore or active in-memory cache,
+  /// falling back to local per-user disk cache when offline.
   Future<List<ContactModel>> getContacts({bool forceRefresh = false}) async {
-    if (_isInitialized && !forceRefresh) {
+    if (_isInitialized && !forceRefresh && _cachedContacts.isNotEmpty) {
       return List<ContactModel>.from(_cachedContacts);
     }
 
+    final user = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser : null;
+    final uid = user?.uid ?? _currentBoundUid;
+
+    // On app start or offline, load the disk cache FIRST so getContacts returns immediately
+    if (_cachedContacts.isEmpty && uid != null && uid.isNotEmpty) {
+      final diskCached = await loadFromDiskCache(uid);
+      if (diskCached.isNotEmpty) {
+        _cachedContacts = diskCached;
+        _isInitialized = true;
+        _emitChange();
+        if (!forceRefresh) {
+          return List<ContactModel>.from(_cachedContacts);
+        }
+      }
+    }
+
     if (Firebase.apps.isNotEmpty) {
-      final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
         if (_currentBoundUid != user.uid) {
           bindUser(user.uid);
@@ -160,10 +232,10 @@ class ContactService extends ChangeNotifier {
                 !resolvedUid.startsWith('offline_')) {
               try {
                 final userDoc = await FirebaseFirestore.instance
-                    .collection('users')
-                    .doc(resolvedUid)
-                    .get(const GetOptions(source: Source.serverAndCache))
-                    .timeout(const Duration(seconds: 1));
+                  .collection('users')
+                  .doc(resolvedUid)
+                  .get(const GetOptions(source: Source.serverAndCache))
+                  .timeout(const Duration(seconds: 1));
                 if (userDoc.exists && userDoc.data() != null) {
                   final uData = userDoc.data()!;
                   final resolvedPhone = (uData['phoneNumber'] ?? uData['phone'] ?? '').toString().trim();
@@ -190,6 +262,7 @@ class ContactService extends ChangeNotifier {
           _cachedContacts = mapped;
           _isInitialized = true;
           _emitChange();
+          unawaited(saveToDiskCache(user.uid));
           return List<ContactModel>.from(_cachedContacts);
         } catch (e) {
           debugPrint('[ContactService] Cloud fetch notice: $e');
@@ -213,8 +286,7 @@ class ContactService extends ChangeNotifier {
   }
 
   /// Adds or updates a contact in Cloud Firestore and instantly notifies all reactive listeners.
-  ///
-  /// Zero physical device persistence is performed.
+  /// Also updates local per-user disk cache for offline accessibility.
   Future<bool> addContact(ContactModel contact) async {
     try {
       final List<ContactModel> current = await getContacts();
@@ -259,6 +331,10 @@ class ContactService extends ChangeNotifier {
       _cachedContacts = current;
       _isInitialized = true;
       _emitChange();
+      final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
+      if (uid != null) {
+        unawaited(saveToDiskCache(uid));
+      }
 
       // Dynamically persist to Cloud Firestore scoped strictly to current user's UID
       if (Firebase.apps.isNotEmpty) {
@@ -288,7 +364,7 @@ class ContactService extends ChangeNotifier {
 
   /// Deletes a contact matching [id], [contactUid], [email], or [phone].
   ///
-  /// Instantly removes from in-memory cache, notifies UI listeners, and deletes from Firestore.
+  /// Instantly removes from in-memory cache, notifies UI listeners, updates disk cache, and deletes from Firestore.
   Future<bool> deleteContact(
     String id, {
     String? contactUid,
@@ -328,6 +404,10 @@ class ContactService extends ChangeNotifier {
       _cachedContacts = current;
       _isInitialized = true;
       _emitChange();
+      final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
+      if (uid != null) {
+        unawaited(saveToDiskCache(uid));
+      }
 
       // Cloud deletion scoped strictly to authenticated user UID
       if (Firebase.apps.isNotEmpty) {
@@ -372,6 +452,10 @@ class ContactService extends ChangeNotifier {
       _cachedContacts = current;
       _isInitialized = true;
       _emitChange();
+      final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
+      if (uid != null) {
+        unawaited(saveToDiskCache(uid));
+      }
 
       // Cloud update in Firestore
       if (Firebase.apps.isNotEmpty) {
@@ -437,10 +521,17 @@ class ContactService extends ChangeNotifier {
     return true;
   }
 
-  /// Clears all contacts from memory and Firestore (for testing or reset).
+  /// Clears all contacts from memory, disk cache, and Firestore (for testing or reset).
   Future<bool> clearContacts() async {
+    final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
     _cachedContacts = [];
     _emitChange();
+    if (uid != null && uid.isNotEmpty) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(cacheKeyForUid(uid));
+      } catch (_) {}
+    }
     if (Firebase.apps.isNotEmpty) {
       final user = FirebaseAuth.instance.currentUser;
       if (user != null) {
@@ -460,8 +551,9 @@ class ContactService extends ChangeNotifier {
   }
 
   /// Completely cancels Firestore stream subscriptions and purges in-memory caches on logout.
-  /// Also scrubs legacy local SharedPreferences keys to ensure zero leftover physical device data.
+  /// Also scrubs legacy and per-user local SharedPreferences keys to ensure zero leftover physical device data.
   Future<void> purgeOnSignOut() async {
+    final oldUid = _currentBoundUid;
     _firestoreSubscription?.cancel();
     _firestoreSubscription = null;
     _cachedContacts = [];
@@ -472,6 +564,15 @@ class ContactService extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_legacyStorageKey);
-    } catch (_) {}
+      if (oldUid != null && oldUid.isNotEmpty) {
+        await prefs.remove(cacheKeyForUid(oldUid));
+      }
+      final allKeys = prefs.getKeys().where((k) => k.startsWith(_diskCachePrefix)).toList();
+      for (final key in allKeys) {
+        await prefs.remove(key);
+      }
+    } catch (e) {
+      debugPrint('[ContactService] Error purging disk cache: $e');
+    }
   }
 }

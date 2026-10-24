@@ -244,50 +244,69 @@ class EmergencyService {
       debugPrint('[EmergencyService] ⚠️ GPS unavailable; proceeding with emergency message so SMS dispatch is not blocked.');
     }
 
-    // Step 4: CONCURRENT DUAL DISPATCH (Cloud SOS + Offline Direct SMS)
+    // Step 4: NON-BLOCKING DUAL DISPATCH (Cloud SOS + Offline Direct SMS)
+    // 1. Fire Cloud SOS asynchronously so network latency/offline state never blocks SMS.
     final cloudFuture = SosCloudDispatcher.instance.triggerCloudSos(
       position: position,
       source: source,
       customNote: customMessage,
       recipientEmails: routedCloudEmails,
       recipientUids: routedCloudUids,
-    ).timeout(
-      const Duration(seconds: 4),
-      onTimeout: () {
-        debugPrint('[EmergencyService] ⏱️ Cloud SOS dispatch timed out after 4s (continuing in background)');
-        return null;
-      },
     ).catchError((err) {
       debugPrint('[EmergencyService] ❌ Cloud SOS dispatch error: $err');
       return null;
     });
 
-    final smsFuture = recipients.isNotEmpty
-        ? _dispatchOfflineSms(
-            recipients: recipients,
-            mapUrl: mapUrl,
-            customMessage: customMessage,
-          ).catchError((err) {
-            debugPrint('[EmergencyService] ❌ SMS dispatch future error: $err');
-            final bool isPermissionDenied = err.toString().contains('permission_denied') ||
-                err.toString().contains('SEND_SMS');
-            return _SmsDispatchResult(
-              sentCount: 0,
-              failedList: recipients,
-              hasRecipients: true,
-              permissionGranted: !isPermissionDenied,
-            );
-          })
-        : Future.value(const _SmsDispatchResult(
-            sentCount: 0,
-            failedList: [],
-            hasRecipients: false,
-            permissionGranted: true,
-          ));
+    // 2. Primary offline channel: Dispatch SMS immediately without waiting for Cloud SOS
+    final _SmsDispatchResult smsResult;
+    if (recipients.isNotEmpty) {
+      smsResult = await _dispatchOfflineSms(
+        recipients: recipients,
+        mapUrl: mapUrl,
+        customMessage: customMessage,
+      ).catchError((err) {
+        debugPrint('[EmergencyService] ❌ SMS dispatch future error: $err');
+        final bool isPermissionDenied = err.toString().contains('permission_denied') ||
+            err.toString().contains('SEND_SMS');
+        return _SmsDispatchResult(
+          sentCount: 0,
+          failedList: recipients,
+          hasRecipients: true,
+          permissionGranted: !isPermissionDenied,
+        );
+      });
+    } else {
+      smsResult = const _SmsDispatchResult(
+        sentCount: 0,
+        failedList: [],
+        hasRecipients: false,
+        permissionGranted: true,
+      );
+    }
 
-    final List<dynamic> dualResults = await Future.wait([cloudFuture, smsFuture]);
-    final String? cloudAlertId = dualResults[0] as String?;
-    final _SmsDispatchResult smsResult = dualResults[1] as _SmsDispatchResult;
+    // 3. Evaluate Cloud SOS:
+    // If SMS was sent, check if Cloud SOS already finished fast (e.g. 500ms race or local cache);
+    // otherwise do not wait further so the UI receives immediate feedback while Cloud SOS queues in background.
+    // If no SMS was sent (e.g. email-only contacts or SMS failed), wait up to 3s for Cloud SOS.
+    String? cloudAlertId;
+    if (smsResult.sentCount > 0) {
+      try {
+        cloudAlertId = await cloudFuture.timeout(
+          const Duration(milliseconds: 500),
+          onTimeout: () => null,
+        );
+      } catch (_) {}
+    } else {
+      try {
+        cloudAlertId = await cloudFuture.timeout(
+          const Duration(seconds: 3),
+          onTimeout: () {
+            debugPrint('[EmergencyService] ⏱️ Cloud SOS timed out (queued in background)');
+            return null;
+          },
+        );
+      } catch (_) {}
+    }
 
     final int sentCount = smsResult.sentCount;
     final List<String> failedList = smsResult.failedList;
@@ -298,7 +317,7 @@ class EmergencyService {
     if (sentCount > 0 && cloudSent) {
       resultSummary = 'SOS alert dispatched! SMS sent to $sentCount contact(s) & Cloud alert broadcast.';
     } else if (sentCount > 0) {
-      resultSummary = 'Emergency SMS successfully sent to $sentCount contact(s).';
+      resultSummary = 'SMS sent to $sentCount contact(s). Cloud alert queued.';
     } else if (cloudSent) {
       if (recipients.isEmpty) {
         resultSummary = '🚨 Cloud SOS alert broadcast to guardian(s)! Add a mobile number to contact to also send SMS.';
