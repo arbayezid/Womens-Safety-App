@@ -91,18 +91,69 @@ service cloud.firestore {
       // Read: Authenticated AND (sender OR recipient)
       allow read: if isSender() || isRecipient();
 
-      // Update: Only sender or recipients, and only allowed client fields
-      allow update: if (isSender() || isRecipient()) &&
+      // Update: 
+      // Sender can update tracking fields and resolve alert
+      // Recipients can update status, resolvedAt, dismissedBy, acknowledgedBy, lastRespondedAt
+      allow update: if (isSender() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status',
+          'resolvedAt',
+          'liveLocation',
+          'liveUpdatedAt',
+          'batteryLevel',
+          'isTrackingActive',
+          'isDuress',
+          'lastUpdatedAt',
+          'latitude',
+          'longitude',
+          'google_maps_url',
+          'location'
+        ]))
+        ||
+        (isRecipient() &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'status',
           'resolvedAt',
           'dismissedBy',
           'acknowledgedBy',
           'lastRespondedAt'
-        ]);
+        ]));
 
       // Delete: Denied (alerts are immutable emergency records)
       allow delete: if false;
+    }
+
+    // Safe Journeys Collection
+    match /journeys/{journeyId} {
+      function isJourneyOwner() {
+        return isAuthenticated() && (
+          ('ownerId' in resource.data && resource.data.ownerId == request.auth.uid) ||
+          ('owner_uid' in resource.data && resource.data.owner_uid == request.auth.uid)
+        );
+      }
+
+      function isJourneyGuardian() {
+        return isAuthenticated() && (
+          ('guardianUids' in resource.data && request.auth.uid in resource.data.guardianUids) ||
+          (request.auth.token.email != null && 'guardianEmails' in resource.data &&
+           request.auth.token.email.lower() in resource.data.guardianEmails)
+        );
+      }
+
+      // Create: Authenticated user creates journey with themselves as owner
+      allow create: if isAuthenticated() && (
+        ('ownerId' in request.resource.data && request.resource.data.ownerId == request.auth.uid) ||
+        ('owner_uid' in request.resource.data && request.resource.data.owner_uid == request.auth.uid)
+      );
+
+      // Read: Owner or listed guardian
+      allow read: if isJourneyOwner() || isJourneyGuardian();
+
+      // Update: Only owner can update tracking, status, check-ins, or cancel
+      allow update: if isJourneyOwner();
+
+      // Delete: Denied or only owner when cancelled/arrived
+      allow delete: if isJourneyOwner() && resource.data.status in ['cancelled', 'arrived'];
     }
   }
 }

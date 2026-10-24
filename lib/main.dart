@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'core/app_theme.dart';
 import 'screens/welcome_screen.dart';
 import 'services/auth_service.dart';
+import 'services/background_service.dart';
+import 'services/live_tracking_service.dart';
 import 'services/notification_service.dart';
 
 /// Global navigator key enabling intrusive dialog overlays from background or notification events
@@ -36,10 +38,18 @@ void main() async {
   // Launch UI immediately so the user never sees a white screen
   runApp(const SmartSafetyApp());
 
-  // Initialize notifications asynchronously after the first frame renders
+  // Initialize notifications & background tracking services asynchronously after the first frame renders
   WidgetsBinding.instance.addPostFrameCallback((_) {
     NotificationService.instance.init(rootNavigatorKey).catchError((err) {
       debugPrint('[Main] NotificationService init error: $err');
+    });
+
+    BackgroundServiceManager.instance.initialize().then((_) {
+      LiveTrackingService.instance.autoResumeActiveSessions().catchError((err) {
+        debugPrint('[Main] Auto-resume tracking error: $err');
+      });
+    }).catchError((err) {
+      debugPrint('[Main] BackgroundServiceManager init error: $err');
     });
   });
 }

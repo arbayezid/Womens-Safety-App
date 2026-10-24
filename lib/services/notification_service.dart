@@ -88,10 +88,21 @@ class NotificationService {
           enableVibration: true,
         );
 
+        // High-importance Android Notification Channel for Safe Journey Dead-Man's safety check
+        const AndroidNotificationChannel safetyCheckChannel = AndroidNotificationChannel(
+          'safety_check_channel',
+          'Safe Journey Safety Checks',
+          description: 'High-priority check-in prompts before auto-dispatching emergency SOS.',
+          importance: Importance.max,
+          playSound: true,
+          enableVibration: true,
+        );
+
         final androidPlugin = _localNotifications
             .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
         if (androidPlugin != null) {
           await androidPlugin.createNotificationChannel(sosChannel);
+          await androidPlugin.createNotificationChannel(safetyCheckChannel);
         }
       } catch (localErr) {
         debugPrint('[FCM] Local notifications init error: $localErr');
@@ -596,5 +607,68 @@ class NotificationService {
     } catch (e) {
       debugPrint('[FCM] Token sync to Firestore error: $e');
     }
+  }
+
+  /// Notification ID reserved for Safe Journey Dead-Man's safety check
+  static const int safetyCheckNotificationId = 999;
+
+  /// Shows a high-priority safety check local notification with sound and vibration
+  Future<void> showSafetyCheckNotification({
+    required int secondsRemaining,
+    required String reason,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'safety_check_channel',
+      'Safe Journey Safety Checks',
+      channelDescription: 'High-priority check-in prompts before auto-dispatching emergency SOS.',
+      importance: Importance.max,
+      priority: Priority.high,
+      fullScreenIntent: true,
+      category: AndroidNotificationCategory.alarm,
+      ticker: 'Safety Check Alert',
+      ongoing: true,
+    );
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+      interruptionLevel: InterruptionLevel.timeSensitive,
+    );
+    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+
+    await _localNotifications.show(
+      safetyCheckNotificationId,
+      '🚨 Safety Check Required ($secondsRemaining s)',
+      'Are you safe? ($reason). Tap to confirm or SOS will trigger automatically.',
+      details,
+      payload: 'safety_check',
+    );
+  }
+
+  /// Cancels the safety check local notification
+  Future<void> cancelSafetyCheckNotification() async {
+    await _localNotifications.cancel(safetyCheckNotificationId);
+  }
+
+  /// Shows a generic status local notification
+  Future<void> showStatusNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'sos_emergency_channel',
+      'SOS Emergency Alerts',
+      channelDescription: 'Emergency status notifications',
+      importance: Importance.high,
+      priority: Priority.high,
+    );
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    await _localNotifications.show(id, title, body, details);
   }
 }

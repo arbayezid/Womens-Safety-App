@@ -55,6 +55,11 @@
 	<string>Woman Guard requires background location access to provide real-time GPS tracking to your guardians when an emergency SOS alert is active.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Woman Guard requires microphone access to record emergency audio evidence during an SOS alert for your safety.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

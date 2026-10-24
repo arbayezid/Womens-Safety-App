@@ -53,11 +53,30 @@ dependencies:
   firebase_messaging: ^15.0.0
   flutter_local_notifications: ^17.1.2
 
+  # Firebase Storage for Emergency Audio Recordings
+  firebase_storage: ^12.0.0
+
+  # Audio Recording for Emergency Quick Action
+  record: ^5.1.2
+  path_provider: ^2.1.2
+
+  # Background Execution & Foreground Tracking Service
+  flutter_background_service: ^5.0.11
+
+  # Battery Level Monitoring for Critical Battery Alerts
+  battery_plus: ^6.2.1
+
+  # Cryptographic Hashing for Salted SHA-256 PIN Security
+  crypto: ^3.0.6
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.14.4
+
+dependency_overrides:
+  record_linux: 1.3.1
 
 flutter:
   uses-material-design: true
