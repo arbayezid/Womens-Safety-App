@@ -8,6 +8,7 @@ import '../services/siren_service.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import '../services/contact_sync_service.dart';
+import '../services/battery_alert_service.dart';
 import '../utils/auth_guard.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'map_screen.dart';
@@ -16,6 +17,7 @@ import 'settings_screen.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
 import '../widgets/fake_call_dialog.dart';
+import '../widgets/record_audio_sheet.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -61,6 +63,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _pulseAnimation = Tween<double>(begin: 0.93, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    // Restore any active SOS session and initialize battery monitoring
+    EmergencyService.instance.restoreActiveAlertId();
+    BatteryAlertService.instance.initialize();
   }
 
   @override
@@ -295,6 +301,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return;
     }
 
+    if (label == 'Record Audio') {
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (_) => const RecordAudioSheet(),
+      );
+      return;
+    }
+
     // Log the quick action event
     ActivityService.instance.logQuickAction(label);
 
@@ -447,6 +463,18 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
+            // ── Active SOS Emergency Alert Banner ("I'm Safe") ──────
+            ValueListenableBuilder<String?>(
+              valueListenable: EmergencyService.instance.activeAlertIdNotifier,
+              builder: (context, activeAlertId, _) {
+                if (activeAlertId == null) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: _ActiveSosEmergencyBanner(alertId: activeAlertId),
+                );
+              },
+            ),
+
             const SizedBox(height: 16),
 
             // ── 2. Current Location Card ───────────────────────────
@@ -496,6 +524,206 @@ class _SafetyDashboard extends StatelessWidget {
 // ─────────────────────────────────────────────────────────────
 //  SUB-WIDGETS  (private, file-scoped)
 // ─────────────────────────────────────────────────────────────
+
+/// Prominent banner displayed on the Safety dashboard when an emergency SOS alert
+/// is currently active and broadcasting live GPS tracking data.
+class _ActiveSosEmergencyBanner extends StatefulWidget {
+  final String alertId;
+
+  const _ActiveSosEmergencyBanner({required this.alertId});
+
+  @override
+  State<_ActiveSosEmergencyBanner> createState() => _ActiveSosEmergencyBannerState();
+}
+
+class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulseScale;
+  bool _isResolving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat(reverse: true);
+    _pulseScale = Tween<double>(begin: 0.95, end: 1.05).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleMarkSafe() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
+            const SizedBox(width: 10),
+            Text(
+              "I'm Safe Now",
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
+            ),
+          ],
+        ),
+        content: Text(
+          'Are you sure you are safe? This will resolve the active emergency SOS, stop live GPS tracking, and send an "I\'m safe now" SMS to your emergency contacts.',
+          style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.safeGreen,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(
+              'Yes, I Am Safe',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isResolving = true);
+    try {
+      await EmergencyService.instance.markSafe(alertId: widget.alertId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.check_circle_rounded, color: Colors.white),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '✅ Marked safe! Emergency contacts notified and live tracking stopped.',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppColors.safeGreen,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          margin: const EdgeInsets.all(16),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isResolving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF0F0),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.5), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.sosRed.withValues(alpha: 0.12),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              ScaleTransition(
+                scale: _pulseScale,
+                child: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: AppColors.sosRed,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.sensors_rounded, color: Colors.white, size: 20),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '🚨 SOS EMERGENCY ACTIVE',
+                      style: GoogleFonts.poppins(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.sosRed,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    Text(
+                      'Broadcasting live GPS tracking to guardians',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        color: AppColors.textPrimary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            height: 44,
+            child: ElevatedButton.icon(
+              onPressed: _isResolving ? null : _handleMarkSafe,
+              icon: _isResolving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+              label: Text(
+                _isResolving ? 'Resolving Alert...' : "I'M SAFE NOW",
+                style: GoogleFonts.poppins(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                  letterSpacing: 0.5,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.safeGreen,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 /// Custom header row: tappable avatar · greeting · ESP32 badge
 ///

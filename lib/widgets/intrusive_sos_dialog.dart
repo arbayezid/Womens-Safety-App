@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -69,17 +70,123 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
     }
   }
 
+  Future<void> _handleCallSender(String phone, bool isDuress) async {
+    if (phone.isEmpty) return;
+    if (isDuress) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          title: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: AppColors.sosRed, size: 26),
+              const SizedBox(width: 8),
+              Text(
+                'Duress Warning',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+              ),
+            ],
+          ),
+          content: Text(
+            'This is a silent duress emergency. The sender may be under direct threat. Calling her phone could alert an aggressor. Do you still want to place this call?',
+            style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.sosRed,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: Text(
+                'Call Anyway',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      );
+      if (proceed != true) return;
+    }
+    await _callSender(phone);
+  }
+
   @override
   Widget build(BuildContext context) {
-    final senderName = widget.data['senderName']?.toString() ?? 'Emergency Ward';
-    final senderEmail = widget.data['senderEmail']?.toString() ?? '';
-    final senderPhone = widget.data['senderPhone']?.toString() ?? '';
-    final address = widget.data['address']?.toString() ?? 'Live GPS Coordinates Available';
-    final mapsUrl = widget.data['googleMapsUrl']?.toString() ?? '';
-    final message = widget.data['message']?.toString() ?? '';
+    final alertId = widget.data['alertId']?.toString() ?? '';
 
-    // Calculate formatted timing & relative elapsed time
-    final rawDate = widget.data['alertDate'];
+    if (alertId.isNotEmpty) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance.collection('sos_alerts').doc(alertId).snapshots(),
+        builder: (context, snapshot) {
+          final liveDoc = snapshot.data?.data();
+          return _buildDialogContent(liveDoc);
+        },
+      );
+    }
+
+    return _buildDialogContent(null);
+  }
+
+  Widget _buildDialogContent(Map<String, dynamic>? liveDoc) {
+    final senderName = liveDoc?['senderName']?.toString() ??
+        widget.data['senderName']?.toString() ??
+        'Emergency Ward';
+    final senderEmail = liveDoc?['senderEmail']?.toString() ??
+        widget.data['senderEmail']?.toString() ??
+        '';
+    final senderPhone = liveDoc?['senderPhone']?.toString() ??
+        widget.data['senderPhone']?.toString() ??
+        '';
+    final message = liveDoc?['message']?.toString() ??
+        widget.data['message']?.toString() ??
+        '';
+
+    final isResolved = liveDoc?['status'] == 'resolved';
+    final isDuress = (liveDoc?['isDuress'] as bool?) ??
+        (widget.data['isDuress'] as bool? ?? false);
+    final isTrackingActive = (liveDoc?['isTrackingActive'] as bool?) ??
+        (widget.data['isTrackingActive'] as bool? ?? false);
+    final batteryLevel = (liveDoc?['batteryLevel'] as num?)?.toInt() ??
+        (widget.data['batteryLevel'] as num?)?.toInt();
+
+    // Determine address and maps link (prioritizing live updates)
+    String address = widget.data['address']?.toString() ?? 'Live GPS Coordinates Available';
+    String mapsUrl = widget.data['googleMapsUrl']?.toString() ?? '';
+    String? liveUpdatedText;
+
+    if (liveDoc != null) {
+      final liveLoc = liveDoc['liveLocation'] as Map<String, dynamic>?;
+      if (liveLoc != null) {
+        if (liveLoc['address'] != null && liveLoc['address'].toString().isNotEmpty) {
+          address = liveLoc['address'].toString();
+        }
+        if (liveLoc['googleMapsUrl'] != null && liveLoc['googleMapsUrl'].toString().isNotEmpty) {
+          mapsUrl = liveLoc['googleMapsUrl'].toString();
+        } else if (liveLoc['latitude'] != null && liveLoc['longitude'] != null) {
+          mapsUrl = 'https://maps.google.com/?q=${liveLoc['latitude']},${liveLoc['longitude']}';
+        }
+      } else if (liveDoc['address'] != null && liveDoc['address'].toString().isNotEmpty) {
+        address = liveDoc['address'].toString();
+      }
+
+      final dynamic liveTimestamp = liveDoc['liveUpdatedAt'] ?? liveDoc['lastUpdatedAt'];
+      if (liveTimestamp is Timestamp) {
+        final diff = DateTime.now().difference(liveTimestamp.toDate());
+        if (diff.inSeconds < 60) {
+          liveUpdatedText = '${diff.inSeconds}s ago';
+        } else {
+          liveUpdatedText = '${diff.inMinutes}m ago';
+        }
+      }
+    }
+
+    // Timing calculation
+    final rawDate = liveDoc?['alertDate'] ?? widget.data['alertDate'];
     DateTime? alertDate;
     if (rawDate is DateTime) {
       alertDate = rawDate;
@@ -99,10 +206,12 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
       timeFormatted = '$hour:$minute $period • $relative';
     }
 
-    final int totalPresses = (widget.data['totalPresses'] as int?) ?? 1;
+    final int totalPresses = (liveDoc?['totalPresses'] as int?) ??
+        (widget.data['totalPresses'] as int?) ??
+        1;
 
     return PopScope(
-      canPop: false, // Disallow dismissing via back button without explicit action
+      canPop: false,
       child: Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         backgroundColor: AppColors.surface,
@@ -112,32 +221,40 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Flashing SOS Alert Beacon
+              // Flashing SOS Alert Beacon or Resolved Shield
               ScaleTransition(
-                scale: _pulseAnim,
+                scale: isResolved ? const AlwaysStoppedAnimation(1.0) : _pulseAnim,
                 child: Container(
                   width: 80,
                   height: 80,
                   decoration: BoxDecoration(
-                    color: AppColors.sosRed.withValues(alpha: 0.15),
+                    color: isResolved
+                        ? AppColors.safeGreen.withValues(alpha: 0.15)
+                        : AppColors.sosRed.withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
                   child: Center(
                     child: Container(
                       width: 60,
                       height: 60,
-                      decoration: const BoxDecoration(
-                        color: AppColors.sosRed,
+                      decoration: BoxDecoration(
+                        color: isResolved ? AppColors.safeGreen : AppColors.sosRed,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: Color(0x66FF3B30),
+                            color: isResolved
+                                ? const Color(0x664CD964)
+                                : const Color(0x66FF3B30),
                             blurRadius: 16,
-                            offset: Offset(0, 4),
+                            offset: const Offset(0, 4),
                           )
                         ],
                       ),
-                      child: const Icon(Icons.warning_rounded, color: Colors.white, size: 36),
+                      child: Icon(
+                        isResolved ? Icons.shield_rounded : Icons.warning_rounded,
+                        color: Colors.white,
+                        size: 36,
+                      ),
                     ),
                   ),
                 ),
@@ -145,18 +262,24 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
               const SizedBox(height: 18),
 
               Text(
-                '🚨 INCOMING SOS ALERT',
+                isResolved
+                    ? '🛡️ MARKED SAFE'
+                    : isDuress
+                        ? '🚨 SILENT SOS ALERT'
+                        : '🚨 INCOMING SOS ALERT',
                 style: GoogleFonts.poppins(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  color: AppColors.sosRed,
+                  color: isResolved ? AppColors.safeGreen : AppColors.sosRed,
                   letterSpacing: 0.6,
                 ),
               ),
               const SizedBox(height: 6),
 
               Text(
-                '$senderName has triggered an emergency alarm!',
+                isResolved
+                    ? '$senderName has marked themselves safe.'
+                    : '$senderName has triggered an emergency alarm!',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.poppins(
                   fontSize: 14,
@@ -177,48 +300,156 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
               ],
               const SizedBox(height: 8),
 
-              // Timing Badge (Clock Time + Relative Elapsed + Multi-press Indicator)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFEEEE),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.2)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.access_time_filled_rounded, size: 13, color: AppColors.sosRed),
-                    const SizedBox(width: 5),
-                    Text(
-                      timeFormatted,
-                      style: GoogleFonts.poppins(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.sosRed,
+              // Badges row: Timing + Battery + Live indicator
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: isResolved ? const Color(0xFFE8F8EE) : const Color(0xFFFFEEEE),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: (isResolved ? AppColors.safeGreen : AppColors.sosRed)
+                            .withValues(alpha: 0.2),
                       ),
                     ),
-                    if (totalPresses > 1) ...[
-                      const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: AppColors.sosRed,
-                          borderRadius: BorderRadius.circular(10),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.access_time_filled_rounded,
+                          size: 13,
+                          color: isResolved ? AppColors.safeGreen : AppColors.sosRed,
                         ),
-                        child: Text(
-                          'Update #$totalPresses',
+                        const SizedBox(width: 4),
+                        Text(
+                          timeFormatted,
                           style: GoogleFonts.poppins(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: isResolved ? AppColors.safeGreen : AppColors.sosRed,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (batteryLevel != null)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: batteryLevel <= 10
+                            ? const Color(0xFFFFE5E5)
+                            : batteryLevel <= 20
+                                ? const Color(0xFFFFF3CD)
+                                : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            batteryLevel <= 10
+                                ? Icons.battery_alert_rounded
+                                : Icons.battery_std_rounded,
+                            size: 13,
+                            color: batteryLevel <= 10
+                                ? AppColors.sosRed
+                                : batteryLevel <= 20
+                                    ? Colors.orange.shade800
+                                    : AppColors.textSecondary,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            '$batteryLevel%${batteryLevel <= 10 ? ' (Critical)' : ''}',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: batteryLevel <= 10
+                                  ? AppColors.sosRed
+                                  : batteryLevel <= 20
+                                      ? Colors.orange.shade800
+                                      : AppColors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (!isResolved && (isTrackingActive || liveUpdatedText != null))
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFEAEA),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.radar_rounded, size: 13, color: AppColors.sosRed),
+                          const SizedBox(width: 3),
+                          Text(
+                            liveUpdatedText != null ? 'Live • $liveUpdatedText' : 'Live Tracking',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.sosRed,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  if (totalPresses > 1)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: AppColors.sosRed,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        'Update #$totalPresses',
+                        style: GoogleFonts.poppins(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+
+              // Duress Warning Banner
+              if (isDuress && !isResolved) ...[
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF3CD),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFFFC107), width: 1.2),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(Icons.warning_amber_rounded, color: Color(0xFF856404), size: 20),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Silent duress alert — do NOT call. Use location tracking.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: const Color(0xFF856404),
+                            height: 1.3,
                           ),
                         ),
                       ),
                     ],
-                  ],
+                  ),
                 ),
-              ),
+              ],
 
               if (message.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -251,7 +482,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                         const Icon(Icons.location_on_rounded, color: AppColors.primary, size: 18),
                         const SizedBox(width: 6),
                         Text(
-                          'Reported GPS Location:',
+                          isTrackingActive ? 'Current Live Location:' : 'Reported GPS Location:',
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -279,18 +510,27 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: senderPhone.isNotEmpty ? () => _callSender(senderPhone) : null,
-                      icon: const Icon(Icons.call_rounded, color: AppColors.successForeground, size: 18),
+                      onPressed: senderPhone.isNotEmpty && !isResolved
+                          ? () => _handleCallSender(senderPhone, isDuress)
+                          : null,
+                      icon: Icon(
+                        isDuress ? Icons.phone_locked_rounded : Icons.call_rounded,
+                        color: isDuress ? AppColors.actionOrange : AppColors.successForeground,
+                        size: 18,
+                      ),
                       label: Text(
-                        'Call',
+                        isDuress ? 'Call (Duress)' : 'Call',
                         style: GoogleFonts.poppins(
-                          color: AppColors.successForeground,
+                          color: isDuress ? AppColors.actionOrange : AppColors.successForeground,
                           fontWeight: FontWeight.w700,
                           fontSize: 13,
                         ),
                       ),
                       style: OutlinedButton.styleFrom(
-                        side: const BorderSide(color: AppColors.successForeground, width: 1.5),
+                        side: BorderSide(
+                          color: isDuress ? AppColors.actionOrange : AppColors.successForeground,
+                          width: 1.5,
+                        ),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
@@ -310,7 +550,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.sosRed,
+                        backgroundColor: isResolved ? AppColors.safeGreen : AppColors.sosRed,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         elevation: 0,
@@ -333,15 +573,15 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     if (widget.onDismissed != null) {
                       widget.onDismissed!();
                     }
-                    if (context.mounted && Navigator.of(context).canPop()) {
+                    if (mounted && Navigator.of(context).canPop()) {
                       Navigator.of(context).pop();
                     }
                   },
                   child: Text(
-                    'I am Responding / Dismiss',
+                    isResolved ? 'Acknowledge & Close' : 'I am Responding / Dismiss',
                     style: GoogleFonts.poppins(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
+                      color: isResolved ? AppColors.safeGreen : AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
                       fontSize: 12.5,
                     ),
                   ),

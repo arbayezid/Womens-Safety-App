@@ -4,12 +4,18 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:geolocator/geolocator.dart' hide ActivityType;
 import 'package:telephony/telephony.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/activity_model.dart';
 import '../models/contact_model.dart';
 import 'activity_service.dart';
+import 'auth_service.dart';
+import 'background_service.dart';
 import 'contact_service.dart';
+import 'live_tracking_service.dart';
+import 'siren_service.dart';
 import 'sos_cloud_dispatcher.dart';
 
 /// Data result object returned by [EmergencyService.triggerEmergency].
@@ -79,6 +85,82 @@ class EmergencyService {
   void updateContacts(List<String> newContacts) {
     _emergencyContacts = newContacts.where((c) => c.trim().isNotEmpty).toList();
     debugPrint('[EmergencyService] Updated contacts: $_emergencyContacts');
+  }
+
+  /// Reactive notifier for the currently active SOS alert ID (null when no alert is active)
+  final ValueNotifier<String?> activeAlertIdNotifier = ValueNotifier<String?>(null);
+
+  /// Synchronous getter for current active alert ID
+  String? get activeAlertId => activeAlertIdNotifier.value;
+
+  /// Restores active alert ID from SharedPreferences on app launch
+  Future<void> restoreActiveAlertId() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedId = prefs.getString('active_sos_alert_id');
+      if (savedId != null && savedId.isNotEmpty) {
+        activeAlertIdNotifier.value = savedId;
+        debugPrint('[EmergencyService] 🔄 Restored active SOS alert ID: $savedId');
+      }
+    } catch (_) {}
+  }
+
+  /// Resolves the currently active SOS alert, stops tracking and siren,
+  /// sends "I'm safe now" SMS to contacts with a phone, and logs the event.
+  Future<bool> markSafe({String? alertId}) async {
+    final targetId = alertId ?? activeAlertId;
+    debugPrint('[EmergencyService] 🛡️ Marking safe for SOS alert: $targetId');
+
+    // 1. Resolve alert in Cloud Firestore
+    if (targetId != null && targetId.isNotEmpty) {
+      await SosCloudDispatcher.instance.resolveSosAlert(targetId);
+    }
+
+    // 2. Clear local active alert ID
+    activeAlertIdNotifier.value = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('active_sos_alert_id');
+    } catch (_) {}
+
+    // 3. Stop live tracking and background service
+    await LiveTrackingService.instance.stopTrackingSession();
+    await BackgroundServiceManager.instance.stopService();
+
+    // 4. Stop siren if playing
+    SirenService.instance.stopSiren();
+
+    // 5. Send one "I'm safe now" SMS to contacts with a phone number
+    final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
+    if (phoneNumbers.isNotEmpty) {
+      final userName = AuthService.instance.displayName;
+      final safeMessage = '$userName is safe now.';
+      debugPrint('[EmergencyService] ✉️ Sending "I\'m Safe" SMS to ${phoneNumbers.length} contact(s): $safeMessage');
+      for (final phone in phoneNumbers) {
+        try {
+          await _telephony.sendSms(
+            to: phone,
+            message: safeMessage,
+            isMultipart: false,
+          );
+        } catch (e) {
+          debugPrint('[EmergencyService] Failed to send safe SMS to $phone: $e');
+        }
+      }
+    }
+
+    // 6. Log activity event
+    ActivityService.instance.logActivity(
+      ActivityItem(
+        id: DateTime.now().millisecondsSinceEpoch.toString(),
+        type: ActivityType.sos,
+        title: "I'm Safe Confirmed",
+        subtitle: "Resolved active SOS emergency alert and informed guardians.",
+        timestamp: DateTime.now(),
+      ),
+    );
+
+    return true;
   }
 
   /// Formats phone numbers for Bangladesh and international standards.
@@ -256,6 +338,30 @@ class EmergencyService {
       debugPrint('[EmergencyService] ❌ Cloud SOS dispatch error: $err');
       return null;
     });
+
+    // Hook live tracking and active alert state as soon as Cloud SOS document is created
+    cloudFuture.then((alertId) async {
+      if (alertId != null && alertId.isNotEmpty) {
+        activeAlertIdNotifier.value = alertId;
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setString('active_sos_alert_id', alertId);
+        } catch (_) {}
+
+        // Start throttled live tracking for active SOS
+        await LiveTrackingService.instance.startTrackingSession(
+          sessionType: 'sos',
+          documentId: alertId,
+          initialPosition: position,
+        );
+
+        // Start foreground background service
+        await BackgroundServiceManager.instance.startService(
+          title: '🚨 Emergency SOS Live Tracking Active',
+          content: 'Broadcasting live coordinates to your guardians',
+        );
+      }
+    }).catchError((_) {});
 
     // 2. Primary offline channel: Dispatch SMS immediately without waiting for Cloud SOS
     final _SmsDispatchResult smsResult;

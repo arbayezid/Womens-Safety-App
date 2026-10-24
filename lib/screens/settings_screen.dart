@@ -8,6 +8,7 @@ import '../models/user_profile_model.dart';
 import '../models/activity_model.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
+import '../services/battery_alert_service.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
 
@@ -25,6 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _locationSharing = true;
   bool _notifications = true;
   bool _shakeToSOS = false;
+  bool _criticalBatteryAlert = true;
 
   @override
   void initState() {
@@ -38,12 +40,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
+    final criticalBattery = await BatteryAlertService.instance.isEnabled();
     if (!mounted) return;
     setState(() {
       _voiceActivation = prefs.getBool('pref_voice_activation') ?? true;
       _locationSharing = prefs.getBool('pref_location_sharing') ?? true;
       _notifications = prefs.getBool('pref_notifications') ?? true;
       _shakeToSOS = prefs.getBool('pref_shake_to_sos') ?? false;
+      _criticalBatteryAlert = criticalBattery;
     });
   }
 
@@ -143,6 +147,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     onChanged: (v) {
                       setState(() => _locationSharing = v);
                       _saveSetting('pref_location_sharing', v);
+                    },
+                  ),
+                  _buildToggleItem(
+                    icon: Icons.battery_alert_rounded,
+                    iconColor: AppColors.sosRed,
+                    iconBg: const Color(0xFFFFE5E5),
+                    label: 'Critical Battery Alert',
+                    subtitle: 'Auto-SMS location when battery ≤ 10%',
+                    value: _criticalBatteryAlert,
+                    onChanged: (v) {
+                      setState(() => _criticalBatteryAlert = v);
+                      BatteryAlertService.instance.setEnabled(v);
                     },
                   ),
                 ],

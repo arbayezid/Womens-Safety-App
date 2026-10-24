@@ -352,6 +352,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
 
         return _buildAlertCard(
           alertId: alertId,
+          data: data,
           senderName: senderName.toString(),
           senderEmail: senderEmail.toString(),
           senderPhone: senderPhone.toString(),
@@ -368,6 +369,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
 
   Widget _buildAlertCard({
     required String alertId,
+    required Map<String, dynamic> data,
     required String senderName,
     required String senderEmail,
     required String senderPhone,
@@ -379,6 +381,25 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
     required DateTime dateTime,
   }) {
     final bool isActive = status == 'active' && !isAcknowledged;
+
+    final liveLoc = data['liveLocation'] as Map<String, dynamic>?;
+    final effectiveAddress = (liveLoc?['address'] != null && liveLoc!['address'].toString().isNotEmpty)
+        ? liveLoc['address'].toString()
+        : address;
+    final effectiveMapsUrl = (liveLoc?['googleMapsUrl'] != null && liveLoc!['googleMapsUrl'].toString().isNotEmpty)
+        ? liveLoc['googleMapsUrl'].toString()
+        : (liveLoc?['latitude'] != null && liveLoc?['longitude'] != null)
+            ? 'https://maps.google.com/?q=${liveLoc!['latitude']},${liveLoc['longitude']}'
+            : mapsUrl;
+
+    final batteryLevel = (data['batteryLevel'] as num?)?.toInt();
+    final isTrackingActive = (data['isTrackingActive'] as bool?) ?? false;
+    final dynamic liveTimestamp = data['liveUpdatedAt'] ?? data['lastUpdatedAt'];
+    String? liveUpdatedText;
+    if (liveTimestamp is Timestamp) {
+      final diff = DateTime.now().difference(liveTimestamp.toDate());
+      liveUpdatedText = diff.inSeconds < 60 ? '${diff.inSeconds}s ago' : '${diff.inMinutes}m ago';
+    }
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -472,33 +493,56 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     ],
                   ),
                 ),
-                // Status Badge
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? const Color(0xFFFFE5E5)
-                        : isAcknowledged
-                            ? AppColors.successBackground
-                            : const Color(0xFFEEF2F6),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    isActive
-                        ? '🚨 Active'
-                        : isAcknowledged
-                            ? '✅ Responded'
-                            : 'Resolved',
-                    style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: isActive
-                          ? AppColors.sosRed
-                          : isAcknowledged
-                              ? AppColors.actionGreen
-                              : AppColors.textSecondary,
+                // Status Badges Column
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isActive
+                            ? const Color(0xFFFFE5E5)
+                            : isAcknowledged
+                                ? AppColors.successBackground
+                                : const Color(0xFFEEF2F6),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        isActive
+                            ? '🚨 Active'
+                            : isAcknowledged
+                                ? '✅ Responded'
+                                : 'Resolved',
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: isActive
+                              ? AppColors.sosRed
+                              : isAcknowledged
+                                  ? AppColors.actionGreen
+                                  : AppColors.textSecondary,
+                        ),
+                      ),
                     ),
-                  ),
+                    if (isTrackingActive && isActive) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEAEA),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          liveUpdatedText != null ? '🔴 $liveUpdatedText' : '🔴 Live',
+                          style: GoogleFonts.poppins(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.sosRed,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ],
             ),
@@ -518,6 +562,24 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                   ),
                 ),
                 const Spacer(),
+                if (batteryLevel != null) ...[
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    margin: const EdgeInsets.only(right: 6),
+                    decoration: BoxDecoration(
+                      color: batteryLevel <= 10 ? const Color(0xFFFFE5E5) : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '🔋 $batteryLevel%',
+                      style: GoogleFonts.poppins(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w700,
+                        color: batteryLevel <= 10 ? AppColors.sosRed : AppColors.textSecondary,
+                      ),
+                    ),
+                  ),
+                ],
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
@@ -549,18 +611,36 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.location_on_rounded, size: 16, color: AppColors.primary),
+                  Icon(
+                    isTrackingActive && isActive ? Icons.radar_rounded : Icons.location_on_rounded,
+                    size: 16,
+                    color: isTrackingActive && isActive ? AppColors.sosRed : AppColors.primary,
+                  ),
                   const SizedBox(width: 6),
                   Expanded(
-                    child: Text(
-                      address,
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textPrimary,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (isTrackingActive && isActive)
+                          Text(
+                            'Live Location Broadcast:',
+                            style: GoogleFonts.poppins(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.sosRed,
+                            ),
+                          ),
+                        Text(
+                          effectiveAddress,
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textPrimary,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -593,13 +673,13 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                   ),
                   const SizedBox(width: 8),
                 ],
-                if (mapsUrl.isNotEmpty) ...[
+                if (effectiveMapsUrl.isNotEmpty) ...[
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: () => _launchUrl(mapsUrl),
+                      onPressed: () => _launchUrl(effectiveMapsUrl),
                       icon: const Icon(Icons.map_rounded, size: 15, color: Colors.white),
                       label: Text(
-                        'View Map',
+                        isTrackingActive && isActive ? 'Track Live' : 'View Map',
                         style: GoogleFonts.poppins(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -607,7 +687,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: isTrackingActive && isActive ? AppColors.sosRed : AppColors.primary,
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         elevation: 0,

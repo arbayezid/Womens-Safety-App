@@ -59,6 +59,9 @@ class AppColors {
   /// Green for the "Safe Route" action
   static const Color actionGreen = Color(0xFF27AE60);
 
+  /// Safe green color for resolved alerts and safe state indicators
+  static const Color safeGreen = Color(0xFF27AE60);
+
   // --- Text Colors ---
   /// Primary text color
   static const Color textPrimary = Color(0xFF1A1A2E);
