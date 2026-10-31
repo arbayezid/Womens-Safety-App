@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -5,6 +6,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/app_colors.dart';
 import '../screens/sos_history_screen.dart';
 import '../screens/incident_room_screen.dart';
+import '../services/location_service.dart';
+import '../services/navigation_service.dart';
 import '../services/notification_service.dart';
 import '../services/siren_service.dart';
 
@@ -28,6 +31,10 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
     with SingleTickerProviderStateMixin {
   late AnimationController _animController;
   late Animation<double> _pulseAnim;
+  Timer? _tickerTimer;
+  String? _cachedLiveAddress;
+  double? _lastGeocodedLat;
+  double? _lastGeocodedLng;
 
   @override
   void initState() {
@@ -43,13 +50,33 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
     _pulseAnim = Tween<double>(begin: 1.0, end: 1.15).animate(
       CurvedAnimation(parent: _animController, curve: Curves.easeInOut),
     );
+
+    // 1-second ticker timer so live update counter ticks in real time
+    _tickerTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _tickerTimer?.cancel();
     SirenService.instance.stopSiren();
     _animController.dispose();
     super.dispose();
+  }
+
+  void _checkAndReverseGeocode(double? lat, double? lng) {
+    if (lat == null || lng == null) return;
+    if (_lastGeocodedLat == lat && _lastGeocodedLng == lng) return;
+    _lastGeocodedLat = lat;
+    _lastGeocodedLng = lng;
+    LocationService.instance.reverseGeocode(lat, lng).then((resolved) {
+      if (mounted && resolved.isNotEmpty && resolved != '$lat, $lng') {
+        setState(() {
+          _cachedLiveAddress = resolved;
+        });
+      }
+    }).catchError((_) {});
   }
 
   Future<void> _openGoogleMaps(String url) async {
@@ -63,12 +90,57 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
     }
   }
 
+  Future<void> _handleViewMap({
+    required Map<String, dynamic>? liveDoc,
+    required String senderName,
+    required String mapsUrl,
+  }) async {
+    double? destLat;
+    double? destLng;
+    if (liveDoc != null) {
+      final liveLoc = liveDoc['liveLocation'] as Map<String, dynamic>?;
+      if (liveLoc != null) {
+        destLat = (liveLoc['latitude'] as num?)?.toDouble() ??
+            (liveLoc['lat'] as num?)?.toDouble();
+        destLng = (liveLoc['longitude'] as num?)?.toDouble() ??
+            (liveLoc['lng'] as num?)?.toDouble();
+      }
+      destLat ??= (liveDoc['lat'] as num?)?.toDouble() ??
+          (liveDoc['latitude'] as num?)?.toDouble() ??
+          double.tryParse(liveDoc['latitude']?.toString() ?? '');
+      destLng ??= (liveDoc['lng'] as num?)?.toDouble() ??
+          (liveDoc['longitude'] as num?)?.toDouble() ??
+          double.tryParse(liveDoc['longitude']?.toString() ?? '');
+    }
+    destLat ??= (widget.data['lat'] as num?)?.toDouble() ??
+        (widget.data['latitude'] as num?)?.toDouble() ??
+        double.tryParse(widget.data['latitude']?.toString() ?? '');
+    destLng ??= (widget.data['lng'] as num?)?.toDouble() ??
+        (widget.data['longitude'] as num?)?.toDouble() ??
+        double.tryParse(widget.data['longitude']?.toString() ?? '');
+
+    if (destLat != null && destLng != null) {
+      final success = await NavigationService.instance.navigateTo(
+        destLat: destLat,
+        destLng: destLng,
+        destLabel: '$senderName (SOS Location)',
+      );
+      if (!success && mapsUrl.isNotEmpty) {
+        await _openGoogleMaps(mapsUrl);
+      }
+    } else if (mapsUrl.isNotEmpty) {
+      await _openGoogleMaps(mapsUrl);
+    }
+  }
+
   Future<void> _callSender(String phone) async {
     if (phone.isEmpty) return;
     final clean = phone.replaceAll(RegExp(r'\s+'), '');
     final uri = Uri.parse('tel:$clean');
     try {
       if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
     } catch (e) {
@@ -121,6 +193,175 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
     await _callSender(phone);
   }
 
+  void _showNoPhoneBottomSheet({
+    required BuildContext context,
+    required String senderName,
+    required String senderEmail,
+    required Map<String, dynamic>? liveDoc,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => Container(
+        padding: const EdgeInsets.all(24),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(Icons.contact_phone_rounded, color: AppColors.primary, size: 24),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'No Phone Number Listed',
+                          style: GoogleFonts.poppins(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        Text(
+                          '$senderName registered with email only.',
+                          style: GoogleFonts.poppins(
+                            fontSize: 12,
+                            color: AppColors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              if (senderEmail.isNotEmpty)
+                ListTile(
+                  leading: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: AppColors.primaryViolet.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.email_rounded, color: AppColors.primaryViolet),
+                  ),
+                  title: Text(
+                    'Send Email',
+                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
+                  ),
+                  subtitle: Text(
+                    senderEmail,
+                    style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
+                  ),
+                  trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                  contentPadding: EdgeInsets.zero,
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    final uri = Uri.parse(
+                      'mailto:$senderEmail?subject=EMERGENCY%20SOS%20RESPONSE&body=Are%20you%20safe%3F%20I%20received%20your%20SOS%20alert.',
+                    );
+                    try {
+                      await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    } catch (e) {
+                      debugPrint('Failed to open email client: $e');
+                    }
+                  },
+                ),
+              const Divider(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.sosRed.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.meeting_room_rounded, color: AppColors.sosRed),
+                ),
+                title: Text(
+                  'Open Incident Room',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
+                ),
+                subtitle: Text(
+                  'Live command, dispatch backup & chat with responders',
+                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                contentPadding: EdgeInsets.zero,
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  SirenService.instance.stopSiren();
+                  final alertId = widget.data['alertId']?.toString() ?? '';
+                  if (Navigator.of(context).canPop()) {
+                    Navigator.of(context).pop();
+                  }
+                  if (alertId.isNotEmpty) {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => IncidentRoomScreen(
+                          alertId: alertId,
+                          initialData: liveDoc ?? widget.data,
+                        ),
+                      ),
+                    );
+                  }
+                },
+              ),
+              const Divider(height: 16),
+              ListTile(
+                leading: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: AppColors.sosRed.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.local_police_rounded, color: AppColors.sosRed),
+                ),
+                title: Text(
+                  'Call 999 (Emergency Services)',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    color: AppColors.sosRed,
+                  ),
+                ),
+                subtitle: Text(
+                  'Directly connect to National Emergency Police Hotline',
+                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
+                contentPadding: EdgeInsets.zero,
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  final uri = Uri.parse('tel:999');
+                  try {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  } catch (e) {
+                    debugPrint('Failed to call 999: $e');
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final alertId = widget.data['alertId']?.toString() ?? '';
@@ -165,20 +406,34 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
     String mapsUrl = widget.data['googleMapsUrl']?.toString() ?? '';
     String? liveUpdatedText;
 
+    double? destLat;
+    double? destLng;
+
     if (liveDoc != null) {
       final liveLoc = liveDoc['liveLocation'] as Map<String, dynamic>?;
       if (liveLoc != null) {
+        destLat = (liveLoc['latitude'] as num?)?.toDouble() ??
+            (liveLoc['lat'] as num?)?.toDouble();
+        destLng = (liveLoc['longitude'] as num?)?.toDouble() ??
+            (liveLoc['lng'] as num?)?.toDouble();
         if (liveLoc['address'] != null && liveLoc['address'].toString().isNotEmpty) {
           address = liveLoc['address'].toString();
         }
         if (liveLoc['googleMapsUrl'] != null && liveLoc['googleMapsUrl'].toString().isNotEmpty) {
           mapsUrl = liveLoc['googleMapsUrl'].toString();
-        } else if (liveLoc['latitude'] != null && liveLoc['longitude'] != null) {
-          mapsUrl = 'https://maps.google.com/?q=${liveLoc['latitude']},${liveLoc['longitude']}';
+        } else if (destLat != null && destLng != null) {
+          mapsUrl = 'https://maps.google.com/?q=$destLat,$destLng';
         }
       } else if (liveDoc['address'] != null && liveDoc['address'].toString().isNotEmpty) {
         address = liveDoc['address'].toString();
       }
+
+      destLat ??= (liveDoc['lat'] as num?)?.toDouble() ??
+          (liveDoc['latitude'] as num?)?.toDouble() ??
+          double.tryParse(liveDoc['latitude']?.toString() ?? '');
+      destLng ??= (liveDoc['lng'] as num?)?.toDouble() ??
+          (liveDoc['longitude'] as num?)?.toDouble() ??
+          double.tryParse(liveDoc['longitude']?.toString() ?? '');
 
       final dynamic liveTimestamp = liveDoc['liveUpdatedAt'] ?? liveDoc['lastUpdatedAt'];
       if (liveTimestamp is Timestamp) {
@@ -187,6 +442,23 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
           liveUpdatedText = '${diff.inSeconds}s ago';
         } else {
           liveUpdatedText = '${diff.inMinutes}m ago';
+        }
+      }
+    }
+
+    destLat ??= (widget.data['lat'] as num?)?.toDouble() ??
+        (widget.data['latitude'] as num?)?.toDouble() ??
+        double.tryParse(widget.data['latitude']?.toString() ?? '');
+    destLng ??= (widget.data['lng'] as num?)?.toDouble() ??
+        (widget.data['longitude'] as num?)?.toDouble() ??
+        double.tryParse(widget.data['longitude']?.toString() ?? '');
+
+    if (destLat != null && destLng != null) {
+      if (address == 'Live GPS Coordinates Available' || address == 'Live Coordinates') {
+        if (_cachedLiveAddress != null) {
+          address = _cachedLiveAddress!;
+        } else {
+          _checkAndReverseGeocode(destLat, destLng);
         }
       }
     }
@@ -573,8 +845,19 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 children: [
                   Expanded(
                     child: OutlinedButton.icon(
-                      onPressed: senderPhone.isNotEmpty && !isResolved
-                          ? () => _handleCallSender(senderPhone, isDuress)
+                      onPressed: !isResolved
+                          ? () {
+                              if (senderPhone.isNotEmpty) {
+                                _handleCallSender(senderPhone, isDuress);
+                              } else {
+                                _showNoPhoneBottomSheet(
+                                  context: context,
+                                  senderName: senderName,
+                                  senderEmail: senderEmail,
+                                  liveDoc: liveDoc,
+                                );
+                              }
+                            }
                           : null,
                       icon: Icon(
                         isDuress ? Icons.phone_locked_rounded : Icons.call_rounded,
@@ -602,7 +885,13 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   const SizedBox(width: 12),
                   Expanded(
                     child: ElevatedButton.icon(
-                      onPressed: mapsUrl.isNotEmpty ? () => _openGoogleMaps(mapsUrl) : null,
+                      onPressed: (!isResolved || mapsUrl.isNotEmpty)
+                          ? () => _handleViewMap(
+                                liveDoc: liveDoc,
+                                senderName: senderName,
+                                mapsUrl: mapsUrl,
+                              )
+                          : null,
                       icon: const Icon(Icons.map_rounded, color: Colors.white, size: 18),
                       label: Text(
                         'View Map',

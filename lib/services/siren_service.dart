@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'activity_service.dart';
+import 'guardian_alert_service.dart';
 
 /// Central Singleton Service for handling the "Loud Siren" Quick Action.
 ///
@@ -85,6 +86,8 @@ class SirenService {
       if (player != null) {
         await player.stop();
       }
+      // An incoming alert may be ringing through the native guardian service instead
+      await GuardianAlertService.instance.stopNativeSiren();
       isPlayingNotifier.value = false;
       ActivityService.instance.logSiren(isPlaying: false);
       debugPrint('[SirenService] ✅ Siren stopped.');

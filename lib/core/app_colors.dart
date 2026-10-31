@@ -53,7 +53,7 @@ class AppColors {
   /// Orange/Amber for the "Loud Siren" action
   static const Color actionOrange = Color(0xFFF5A623);
 
-  /// Purple for the "Record Audio" action
+  /// Purple accent (e.g. metro safe zones)
   static const Color actionPurple = Color(0xFF9B59B6);
 
   /// Green for the "Safe Route" action

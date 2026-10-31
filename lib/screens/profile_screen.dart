@@ -7,6 +7,7 @@ import '../models/activity_model.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import '../services/contact_service.dart';
+import '../services/phone_registry_service.dart';
 import '../utils/url_launcher_helper.dart';
 
 /// Profile screen — user info, stats, dynamic safety score, activity history,
@@ -1081,9 +1082,38 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
 
     setState(() => _isSaving = true);
 
+    // One phone number may belong to only one account: register it before saving.
+    String phone = _phoneController.text.trim();
+    final previousPhone = widget.initialProfile.phone;
+    final newKey = PhoneRegistryService.normalize(phone);
+    final oldKey = PhoneRegistryService.normalize(previousPhone);
+    final phoneChanged = (newKey != null && oldKey != null)
+        ? newKey != oldKey
+        : phone != previousPhone.trim();
+    if (phoneChanged && !AuthService.instance.isGuest) {
+      final claim = await PhoneRegistryService.instance.claimForCurrentUser(
+        phone,
+        previousRawPhone: previousPhone,
+      );
+      if (!mounted) return;
+      if (!claim.isClaimed) {
+        setState(() => _isSaving = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(claim.message),
+            backgroundColor: AppColors.sosRed,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+        return;
+      }
+      phone = claim.normalizedPhone ?? phone;
+    }
+
     final updated = widget.initialProfile.copyWith(
       name: _nameController.text.trim(),
-      phone: _phoneController.text.trim(),
+      phone: phone,
       city: _cityController.text.trim(),
       dob: _dobController.text.trim(),
       bloodGroup: _selectedBloodGroup,

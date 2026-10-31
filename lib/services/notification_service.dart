@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -8,12 +9,54 @@ import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../firebase_options.dart';
 import '../screens/incident_room_screen.dart';
+import '../screens/ride_details_screen.dart';
 import '../widgets/intrusive_sos_dialog.dart';
 import 'activity_service.dart';
 import 'contact_sync_service.dart';
+import 'guardian_alert_service.dart';
+import 'navigation_service.dart';
 import 'siren_service.dart';
+
+/// Top-level background notification action handler for flutter_local_notifications.
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) async {
+  debugPrint('[NotificationBackground] Action: ${response.actionId} | payload: ${response.payload}');
+  final payloadStr = response.payload;
+  if (payloadStr == null || payloadStr.isEmpty) return;
+
+  try {
+    final Map<String, dynamic> data = jsonDecode(payloadStr) as Map<String, dynamic>;
+    if (response.actionId == 'action_call') {
+      final phone = (data['senderPhone'] ?? data['sender_phone'] ?? '').toString().trim();
+      if (phone.isNotEmpty) {
+        final clean = phone.replaceAll(RegExp(r'\s+'), '');
+        final uri = Uri.parse('tel:$clean');
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        } else {
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+        }
+      }
+    } else if (response.actionId == 'action_view_map') {
+      final lat = (data['lat'] as num?)?.toDouble() ??
+          double.tryParse(data['latitude']?.toString() ?? '');
+      final lng = (data['lng'] as num?)?.toDouble() ??
+          double.tryParse(data['longitude']?.toString() ?? '');
+      if (lat != null && lng != null) {
+        await NavigationService.instance.navigateTo(
+          destLat: lat,
+          destLng: lng,
+          destLabel: '${data['senderName'] ?? 'SOS'} (Emergency)',
+        );
+      }
+    }
+  } catch (e) {
+    debugPrint('[NotificationBackground] Error handling action: $e');
+  }
+}
 
 /// Top-level background message handler for FCM.
 @pragma('vm:entry-point')
@@ -62,6 +105,10 @@ class NotificationService {
   StreamSubscription<List<Map<String, dynamic>>>? _requestsSubscription;
   final Set<String> _shownRequestIds = {};
 
+  StreamSubscription? _rideCheckinSubUid;
+  StreamSubscription? _rideCheckinSubEmail;
+  final Set<String> _notifiedRideKeys = {};
+
   /// Initializes notification channels, permissions, FCM listeners, and real-time Firestore streams.
   Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
     if (_isInitialized) return;
@@ -73,25 +120,93 @@ class NotificationService {
       try {
         const AndroidInitializationSettings androidSettings =
             AndroidInitializationSettings('@mipmap/ic_launcher');
-        const DarwinInitializationSettings iosSettings = DarwinInitializationSettings(
+        final DarwinNotificationCategory sosCategory = DarwinNotificationCategory(
+          'sos_emergency_category',
+          actions: <DarwinNotificationAction>[
+            DarwinNotificationAction.plain(
+              'action_call',
+              'Call',
+              options: <DarwinNotificationActionOption>{
+                DarwinNotificationActionOption.foreground,
+              },
+            ),
+            DarwinNotificationAction.plain(
+              'action_view_map',
+              'View Map',
+              options: <DarwinNotificationActionOption>{
+                DarwinNotificationActionOption.foreground,
+              },
+            ),
+          ],
+        );
+        final DarwinInitializationSettings iosSettings = DarwinInitializationSettings(
           requestAlertPermission: true,
           requestBadgePermission: true,
           requestSoundPermission: true,
+          notificationCategories: [sosCategory],
         );
-        const InitializationSettings initSettings = InitializationSettings(
+        final InitializationSettings initSettings = InitializationSettings(
           android: androidSettings,
           iOS: iosSettings,
         );
 
         await _localNotifications.initialize(
           initSettings,
-          onDidReceiveNotificationResponse: (NotificationResponse response) {
-            debugPrint('[LocalNotification] Clicked notification: ${response.payload}');
+          onDidReceiveNotificationResponse: (NotificationResponse response) async {
+            debugPrint('[LocalNotification] Clicked notification: action=${response.actionId} | payload=${response.payload}');
             // Stop siren immediately when notification is tapped
             SirenService.instance.stopSiren();
+
+            Map<String, dynamic>? parsedPayload;
+            if (response.payload != null && response.payload!.isNotEmpty) {
+              try {
+                parsedPayload = jsonDecode(response.payload!) as Map<String, dynamic>?;
+              } catch (_) {}
+            }
+
+            final activeAlert = activeIncomingSosNotifier.value ?? parsedPayload;
+
+            if (response.actionId == 'action_call') {
+              final phone = (activeAlert?['senderPhone'] ?? activeAlert?['sender_phone'] ?? '').toString().trim();
+              if (phone.isNotEmpty) {
+                final clean = phone.replaceAll(RegExp(r'\s+'), '');
+                final uri = Uri.parse('tel:$clean');
+                try {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                } catch (e) {
+                  debugPrint('[Notification] Call launch error: $e');
+                }
+                return;
+              }
+            } else if (response.actionId == 'action_view_map') {
+              final lat = (activeAlert?['lat'] as num?)?.toDouble() ??
+                  double.tryParse(activeAlert?['latitude']?.toString() ?? '');
+              final lng = (activeAlert?['lng'] as num?)?.toDouble() ??
+                  double.tryParse(activeAlert?['longitude']?.toString() ?? '');
+              if (lat != null && lng != null) {
+                await NavigationService.instance.navigateTo(
+                  destLat: lat,
+                  destLng: lng,
+                  destLabel: '${activeAlert?['senderName'] ?? 'SOS'} (Emergency)',
+                );
+                return;
+              }
+            }
+
             final context = _navigatorKey?.currentContext;
             if (context != null) {
-              final activeAlert = activeIncomingSosNotifier.value;
+              if (parsedPayload != null && parsedPayload['type'] == 'ride_checkin') {
+                final rideId = parsedPayload['rideId']?.toString() ?? '';
+                if (rideId.isNotEmpty) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => RideDetailsScreen(rideId: rideId),
+                    ),
+                  );
+                  return;
+                }
+              }
+
               if (activeAlert != null) {
                 final alertId = activeAlert['alertId']?.toString() ?? '';
                 if (alertId.isNotEmpty) {
@@ -107,6 +222,7 @@ class NotificationService {
               }
             }
           },
+          onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
         );
 
         // High-importance Android Notification Channel with Siren Sound for SOS
@@ -133,11 +249,22 @@ class NotificationService {
           enableVibration: true,
         );
 
+        // Standard Importance Android Notification Channel for Ride Safety Check-ins (Non-intrusive)
+        const AndroidNotificationChannel rideCheckinChannel = AndroidNotificationChannel(
+          'ride_checkin_channel',
+          'Ride Safety Check-in',
+          description: 'Non-intrusive notifications for vehicle plate updates and ride status.',
+          importance: Importance.defaultImportance,
+          playSound: true,
+          enableVibration: true,
+        );
+
         final androidPlugin = _localNotifications
             .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
         if (androidPlugin != null) {
           await androidPlugin.createNotificationChannel(sosChannelV2);
           await androidPlugin.createNotificationChannel(safetyCheckChannel);
+          await androidPlugin.createNotificationChannel(rideCheckinChannel);
           await androidPlugin.requestNotificationsPermission();
         }
         try {
@@ -211,12 +338,14 @@ class NotificationService {
       // 5. Start real-time Firestore stream listener (Direct in-app alerts without cloud functions!)
       startSosAlertStreamListener();
       startGuardianRequestListener();
+      startGuardianRideCheckinListener();
 
       // Listen for auth state changes to dynamically re-attach listeners and sync token
       FirebaseAuth.instance.authStateChanges().listen((user) async {
         if (user != null) {
           startSosAlertStreamListener();
           startGuardianRequestListener();
+          startGuardianRideCheckinListener();
           try {
             final token = await _fcm.getToken().timeout(
               const Duration(seconds: 4),
@@ -229,6 +358,8 @@ class NotificationService {
         } else {
           _cancelSosAlertsSubscriptions();
           _requestsSubscription?.cancel();
+          _rideCheckinSubUid?.cancel();
+          _rideCheckinSubEmail?.cancel();
           activeIncomingSosNotifier.value = null;
           SirenService.instance.stopSiren();
         }
@@ -552,6 +683,7 @@ class NotificationService {
     final alertPayload = {
       'type': 'SOS_ALERT',
       'alertId': latestAlertId,
+      'senderUid': senderId ?? latestData['senderUid'] ?? latestData['sender_uid'] ?? '',
       'senderName': latestData['senderName'] ?? latestData['sender_name'] ?? 'Emergency Contact',
       'senderEmail': latestData['senderEmail'] ?? latestData['sender_email'] ?? '',
       'senderPhone': latestData['senderPhone'] ?? latestData['sender_phone'] ?? '',
@@ -559,6 +691,12 @@ class NotificationService {
       'googleMapsUrl': latestData['google_maps_url'] ?? latestData['location']?['googleMapsUrl'] ?? '',
       'latitude': latestData['latitude']?.toString() ?? latestData['location']?['latitude']?.toString() ?? '',
       'longitude': latestData['longitude']?.toString() ?? latestData['location']?['longitude']?.toString() ?? '',
+      'lat': (latestData['lat'] as num?)?.toDouble() ??
+          (latestData['latitude'] as num?)?.toDouble() ??
+          (latestData['location']?['latitude'] as num?)?.toDouble(),
+      'lng': (latestData['lng'] as num?)?.toDouble() ??
+          (latestData['longitude'] as num?)?.toDouble() ??
+          (latestData['location']?['longitude'] as num?)?.toDouble(),
       'message': latestData['message'] ?? latestData['note'] ?? 'Emergency SOS Alert triggered!',
       'triggeredAt': latestDate.toIso8601String(),
       'alertDate': latestDate,
@@ -581,19 +719,39 @@ class NotificationService {
 
       debugPrint('[NotificationService] 🚨 In-App SOS alert (latest of $totalPresses) detected for $myEmail from ${latestData['senderName']}!');
 
-      // 1. Start loud siren sound immediately!
-      SirenService.instance.startSiren();
-
-      // 2. Pop up intrusive fullscreen dialog
+      // 1. Pop up intrusive fullscreen dialog
       _showIntrusiveSosDialog(alertPayload);
 
-      // 3. Show local heads-up notification banner with siren sound
-      _showLocalSosAlertBanner(
-        title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
-        body: '${latestData['senderName']} needs immediate help! Tap to view live location & incident command.',
-        payload: alertPayload,
-      );
+      // 2. Siren + heads-up banner, unless the native guardian service already rang for this alert
+      unawaited(_ringIfUnclaimed(latestAlertId, latestData, alertPayload));
     }
+  }
+
+  /// Plays the siren and posts the banner only if this listener is the first to claim the alert.
+  /// While the app is not visible the native GuardianAlertService owns alerting (alarm-stream
+  /// siren, full-screen notification), so the UI isolate stays quiet to avoid a double siren.
+  Future<void> _ringIfUnclaimed(
+    String alertId,
+    Map<String, dynamic> latestData,
+    Map<String, dynamic> alertPayload,
+  ) async {
+    final bool appVisible =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    if (!appVisible && await GuardianAlertService.instance.isServiceRunning()) {
+      debugPrint('[NotificationService] App in background; native guardian service handles alert $alertId');
+      return;
+    }
+    if (!await GuardianAlertService.instance.claimAlert(alertId)) {
+      debugPrint('[NotificationService] Alert $alertId already ringing via native guardian service');
+      return;
+    }
+
+    SirenService.instance.startSiren();
+    _showLocalSosAlertBanner(
+      title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
+      body: '${latestData['senderName']} needs immediate help! Tap to view live location & incident command.',
+      payload: alertPayload,
+    );
   }
 
   /// Subscribes to incoming connection requests to notify the user in real time.
@@ -654,6 +812,19 @@ class NotificationService {
   }) async {
     final Int64List vibrationPattern = Int64List.fromList([0, 1000, 500, 1000, 500, 1000]);
 
+    const List<AndroidNotificationAction> actions = <AndroidNotificationAction>[
+      AndroidNotificationAction(
+        'action_call',
+        'Call',
+        showsUserInterface: true,
+      ),
+      AndroidNotificationAction(
+        'action_view_map',
+        'View Map',
+        showsUserInterface: true,
+      ),
+    ];
+
     final AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
       'sos_emergency_channel_v2',
       'SOS Emergency Alerts',
@@ -668,6 +839,7 @@ class NotificationService {
       fullScreenIntent: true,
       category: AndroidNotificationCategory.alarm,
       ticker: 'EMERGENCY SOS ALERT',
+      actions: actions,
     );
 
     const DarwinNotificationDetails iosDetails = DarwinNotificationDetails(
@@ -675,6 +847,7 @@ class NotificationService {
       presentBadge: true,
       presentSound: true,
       sound: 'siren.mp3',
+      categoryIdentifier: 'sos_emergency_category',
       interruptionLevel: InterruptionLevel.critical,
     );
 
@@ -683,12 +856,29 @@ class NotificationService {
       iOS: iosDetails,
     );
 
+    final Map<String, dynamic> serializablePayload = {
+      'type': 'SOS_ALERT',
+      'alertId': payload['alertId']?.toString() ?? '',
+      'senderUid': payload['senderUid']?.toString() ?? '',
+      'senderName': payload['senderName']?.toString() ?? '',
+      'senderEmail': payload['senderEmail']?.toString() ?? '',
+      'senderPhone': payload['senderPhone']?.toString() ?? '',
+      'latitude': payload['latitude']?.toString() ?? payload['lat']?.toString() ?? '',
+      'longitude': payload['longitude']?.toString() ?? payload['lng']?.toString() ?? '',
+      'lat': (payload['lat'] as num?)?.toDouble() ?? double.tryParse(payload['latitude']?.toString() ?? ''),
+      'lng': (payload['lng'] as num?)?.toDouble() ?? double.tryParse(payload['longitude']?.toString() ?? ''),
+      'address': payload['address']?.toString() ?? '',
+      'batteryLevel': (payload['batteryLevel'] as num?)?.toInt(),
+      'message': payload['message']?.toString() ?? '',
+    };
+    final String encodedPayload = jsonEncode(serializablePayload);
+
     await _localNotifications.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       platformDetails,
-      payload: 'SOS_ALERT',
+      payload: encodedPayload,
     );
   }
 
@@ -854,5 +1044,109 @@ class NotificationService {
     );
     const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     await _localNotifications.show(id, title, body, details);
+  }
+
+  /// Displays non-intrusive notification for ride check-in events
+  Future<void> showRideCheckinNotification({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    const androidDetails = AndroidNotificationDetails(
+      'ride_checkin_channel',
+      'Ride Safety Check-in',
+      channelDescription: 'Non-intrusive notifications for vehicle plate updates and ride status.',
+      importance: Importance.defaultImportance,
+      priority: Priority.defaultPriority,
+      icon: '@mipmap/ic_launcher',
+    );
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    final notifId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    await _localNotifications.show(notifId, title, body, details, payload: payload);
+  }
+
+  /// Listens to ride_checkins collection where current user is a trusted guardian
+  void startGuardianRideCheckinListener() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final myUid = user.uid;
+    final myEmail = (user.email ?? '').toLowerCase().trim();
+
+    _rideCheckinSubUid?.cancel();
+    _rideCheckinSubUid = FirebaseFirestore.instance
+        .collection('ride_checkins')
+        .where('guardianIds', arrayContains: myUid)
+        .snapshots()
+        .listen(
+          (snap) => _processIncomingRideCheckins(snap.docs, myUid),
+          onError: (err) => debugPrint('[NotificationService] Ride UID stream error: $err'),
+        );
+
+    if (myEmail.isNotEmpty) {
+      _rideCheckinSubEmail?.cancel();
+      _rideCheckinSubEmail = FirebaseFirestore.instance
+          .collection('ride_checkins')
+          .where('guardianEmails', arrayContains: myEmail)
+          .snapshots()
+          .listen(
+            (snap) => _processIncomingRideCheckins(snap.docs, myUid),
+            onError: (err) => debugPrint('[NotificationService] Ride email stream error: $err'),
+          );
+    }
+  }
+
+  void _processIncomingRideCheckins(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
+    String myUid,
+  ) {
+    for (final doc in docs) {
+      final data = doc.data();
+      final rideId = doc.id;
+      final senderId = data['userId']?.toString();
+      if (senderId == myUid) continue; // Skip sender on their own device
+
+      final status = (data['status'] ?? '').toString().toLowerCase();
+      final travelerName = data['userName'] ?? 'Traveler';
+      final rideType = data['rideType'] ?? 'Ride';
+      final plate = data['plateFormatted'] ?? 'Vehicle Plate';
+
+      // 1. New active ride
+      final activeKey = '${rideId}_active';
+      if (status == 'active' && !_notifiedRideKeys.contains(activeKey)) {
+        _notifiedRideKeys.add(activeKey);
+        showRideCheckinNotification(
+          title: '$travelerName started a $rideType ride — $plate',
+          body: 'Vehicle: $plate. Tap to view live location & driver details.',
+          payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
+        );
+      }
+
+      // 2. Arrived safely
+      final arrivedKey = '${rideId}_arrived';
+      if (status == 'arrived' && !_notifiedRideKeys.contains(arrivedKey)) {
+        _notifiedRideKeys.add(arrivedKey);
+        showRideCheckinNotification(
+          title: '$travelerName arrived safely.',
+          body: 'The ride in vehicle $plate has completed safely.',
+          payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
+        );
+      }
+
+      // 3. Overdue
+      final overdueKey = '${rideId}_overdue';
+      if (status == 'overdue' && !_notifiedRideKeys.contains(overdueKey)) {
+        _notifiedRideKeys.add(overdueKey);
+        showRideCheckinNotification(
+          title: '⚠️ Ride Overdue: $travelerName',
+          body: 'Ride in vehicle $plate is overdue by 10+ minutes.',
+          payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
+        );
+      }
+    }
   }
 }

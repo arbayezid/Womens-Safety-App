@@ -4,14 +4,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:geolocator/geolocator.dart';
 import '../core/app_colors.dart';
 import '../models/journey_model.dart';
 import '../models/safe_zone_model.dart';
 import '../services/emergency_service.dart';
 import '../services/journey_service.dart';
 import '../services/live_tracking_service.dart';
+import '../services/location_service.dart';
+import '../services/navigation_service.dart';
 import '../services/pin_security_service.dart';
+import '../services/safe_zone_repository.dart';
 import '../services/siren_service.dart';
 import '../widgets/fake_call_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
@@ -42,6 +45,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
   bool _isResolving = false;
   bool _isSirenActive = false;
 
+  Position? _devicePosition;
+  StreamSubscription<Position>? _positionSub;
+  bool _isLoadingLocation = true;
+  bool _hasCenteredMap = false;
+
   @override
   void initState() {
     super.initState();
@@ -58,10 +66,72 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     _secondTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
+
+    SafeZoneRepository.instance.loadSafeZones().then((_) {
+      if (mounted) setState(() {});
+    });
+
+    _acquireLiveLocation();
+  }
+
+  Future<void> _acquireLiveLocation() async {
+    // 1. First check if LocationService already holds a valid fix
+    final cached = LocationService.instance.lastKnownLocation;
+    if (cached != null && mounted) {
+      setState(() {
+        _devicePosition = Position(
+          latitude: cached.latitude,
+          longitude: cached.longitude,
+          timestamp: cached.timestamp,
+          accuracy: 0,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0,
+        );
+        _isLoadingLocation = false;
+      });
+      if (!_hasCenteredMap) {
+        _hasCenteredMap = true;
+        _mapController.move(LatLng(cached.latitude, cached.longitude), 15.0);
+      }
+    }
+
+    // 2. Fetch fresh high-accuracy position
+    try {
+      final livePos = await LocationService.instance.getCurrentPositionHighAccuracy();
+      if (livePos != null && mounted) {
+        setState(() {
+          _devicePosition = livePos;
+          _isLoadingLocation = false;
+        });
+        if (!_hasCenteredMap) {
+          _hasCenteredMap = true;
+          _mapController.move(LatLng(livePos.latitude, livePos.longitude), 15.0);
+        }
+      }
+    } catch (_) {}
+
+    // 3. Listen to position stream for live movement
+    _positionSub = LocationService.instance.positionStream.listen((pos) {
+      if (mounted) {
+        setState(() {
+          _devicePosition = pos;
+          _isLoadingLocation = false;
+        });
+        if (!_hasCenteredMap) {
+          _hasCenteredMap = true;
+          _mapController.move(LatLng(pos.latitude, pos.longitude), 15.0);
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
+    _positionSub?.cancel();
     _secondTimer?.cancel();
     _fakeCall30sTimer?.cancel();
     _pulseController.dispose();
@@ -74,18 +144,6 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     final m = diff.inMinutes;
     final s = diff.inSeconds % 60;
     return '${m}m ${s}s';
-  }
-
-  Future<void> _launchUrl(String url) async {
-    if (url.isEmpty) return;
-    try {
-      final uri = Uri.parse(url);
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (e) {
-      debugPrint('[FollowedMode] Error launching URL: $e');
-    }
   }
 
   void _scheduleFakeCallIn30s() {
@@ -293,17 +351,22 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     return ValueListenableBuilder<JourneyModel?>(
       valueListenable: JourneyService.instance.activeJourneyNotifier,
       builder: (context, journey, _) {
-        final pos = LiveTrackingService.instance.currentPositionNotifier.value;
-        final double curLat = pos?.latitude ?? journey?.currentLat ?? 23.8103;
-        final double curLng = pos?.longitude ?? journey?.currentLng ?? 90.4125;
+        final liveTrackingPos = LiveTrackingService.instance.currentPositionNotifier.value;
+        final double curLat = _devicePosition?.latitude ??
+            liveTrackingPos?.latitude ??
+            journey?.currentLat ??
+            (LocationService.instance.lastKnownLocation?.latitude ?? 23.7806);
+        final double curLng = _devicePosition?.longitude ??
+            liveTrackingPos?.longitude ??
+            journey?.currentLng ??
+            (LocationService.instance.lastKnownLocation?.longitude ?? 90.4267);
         final userLatLng = LatLng(curLat, curLng);
 
-        // Find nearest police checkpoints
-        final policeZones = SafeZone.defaultDhakaSafeZones
-            .where((z) => z.type == SafeZoneType.police)
-            .toList();
-        policeZones.sort((a, b) => a.calculateDistanceKm(curLat, curLng).compareTo(b.calculateDistanceKm(curLat, curLng)));
-        final nearestPolice = policeZones.isNotEmpty ? policeZones.first : null;
+        // Find nearest police checkpoints via unified SafeZoneRepository
+        final nearestPolice = SafeZoneRepository.instance.getNearestPoliceStation(
+          curLat: curLat,
+          curLng: curLng,
+        );
 
         final startTime = journey?.startedAt ?? DateTime.now();
 
@@ -374,9 +437,15 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               ),
             ],
           ),
-          body: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            children: [
+          body: SafeArea(
+            child: ListView(
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                MediaQuery.of(context).padding.bottom + 32,
+              ),
+              children: [
               // 1. Prominent Warning & Status Card
               Container(
                 padding: const EdgeInsets.all(14),
@@ -445,7 +514,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               _buildActionButtons(),
             ],
           ),
-        );
+        ),
+      );
       },
     );
   }
@@ -543,7 +613,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
             width: double.infinity,
             height: 48,
             child: ElevatedButton.icon(
-              onPressed: () => _launchUrl(policeZone.navigationUrl),
+              onPressed: () => NavigationService.instance.navigateTo(
+                destLat: policeZone.latitude,
+                destLng: policeZone.longitude,
+                destLabel: policeZone.name,
+              ),
               icon: const Icon(Icons.navigation_rounded, color: Colors.white, size: 20),
               label: Text(
                 'NAVIGATE TO POLICE STATION',
@@ -586,6 +660,20 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                   'Live Radar Location',
                   style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700),
                 ),
+                if (_isLoadingLocation) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: AppColors.actionOrange.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      'Locating...',
+                      style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
+                    ),
+                  ),
+                ],
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.center_focus_strong_rounded, size: 18, color: AppColors.primary),
@@ -620,7 +708,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                           width: 44,
                           height: 44,
                           child: GestureDetector(
-                            onTap: () => _launchUrl(nearestPolice.navigationUrl),
+                            onTap: () => NavigationService.instance.navigateTo(
+                              destLat: nearestPolice.latitude,
+                              destLng: nearestPolice.longitude,
+                              destLabel: nearestPolice.name,
+                            ),
                             child: Container(
                               decoration: BoxDecoration(
                                 color: const Color(0xFFDDEEFD),

@@ -53,8 +53,10 @@
 	<string>Woman Guard requires your location to acquire live GPS coordinates during an emergency and send your precise SOS location to your trusted contacts.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Woman Guard requires background location access to provide real-time GPS tracking to your guardians when an emergency SOS alert is active.</string>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Woman Guard requires microphone access to record emergency audio evidence during an SOS alert for your safety.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Woman Guard requires camera access to take a photo of vehicle number plates for Ride Safety Check-in.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Woman Guard requires photo library access to select ride-hailing app screenshots for plate text recognition.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>
@@ -76,6 +78,14 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>comgooglemaps</string>
+		<string>tel</string>
+		<string>sms</string>
+		<string>mailto</string>
+		<string>https</string>
+		<string>http</string>
 	</array>
 </dict>
 </plist>

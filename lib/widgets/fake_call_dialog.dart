@@ -5,6 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/activity_service.dart';
 import '../services/contact_service.dart';
+import '../services/fake_call_audio_service.dart';
 
 /// Full-screen realistic incoming phone call simulator.
 ///
@@ -65,10 +66,13 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
   void dispose() {
     _vibrationTimer?.cancel();
     _callDurationTimer?.cancel();
+    // No sound may outlive the call screen (back button, hang up, or route removed)
+    FakeCallAudioService.instance.stop();
     super.dispose();
   }
 
   void _startIncomingRinging() {
+    FakeCallAudioService.instance.startRinging();
     HapticFeedback.vibrate();
     _vibrationTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
       if (!_isCallAnswered && mounted) {
@@ -92,12 +96,29 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
         });
       }
     });
+
+    _startConversationAudio();
+  }
+
+  Future<void> _startConversationAudio() async {
+    final mode = await FakeCallAudioService.instance.startConversation();
+    if (mode != 'unavailable' || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(
+        'Call audio unavailable. Install an English text-to-speech voice in phone Settings › Text-to-speech.',
+        style: GoogleFonts.poppins(fontSize: 12.5, fontWeight: FontWeight.w500),
+      ),
+      backgroundColor: AppColors.sosRed,
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 5),
+    ));
   }
 
   void _endCall() {
     HapticFeedback.mediumImpact();
     _vibrationTimer?.cancel();
     _callDurationTimer?.cancel();
+    FakeCallAudioService.instance.stop();
     Navigator.of(context).pop();
   }
 

@@ -519,21 +519,28 @@ class _ContactsScreenState extends State<ContactsScreen> {
         if (confirmed == true) {
           if (mounted) {
             setState(() {
-              _contacts.removeWhere((c) => c.id == contact.id || (contact.contactUid != null && c.contactUid == contact.contactUid));
+              // _contacts is often the unmodifiable list from ContactService, so build a new
+              // list instead of removing in place (removeWhere threw and aborted the delete).
+              _contacts = _contacts
+                  .where((c) => !(c.id == contact.id || (contact.contactUid != null && c.contactUid == contact.contactUid)))
+                  .toList();
             });
           }
           // Permanently delete across Firestore (both directions) and local storage
-          await ContactSyncService.instance.deleteSyncedContact(contact);
+          final removed = await ContactSyncService.instance.deleteSyncedContact(contact);
           await _loadContacts();
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text('${contact.name} removed from contacts',
+            content: Text(
+                removed
+                    ? '${contact.name} removed from contacts'
+                    : 'Could not remove ${contact.name}. Check your connection and try again.',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-            backgroundColor: AppColors.textPrimary,
+            backgroundColor: removed ? AppColors.textPrimary : AppColors.sosRed,
             behavior: SnackBarBehavior.floating,
             shape: const StadiumBorder(),
             margin: const EdgeInsets.all(16),
-            duration: const Duration(seconds: 2),
+            duration: Duration(seconds: removed ? 2 : 4),
           ));
         }
       },

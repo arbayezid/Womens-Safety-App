@@ -7,7 +7,11 @@ import '../core/app_colors.dart';
 enum SafeZoneType {
   hospital,
   police,
-  metro;
+  metro,
+  clinic,
+  fireService,
+  tollPlaza,
+  govtService;
 
   String get label {
     switch (this) {
@@ -17,11 +21,19 @@ enum SafeZoneType {
         return 'Police';
       case SafeZoneType.metro:
         return 'Metro';
+      case SafeZoneType.clinic:
+        return 'Clinic';
+      case SafeZoneType.fireService:
+        return 'Fire Service';
+      case SafeZoneType.tollPlaza:
+        return 'Toll Plaza';
+      case SafeZoneType.govtService:
+        return 'Govt Service';
     }
   }
 }
 
-/// Represents a verified nearby physical safe zone (Hospital, Police Station, Metro).
+/// Represents a verified nearby physical safe zone (Hospital, Police Station, Metro, etc.).
 class SafeZone {
   final String id;
   final String name;
@@ -67,6 +79,30 @@ class SafeZone {
         icon = Icons.train_rounded;
         iconColor = AppColors.actionPurple;
         bgColor = const Color(0xFFF0E6F9);
+        break;
+      case 'clinic':
+        type = SafeZoneType.clinic;
+        icon = Icons.medical_services_rounded;
+        iconColor = AppColors.actionGreen;
+        bgColor = AppColors.successBackground;
+        break;
+      case 'fire_service':
+        type = SafeZoneType.fireService;
+        icon = Icons.local_fire_department_rounded;
+        iconColor = AppColors.actionOrange;
+        bgColor = const Color(0xFFFFF1DC);
+        break;
+      case 'toll_plaza':
+        type = SafeZoneType.tollPlaza;
+        icon = Icons.toll_rounded;
+        iconColor = AppColors.textSecondary;
+        bgColor = const Color(0xFFEFEFF4);
+        break;
+      case 'govt_service':
+        type = SafeZoneType.govtService;
+        icon = Icons.account_balance_rounded;
+        iconColor = AppColors.primary;
+        bgColor = AppColors.primarySurface;
         break;
       case 'checkpoint':
       case 'police':

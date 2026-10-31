@@ -14,10 +14,13 @@ import '../models/safe_zone_model.dart';
 import '../services/contact_service.dart';
 import '../services/emergency_service.dart';
 import '../services/incident_service.dart';
+import '../services/navigation_service.dart';
 import '../services/notification_service.dart';
 import '../services/pin_security_service.dart';
+import '../services/safe_zone_repository.dart';
 import '../services/siren_service.dart';
 import '../widgets/pin_input_dialog.dart';
+import '../models/ride_checkin.dart';
 
 /// Comprehensive Emergency Incident Room screen coordinating real-time SOS tracking,
 /// breadcrumb history, nearby physical safe zones, multi-guardian acknowledgment state,
@@ -70,6 +73,10 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       if (mounted) setState(() {});
     });
 
+    SafeZoneRepository.instance.loadSafeZones().then((_) {
+      if (mounted) setState(() {});
+    });
+
     _loadContacts();
   }
 
@@ -107,15 +114,17 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
     }
   }
 
-  Future<void> _launchExternalUrl(String url) async {
-    if (url.isEmpty) return;
+  Future<bool> _launchExternalUrl(String url) async {
+    if (url.isEmpty) return false;
     try {
       final uri = Uri.parse(url);
       if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
+        return await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (e) {
       debugPrint('[IncidentRoom] Error launching URL $url: $e');
+      return false;
     }
   }
 
@@ -458,6 +467,12 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                       resolvedTime: resolvedTime,
                     ),
 
+                    // 2.5 Linked Ride Vehicle Evidence Card (if ride is linked)
+                    if (docData['linkedRide'] != null || docData['linkedRideId'] != null) ...[
+                      const SizedBox(height: 16),
+                      _buildLinkedVehicleCard(docData),
+                    ],
+
                     const SizedBox(height: 16),
 
                     // 3. Escalation Progress Bar (Stepper)
@@ -582,6 +597,205 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLinkedVehicleCard(Map<String, dynamic> docData) {
+    final rawRide = docData['linkedRide'];
+    final rideId = (docData['linkedRideId'] ?? '').toString();
+
+    if (rawRide is Map<String, dynamic>) {
+      final ride = RideCheckinModel.fromMap(rawRide, rideId.isNotEmpty ? rideId : 'linked_ride');
+      return _buildVehicleCardBody(ride);
+    }
+
+    if (rideId.isNotEmpty) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance.collection('ride_checkins').doc(rideId).snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || snapshot.data?.data() == null) {
+            return const SizedBox.shrink();
+          }
+          final ride = RideCheckinModel.fromMap(snapshot.data!.data()!, rideId);
+          return _buildVehicleCardBody(ride);
+        },
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildVehicleCardBody(RideCheckinModel ride) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF0F7FF),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF90CAF9), width: 1.4),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2196F3).withValues(alpha: 0.08),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1976D2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'LINKED VEHICLE DETAILS',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: const Color(0xFF1565C0),
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                    Text(
+                      ride.rideType,
+                      style: GoogleFonts.poppins(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (ride.platePhotoUrl != null)
+                GestureDetector(
+                  onTap: () => _showZoomableImage(context, ride.platePhotoUrl!),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.network(
+                      ride.platePhotoUrl!,
+                      width: 44,
+                      height: 44,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF0D47A1),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.tag_rounded, color: Color(0xFF90CAF9), size: 16),
+                const SizedBox(width: 8),
+                Text(
+                  ride.plateFormatted,
+                  style: GoogleFonts.poppins(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if ((ride.driverName != null && ride.driverName!.isNotEmpty) ||
+              (ride.driverPhone != null && ride.driverPhone!.isNotEmpty)) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                const Icon(Icons.person_rounded, size: 16, color: AppColors.textSecondary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    '${ride.driverName?.isNotEmpty == true ? ride.driverName : "Driver"}'
+                    '${ride.driverPhone?.isNotEmpty == true ? " (${ride.driverPhone})" : ""}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (ride.driverPhone != null && ride.driverPhone!.isNotEmpty)
+                  InkWell(
+                    onTap: () => launchUrl(Uri.parse('tel:${ride.driverPhone}')),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.green.shade600,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.call_rounded, color: Colors.white, size: 13),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Call',
+                            style: GoogleFonts.poppins(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  void _showZoomableImage(BuildContext context, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        backgroundColor: Colors.black,
+        insetPadding: const EdgeInsets.all(12),
+        child: Stack(
+          alignment: Alignment.topRight,
+          children: [
+            InteractiveViewer(
+              minScale: 0.8,
+              maxScale: 4.0,
+              child: Center(
+                child: Image.network(imageUrl, fit: BoxFit.contain),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close_rounded, color: Colors.white, size: 28),
+              onPressed: () => Navigator.of(ctx).pop(),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -976,7 +1190,11 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                           width: 40,
                           height: 40,
                           child: GestureDetector(
-                            onTap: () => _launchExternalUrl(zone.navigationUrl),
+                            onTap: () => NavigationService.instance.navigateTo(
+                              destLat: zone.latitude,
+                              destLng: zone.longitude,
+                              destLabel: zone.name,
+                            ),
                             child: Container(
                               decoration: BoxDecoration(
                                 color: zone.bgColor,
@@ -1071,7 +1289,11 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                         ),
                         const SizedBox(width: 8),
                         InkWell(
-                          onTap: () => _launchExternalUrl(zone.navigationUrl),
+                          onTap: () => NavigationService.instance.navigateTo(
+                            destLat: zone.latitude,
+                            destLng: zone.longitude,
+                            destLabel: zone.name,
+                          ),
                           child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(

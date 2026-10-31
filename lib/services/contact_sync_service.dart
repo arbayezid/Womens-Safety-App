@@ -842,7 +842,9 @@ class ContactSyncService {
 
   /// Permanently removes a contact from the user's Firestore list, mutual partner's list,
   /// any existing connection requests, and local device storage.
-  Future<void> deleteSyncedContact(
+  ///
+  /// Returns false when the contact could not be removed from the user's own list.
+  Future<bool> deleteSyncedContact(
     dynamic contactOrId, {
     String? contactUid,
     String? email,
@@ -866,106 +868,116 @@ class ContactSyncService {
     final normalizedEmail = resolvedEmail?.toLowerCase().trim() ?? '';
     final safeEmailKey = normalizedEmail.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
 
-    if (uid != null) {
-      // 1. Delete from current user's contacts subcollection
-      final List<String> docIdsToDelete = {
-        if (contactId.isNotEmpty) contactId,
+    // 1. Remove from the user's own list first (memory, disk cache and every matching cloud doc).
+    // This is the single source the UI and the SOS dispatch read from, so once it succeeds the
+    // contact can no longer reappear or receive alerts.
+    final removed = await ContactService.instance.deleteContact(
+      contactId,
+      contactUid: resolvedUid,
+      email: normalizedEmail,
+      phone: resolvedPhone,
+      extraDocIds: [
         if (resolvedUid != null && resolvedUid.isNotEmpty) resolvedUid,
         if (safeEmailKey.isNotEmpty) 'pending_$safeEmailKey',
-      }.toList();
+      ],
+    );
+    if (!removed) {
+      debugPrint('[ContactSync] ❌ Could not delete contact $contactId from own list');
+      return false;
+    }
 
-      for (final docId in docIdsToDelete) {
-        try {
-          await _firestore
-              .collection('users')
-              .doc(uid)
-              .collection('contacts')
-              .doc(docId)
-              .delete();
-        } catch (e) {
-          debugPrint('[ContactSync] Error deleting own contact doc $docId: $e');
+    // 2. Best-effort cleanup of the partner's list and connection requests. These may be denied by
+    // security rules or be offline; neither affects the user's own (already updated) list.
+    if (uid != null) {
+      unawaited(_cleanUpAfterDelete(
+        uid: uid,
+        resolvedUid: resolvedUid,
+        normalizedEmail: normalizedEmail,
+        safeEmailKey: safeEmailKey,
+      ));
+    }
+    unawaited(refreshIncomingRequests());
+
+    debugPrint('[ContactSync] 🗑️ Permanently deleted contact: $contactId / $resolvedUid / $normalizedEmail');
+    return true;
+  }
+
+  Future<void> _cleanUpAfterDelete({
+    required String uid,
+    required String? resolvedUid,
+    required String normalizedEmail,
+    required String safeEmailKey,
+  }) async {
+    const opTimeout = Duration(seconds: 5);
+
+    // Query any leftover documents in current user's contacts by email
+    if (normalizedEmail.isNotEmpty) {
+      try {
+        final query = await _firestore
+            .collection('users')
+            .doc(uid)
+            .collection('contacts')
+            .where('email', isEqualTo: normalizedEmail)
+            .get(const GetOptions(source: Source.serverAndCache))
+            .timeout(const Duration(seconds: 2));
+        for (final doc in query.docs) {
+          await doc.reference.delete().timeout(opTimeout);
         }
+      } catch (e) {
+        debugPrint('[ContactSync] Error cleaning up contacts by email: $e');
+      }
+    }
+
+    // Mutual unlink: Remove current user from partner's contacts subcollection
+    if (resolvedUid != null && resolvedUid.isNotEmpty) {
+      try {
+        await _firestore
+            .collection('users')
+            .doc(resolvedUid)
+            .collection('contacts')
+            .doc(uid)
+            .delete()
+            .timeout(opTimeout);
+      } catch (e) {
+        debugPrint('[ContactSync] Notice unlinking partner contacts doc ($resolvedUid): $e');
       }
 
-      // Query any leftover documents in current user's contacts by email
-      if (normalizedEmail.isNotEmpty) {
-        try {
-          final query = await _firestore
-              .collection('users')
-              .doc(uid)
-              .collection('contacts')
-              .where('email', isEqualTo: normalizedEmail)
-              .get(const GetOptions(source: Source.serverAndCache))
-              .timeout(const Duration(seconds: 2));
-          for (final doc in query.docs) {
-            await doc.reference.delete();
-          }
-        } catch (e) {
-          debugPrint('[ContactSync] Error cleaning up contacts by email: $e');
-        }
-      }
-
-      // 2. Mutual unlink: Remove current user from partner's contacts subcollection
-      if (resolvedUid != null && resolvedUid.isNotEmpty) {
+      if (_currentEmail != null && _currentEmail!.isNotEmpty) {
+        final mySafeEmail = _currentEmail!.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
         try {
           await _firestore
               .collection('users')
               .doc(resolvedUid)
               .collection('contacts')
-              .doc(uid)
-              .delete();
-        } catch (e) {
-          debugPrint('[ContactSync] Notice unlinking partner contacts doc ($resolvedUid): $e');
-        }
-
-        if (_currentEmail != null && _currentEmail!.isNotEmpty) {
-          final mySafeEmail = _currentEmail!.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-          try {
-            await _firestore
-                .collection('users')
-                .doc(resolvedUid)
-                .collection('contacts')
-                .doc('pending_$mySafeEmail')
-                .delete();
-          } catch (_) {}
-        }
-      }
-
-      // 3. Delete connection requests in both directions & email
-      final List<String> requestIdsToDelete = {
-        if (resolvedUid != null && resolvedUid.isNotEmpty) ...[
-          '${uid}_$resolvedUid',
-          '${resolvedUid}_$uid',
-        ],
-        if (safeEmailKey.isNotEmpty) '${uid}_$safeEmailKey',
-      }.toList();
-
-      for (final reqId in requestIdsToDelete) {
-        try {
-          await _firestore.collection('connection_requests').doc(reqId).delete();
-        } catch (e) {
-          // If delete rule prevented deletion, cancel it
-          try {
-            await _firestore.collection('connection_requests').doc(reqId).update({
-              'status': 'cancelled',
-              'respondedAt': FieldValue.serverTimestamp(),
-            });
-          } catch (_) {}
-        }
+              .doc('pending_$mySafeEmail')
+              .delete()
+              .timeout(opTimeout);
+        } catch (_) {}
       }
     }
 
-    // 4. Permanently remove from in-memory cache and cloud
-    await ContactService.instance.deleteContact(
-      contactId,
-      contactUid: resolvedUid,
-      email: normalizedEmail,
-      phone: resolvedPhone,
-    );
-    unawaited(ContactService.instance.getContacts(forceRefresh: true));
-    unawaited(refreshIncomingRequests());
+    // Delete connection requests in both directions & email
+    final List<String> requestIdsToDelete = {
+      if (resolvedUid != null && resolvedUid.isNotEmpty) ...[
+        '${uid}_$resolvedUid',
+        '${resolvedUid}_$uid',
+      ],
+      if (safeEmailKey.isNotEmpty) '${uid}_$safeEmailKey',
+    }.toList();
 
-    debugPrint('[ContactSync] 🗑️ Permanently deleted contact: $contactId / $resolvedUid / $normalizedEmail');
+    for (final reqId in requestIdsToDelete) {
+      try {
+        await _firestore.collection('connection_requests').doc(reqId).delete().timeout(opTimeout);
+      } catch (e) {
+        // If delete rule prevented deletion, cancel it
+        try {
+          await _firestore.collection('connection_requests').doc(reqId).update({
+            'status': 'cancelled',
+            'respondedAt': FieldValue.serverTimestamp(),
+          }).timeout(opTimeout);
+        } catch (_) {}
+      }
+    }
   }
 
   /// Upgrades an existing offline contact by dispatching a Guardian Connection Request.

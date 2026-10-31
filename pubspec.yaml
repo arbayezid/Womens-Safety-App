@@ -53,11 +53,12 @@ dependencies:
   firebase_messaging: ^15.0.0
   flutter_local_notifications: ^17.1.2
 
-  # Firebase Storage for Emergency Audio Recordings
+  # Firebase Storage for Ride Check-in plate photos
   firebase_storage: ^12.0.0
 
-  # Audio Recording for Emergency Quick Action
-  record: ^5.1.2
+  # Free crash reporting (Spark plan) for release-build crash diagnostics
+  firebase_crashlytics: ^4.3.10
+
   path_provider: ^2.1.2
 
   # Background Execution & Foreground Tracking Service
@@ -72,14 +73,22 @@ dependencies:
   # Accelerometer Sensor for Fall Detection
   sensors_plus: ^5.0.0
 
+  # Ride Safety Check-in: Camera, Screenshot Picker & On-Device Latin OCR
+  image_picker: ^1.1.2
+  google_mlkit_text_recognition: ^0.13.0
+  flutter_image_compress: ^2.3.0
+
+  # On-device Bangla OCR for BRTA plates (ML Kit has no Bengali model).
+  # Reads assets/tessdata/ben.traineddata listed in assets/tessdata_config.json
+  flutter_tesseract_ocr: ^0.4.31
+  # Grayscale / contrast pre-processing of plate photos before Tesseract
+  image: ^4.12.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
   flutter_launcher_icons: ^0.14.4
-
-dependency_overrides:
-  record_linux: 1.3.1
 
 flutter:
   uses-material-design: true
@@ -87,6 +96,7 @@ flutter:
     - assets/
     - assets/sounds/
     - assets/data/
+    - assets/tessdata/
 
 flutter_launcher_icons:
   android: true

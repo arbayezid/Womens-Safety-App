@@ -21,7 +21,6 @@ import 'sos_history_screen.dart';
 import 'incident_room_screen.dart';
 import 'followed_mode_screen.dart';
 import '../widgets/fake_call_dialog.dart';
-import '../widgets/record_audio_sheet.dart';
 import '../models/journey_model.dart';
 import '../services/journey_service.dart';
 import '../widgets/active_journey_card.dart';
@@ -30,6 +29,12 @@ import '../widgets/pin_input_dialog.dart';
 import '../services/pin_security_service.dart';
 import '../services/motion_detection_service.dart';
 import 'start_journey_sheet.dart';
+import '../models/ride_checkin.dart';
+import '../services/ride_checkin_service.dart';
+import '../services/esp32_ble_service.dart';
+import 'ride_checkin_screen.dart';
+import 'active_ride_screen.dart';
+import 'ride_history_screen.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -85,6 +90,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     JourneyService.instance.activeSafetyCheckNotifier.addListener(_handleSafetyCheckChange);
     MotionDetectionService.instance.initialize();
     MotionDetectionService.instance.activeCountdownNotifier.addListener(_handleFallCheckChange);
+
+    // Initialize ESP32 BLE hardware service safely
+    Esp32BleService.instance.initialize();
 
     // Initialize real-time incoming guardian emergency alerts
     NotificationService.instance.startSosAlertStreamListener();
@@ -395,16 +403,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return;
     }
 
-    if (label == 'Record Audio') {
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (_) => const RecordAudioSheet(),
-      );
-      return;
-    }
-
     if (label == 'Camouflage') {
       final isConfigured = await PinSecurityService.instance.isRealPinConfigured();
       if (!isConfigured) {
@@ -534,6 +532,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 content: Text('Failed to start Followed Mode: $e'),
                 backgroundColor: AppColors.sosRed,
               ),
+            );
+          }
+        },
+      );
+      return;
+    }
+
+    if (label == 'Ride Check-in') {
+      await AuthGuard.run(
+        context,
+        actionName: 'start a Ride Safety Check-in',
+        customSubtitle:
+            'To record your ride details, alert guardians, and broadcast live GPS tracking, please sign in.',
+        onAuthenticated: () {
+          final activeRide = RideCheckinService.instance.activeRide;
+          if (activeRide != null && activeRide.isActive) {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: activeRide.id)),
+            );
+          } else {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const RideCheckinScreen()),
             );
           }
         },
@@ -726,6 +746,20 @@ class _SafetyDashboard extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: ActiveJourneyCard(journey: activeJourney),
+                );
+              },
+            ),
+
+            // ── Active Ride Safety Check-in Card ───────────────────
+            ValueListenableBuilder<RideCheckinModel?>(
+              valueListenable: RideCheckinService.instance.activeRideNotifier,
+              builder: (context, activeRide, _) {
+                if (activeRide == null || !activeRide.isActive) {
+                  return const SizedBox.shrink();
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: _ActiveRideCard(ride: activeRide),
                 );
               },
             ),
@@ -1459,6 +1493,34 @@ class _TopAppBarState extends State<_TopAppBar> {
               ),
             ),
 
+            // ── Ride Check-in History Button ────────────────────────
+            Tooltip(
+              message: 'Ride Check-in History',
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const RideHistoryScreen()),
+                  );
+                },
+                child: Container(
+                  width: 34,
+                  height: 34,
+                  margin: const EdgeInsets.only(right: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE3F2FD),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppColors.actionBlue.withValues(alpha: 0.25)),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Icon(
+                    Icons.directions_car_rounded,
+                    color: AppColors.actionBlue,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ),
+
             // ── ESP32 status badge ───────────────────────────────────────
             _ESP32Badge(),
           ],
@@ -1468,39 +1530,80 @@ class _TopAppBarState extends State<_TopAppBar> {
   }
 }
 
-/// Pill-shaped badge showing ESP32 connection status.
+/// Pill-shaped badge showing real-time ESP32 connection status.
 class _ESP32Badge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppColors.successBackground,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Green dot indicator
-          Container(
-            width: 7,
-            height: 7,
-            decoration: const BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.successForeground,
+    return ValueListenableBuilder<Esp32ConnectionStatus>(
+      valueListenable: Esp32BleService.instance.connectionStateNotifier,
+      builder: (context, status, _) {
+        final Color bgColor;
+        final Color dotColor;
+        final String label;
+
+        switch (status) {
+          case Esp32ConnectionStatus.connected:
+            bgColor = AppColors.successBackground;
+            dotColor = AppColors.successForeground;
+            label = 'ESP32 Connected';
+            break;
+          case Esp32ConnectionStatus.connecting:
+          case Esp32ConnectionStatus.scanning:
+            bgColor = const Color(0xFFFFF8E1);
+            dotColor = const Color(0xFFFFA000);
+            label = 'ESP32 Connecting';
+            break;
+          case Esp32ConnectionStatus.permissionDenied:
+            bgColor = const Color(0xFFFFEBEE);
+            dotColor = AppColors.sosRed;
+            label = 'Bluetooth Req';
+            break;
+          case Esp32ConnectionStatus.bluetoothDisabled:
+          case Esp32ConnectionStatus.disconnected:
+            bgColor = const Color(0xFFF5F5F5);
+            dotColor = AppColors.textSecondary;
+            label = 'ESP32 Offline';
+            break;
+        }
+
+        return GestureDetector(
+          onTap: () {
+            if (status != Esp32ConnectionStatus.connected) {
+              Esp32BleService.instance.connectToDevice();
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: bgColor,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Status dot indicator
+                Container(
+                  width: 7,
+                  height: 7,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: dotColor,
+                  ),
+                ),
+                const SizedBox(width: 5),
+                Text(
+                  label,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: dotColor,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(width: 5),
-          Text(
-            'ESP32 Connected',
-            style: GoogleFonts.poppins(
-              fontSize: 11,
-              fontWeight: FontWeight.w600,
-              color: AppColors.successForeground,
-            ),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -1652,7 +1755,11 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
         return _buildPermissionDeniedState();
 
       case LocationStateStatus.hasData:
-        return _buildHasDataState(_result.data!);
+        final data = _result.data;
+        if (data == null) {
+          return _buildErrorState('Location data temporarily unavailable');
+        }
+        return _buildHasDataState(data);
 
       case LocationStateStatus.error:
         return _buildErrorState(_result.errorMessage ?? 'Unable to retrieve location');
@@ -2150,6 +2257,121 @@ class _TapHintBadge extends StatelessWidget {
   }
 }
 
+/// Prominent banner displayed on the Safety dashboard when a Ride Safety Check-in
+/// session is currently active and broadcasting live GPS coordinates.
+class _ActiveRideCard extends StatelessWidget {
+  final RideCheckinModel ride;
+
+  const _ActiveRideCard({required this.ride});
+
+  @override
+  Widget build(BuildContext context) {
+    final isOverdue = ride.isOverdue;
+    final cardBg = isOverdue ? const Color(0xFFFFF3E0) : const Color(0xFFE8F1FC);
+    final borderColor = isOverdue ? const Color(0xFFFFB74D) : const Color(0xFF90CAF9);
+    final badgeColor = isOverdue ? Colors.deepOrange : const Color(0xFF1565C0);
+
+    final durationText = ride.expectedMinutes != null
+        ? '${ride.expectedMinutes}m trip'
+        : 'Active trip';
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => ActiveRideScreen(rideId: ride.id)),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor, width: 1.3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: badgeColor,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isOverdue ? Colors.deepOrange : AppColors.safeGreen,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        isOverdue ? 'RIDE OVERDUE' : 'ACTIVE RIDE CHECK-IN',
+                        style: GoogleFonts.poppins(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w800,
+                          color: badgeColor,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        durationText,
+                        style: GoogleFonts.poppins(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${ride.rideType} • ${ride.plateFormatted}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'Tracking live GPS • Tap to view dashboard',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 6),
+            Icon(Icons.arrow_forward_ios_rounded, color: badgeColor, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ── Quick Actions ─────────────────────────────────────────────
 
 /// Immutable data model for a single Quick Action card.
@@ -2188,16 +2410,16 @@ class _QuickActionsGrid extends StatelessWidget {
       iconBackground: Color(0xFFFEEDD8),
     ),
     _QuickActionItem(
-      icon: Icons.mic_rounded,
-      label: 'Record Audio',
-      iconColor: AppColors.actionPurple,
-      iconBackground: Color(0xFFF0E6F9),
-    ),
-    _QuickActionItem(
       icon: Icons.directions_walk_rounded,
       label: 'Safe Journey',
       iconColor: AppColors.actionGreen,
       iconBackground: Color(0xFFDFF5E3),
+    ),
+    _QuickActionItem(
+      icon: Icons.local_taxi_rounded,
+      label: 'Ride Check-in',
+      iconColor: AppColors.actionBlue,
+      iconBackground: Color(0xFFE3F2FD),
     ),
     _QuickActionItem(
       icon: Icons.calculate_rounded,

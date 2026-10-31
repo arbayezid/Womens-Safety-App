@@ -30,6 +30,20 @@ service cloud.firestore {
       }
     }
 
+    // Phone Number Registry: one document per phone number (ID = +E164 number) naming the single
+    // account that owns it. Create-only for yourself and never reassigned, so a number can belong
+    // to only one account. Single-document reads only (no listing/enumeration of numbers).
+    match /phone_numbers/{phone} {
+      allow get: if isAuthenticated();
+      allow list: if false;
+      allow create: if isAuthenticated()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.phoneNumber == phone
+        && request.resource.data.keys().hasOnly(['uid', 'phoneNumber', 'createdAt']);
+      allow update: if false;
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+
     // Connection Requests Collection
     match /connection_requests/{requestId} {
       function isSender() {
@@ -183,6 +197,45 @@ service cloud.firestore {
 
       // Delete: Denied or only owner when cancelled/arrived
       allow delete: if isJourneyOwner() && resource.data.status in ['cancelled', 'arrived'];
+    }
+
+    // Ride Safety Check-ins Collection
+    match /ride_checkins/{rideId} {
+      function isRideOwner() {
+        return isAuthenticated() && (
+          ('userId' in resource.data && resource.data.userId == request.auth.uid) ||
+          ('ownerId' in resource.data && resource.data.ownerId == request.auth.uid)
+        );
+      }
+
+      function isRideGuardian() {
+        // Phone-only accounts have no email claim, so read it with a default instead of erroring
+        let email = request.auth.token.get('email', null);
+        return isAuthenticated() && (
+          ('guardianIds' in resource.data && request.auth.uid in resource.data.guardianIds) ||
+          (email != null && 'guardianEmails' in resource.data &&
+           email.lower() in resource.data.guardianEmails)
+        );
+      }
+
+      // Create: Authenticated user creates check-in with themselves as user
+      allow create: if isAuthenticated() && (
+        ('userId' in request.resource.data && request.resource.data.userId == request.auth.uid) ||
+        ('ownerId' in request.resource.data && request.resource.data.ownerId == request.auth.uid)
+      );
+
+      // Read: Owner or listed guardian
+      allow read: if isRideOwner() || isRideGuardian();
+
+      // Update: Owner can update trail, status, and arrival; guardians can update when acknowledging/viewing
+      // but can never reassign ownership or the guardian lists
+      allow update: if isRideOwner() ||
+        (isRideGuardian() &&
+         !request.resource.data.diff(resource.data).affectedKeys()
+           .hasAny(['userId', 'ownerId', 'guardianIds', 'guardianEmails']));
+
+      // Delete: Denied for safety audit trail
+      allow delete: if false;
     }
 
     // Community Safety Reports Collection (Heatmap & Crowdsourced hazards)

@@ -6,7 +6,6 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/activity_model.dart';
 import 'activity_service.dart';
-import 'audio_record_service.dart';
 import 'auth_service.dart';
 import 'background_service.dart';
 import 'emergency_service.dart';
@@ -266,8 +265,7 @@ class PinSecurityService {
   /// 1. Immediately switches UI to Camouflage Mode (Working Calculator)
   /// 2. Dispatches silent SOS via [EmergencyService] with isDuress = true
   /// 3. Switches foreground service notification to neutral disguise
-  /// 4. Begins private local audio recording
-  /// 5. Suppresses user-visible activity logs until exited by Real PIN
+  /// 4. Suppresses user-visible activity logs until exited by Real PIN
   Future<void> triggerDuressPipeline() async {
     debugPrint('[PinSecurity] 🚨 SILENT DURESS EMERGENCY TRIGGERED!');
 
@@ -312,13 +310,6 @@ class PinSecurityService {
         content: 'Running background mathematical process',
       );
     } catch (_) {}
-
-    // 3. Start private local audio recording
-    try {
-      await AudioRecordService.instance.startRecording();
-    } catch (e) {
-      debugPrint('[PinSecurity] Duress audio record notice: $e');
-    }
   }
 
   /// Exits Camouflage and Duress mode when user enters Real PIN
@@ -331,13 +322,6 @@ class PinSecurityService {
 
     isCamouflageActiveNotifier.value = false;
     isDuressActiveNotifier.value = false;
-
-    // Stop audio recording if active
-    try {
-      if (AudioRecordService.instance.isRecordingNotifier.value) {
-        await AudioRecordService.instance.stopRecording();
-      }
-    } catch (_) {}
 
     // Restore background service title if still tracking
     if (EmergencyService.instance.activeAlertId != null) {

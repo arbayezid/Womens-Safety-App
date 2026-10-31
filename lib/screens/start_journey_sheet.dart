@@ -6,6 +6,7 @@ import '../models/contact_model.dart';
 import '../models/safe_zone_model.dart';
 import '../services/contact_service.dart';
 import '../services/journey_service.dart';
+import '../services/safe_zone_repository.dart';
 
 /// Modal bottom sheet for configuring and starting a new Safe Journey session.
 class StartJourneySheet extends StatefulWidget {
@@ -23,6 +24,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
   bool _isStarting = false;
   List<ContactModel> _guardians = [];
   Position? _currentPosition;
+  List<SafeZone> _suggestedZones = [];
 
   @override
   void initState() {
@@ -34,14 +36,26 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
     try {
       _currentPosition = await Geolocator.getLastKnownPosition();
       final contacts = await ContactService.instance.getContacts();
+      final repo = SafeZoneRepository.instance;
+      await repo.loadSafeZones();
       if (!mounted) return;
+
+      // Suggest the nearest safe zones when location is known
+      final zones = _currentPosition != null
+          ? repo.getNearestSafeZones(
+              curLat: _currentPosition!.latitude,
+              curLng: _currentPosition!.longitude,
+              count: 5,
+            )
+          : repo.allSafeZones.take(5).toList();
       setState(() {
         _guardians = contacts;
+        _suggestedZones = zones;
       });
 
-      // Default to first safe zone if available
-      if (SafeZone.defaultDhakaSafeZones.isNotEmpty) {
-        _selectSafeZone(SafeZone.defaultDhakaSafeZones.first);
+      // Default to the first suggested safe zone if available
+      if (zones.isNotEmpty) {
+        _selectSafeZone(zones.first);
       }
     } catch (_) {}
   }
@@ -237,10 +251,10 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
               height: 42,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: SafeZone.defaultDhakaSafeZones.take(5).length,
+                itemCount: _suggestedZones.length,
                 separatorBuilder: (_, __) => const SizedBox(width: 8),
                 itemBuilder: (context, i) {
-                  final zone = SafeZone.defaultDhakaSafeZones[i];
+                  final zone = _suggestedZones[i];
                   final isSelected = _selectedSafeZone?.id == zone.id;
                   return ChoiceChip(
                     label: Text(zone.name, style: GoogleFonts.poppins(fontSize: 12, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500)),

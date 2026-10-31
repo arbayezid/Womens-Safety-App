@@ -12,6 +12,7 @@ import '../services/battery_alert_service.dart';
 import '../services/pin_security_service.dart';
 import '../services/motion_detection_service.dart';
 import '../services/sos_escalation_service.dart';
+import '../services/esp32_ble_service.dart';
 import '../widgets/pin_input_dialog.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
@@ -103,14 +104,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSection(
                 title: 'Device',
                 items: [
-                  _buildNavItem(
-                    icon: Icons.bluetooth_rounded,
-                    iconColor: AppColors.actionBlue,
-                    iconBg: const Color(0xFFDDEEFD),
-                    label: 'Device Setup',
-                    subtitle: 'ESP32 Connected • 92% Battery',
-                    trailing: const _StatusDot(color: AppColors.successForeground),
-                    onTap: _showDeviceSetupModal,
+                  ValueListenableBuilder<Esp32ConnectionStatus>(
+                    valueListenable: Esp32BleService.instance.connectionStateNotifier,
+                    builder: (context, status, _) {
+                      final isConn = status == Esp32ConnectionStatus.connected;
+                      final subtitle = isConn
+                          ? 'ESP32 Connected • ${Esp32BleService.instance.batteryLevelNotifier.value}% Battery'
+                          : (status == Esp32ConnectionStatus.connecting
+                              ? 'Connecting to ESP32...'
+                              : 'ESP32 Disconnected (Tap to connect)');
+                      return _buildNavItem(
+                        icon: Icons.bluetooth_rounded,
+                        iconColor: AppColors.actionBlue,
+                        iconBg: const Color(0xFFDDEEFD),
+                        label: 'Device Setup',
+                        subtitle: subtitle,
+                        trailing: _StatusDot(
+                          color: isConn
+                              ? AppColors.successForeground
+                              : (status == Esp32ConnectionStatus.connecting
+                                  ? const Color(0xFFFFA000)
+                                  : AppColors.sosRed),
+                        ),
+                        onTap: _showDeviceSetupModal,
+                      );
+                    },
                   ),
                   ValueListenableBuilder<List<ActivityItem>>(
                     valueListenable: ActivityService.instance.activitiesNotifier,
@@ -888,12 +906,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: ElevatedButton.icon(
                 onPressed: () {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('⚡ ESP32 Hardware button signal tested and active.'),
-                      backgroundColor: AppColors.successForeground,
-                      behavior: SnackBarBehavior.floating,
-                    ),
+                  Esp32BleService.instance.handleHardwareSosTrigger(
+                    reason: 'Settings Test Button',
                   );
                 },
                 icon: const Icon(Icons.touch_app_rounded, color: Colors.white),

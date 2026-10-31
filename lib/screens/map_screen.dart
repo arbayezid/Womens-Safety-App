@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
@@ -8,10 +7,11 @@ import '../core/app_colors.dart';
 import '../models/safe_zone_model.dart';
 import '../models/safety_report_model.dart';
 import '../services/location_service.dart';
+import '../services/navigation_service.dart';
+import '../services/safe_zone_repository.dart';
 import '../services/safety_report_service.dart';
 import '../widgets/report_unsafe_spot_sheet.dart';
 import '../utils/auth_guard.dart';
-import '../utils/url_launcher_helper.dart';
 
 /// Available map tile styling presets.
 enum MapTileTheme {
@@ -126,15 +126,10 @@ class _MapScreenState extends State<MapScreen>
     });
   }
 
-  /// Loads custom safe zones catalog from assets/data/safe_zones.json
+  /// Loads custom safe zones catalog via SafeZoneRepository
   Future<void> _loadSafeZonesDatabase() async {
     try {
-      final jsonString =
-          await rootBundle.loadString('assets/data/safe_zones.json');
-      final List<dynamic> jsonList = jsonDecode(jsonString) as List<dynamic>;
-      final loaded = jsonList
-          .map((item) => SafeZone.fromJson(item as Map<String, dynamic>))
-          .toList();
+      final loaded = await SafeZoneRepository.instance.loadSafeZones();
       if (loaded.isNotEmpty && mounted) {
         setState(() {
           _allSafeZones = loaded;
@@ -1089,17 +1084,18 @@ class _MapScreenState extends State<MapScreen>
     );
   }
 
-  /// Triggers native turn-by-turn navigation in Google Maps.
+  /// Triggers native turn-by-turn navigation via NavigationService.
   Future<void> _launchNavigation(SafeZone zone) async {
-    final launched = await UrlLauncherHelper.openMapNavigation(
-      zone.latitude,
-      zone.longitude,
+    final launched = await NavigationService.instance.navigateTo(
+      destLat: zone.latitude,
+      destLng: zone.longitude,
+      destLabel: zone.name,
     );
 
     if (!launched && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Could not open navigation to ${zone.name}.'),
+          content: Text('Could not open navigation to ${zone.name}. Please ensure a map app or browser is installed.'),
           backgroundColor: AppColors.sosRed,
         ),
       );

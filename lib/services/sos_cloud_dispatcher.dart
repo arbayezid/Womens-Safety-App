@@ -1,3 +1,4 @@
+import 'package:battery_plus/battery_plus.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -5,6 +6,7 @@ import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'auth_service.dart';
 import 'contact_service.dart';
+import 'ride_checkin_service.dart';
 
 /// Service responsible for publishing real-time SOS alerts to Cloud Firestore,
 /// triggering automated server-side FCM push notification broadcasts.
@@ -25,6 +27,7 @@ class SosCloudDispatcher {
     List<String>? recipientEmails,
     List<String>? recipientUids,
     bool isDuress = false,
+    String? linkedRideId,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -169,7 +172,41 @@ class SosCloudDispatcher {
 
       // 3. Create document in `sos_alerts`
       final senderEmail = (user.email ?? '').toLowerCase().trim();
-      final senderPhone = user.phoneNumber ?? AuthService.instance.currentProfile.phone;
+      String? senderPhone = user.phoneNumber;
+      if (senderPhone == null || senderPhone.trim().isEmpty) {
+        final profilePhone = AuthService.instance.phone.trim();
+        if (profilePhone.isNotEmpty) {
+          senderPhone = profilePhone;
+        }
+      }
+      if (senderPhone == null || senderPhone.trim().isEmpty) {
+        try {
+          final userDoc = await _firestore
+              .collection('users')
+              .doc(user.uid)
+              .get(const GetOptions(source: Source.serverAndCache))
+              .timeout(const Duration(seconds: 2));
+          if (userDoc.exists && userDoc.data() != null) {
+            final d = userDoc.data()!;
+            final p = (d['phone'] ?? d['phoneNumber'])?.toString().trim();
+            if (p != null && p.isNotEmpty) {
+              senderPhone = p;
+            }
+          }
+        } catch (_) {}
+      }
+      if (senderPhone != null && senderPhone.trim().isEmpty) {
+        senderPhone = null;
+      }
+
+      int batteryLevel = 100;
+      try {
+        batteryLevel = await Battery().batteryLevel.timeout(
+          const Duration(seconds: 1),
+          onTimeout: () => 100,
+        );
+      } catch (_) {}
+
       final senderName = user.displayName ?? AuthService.instance.displayName;
       final message = customNote ?? 'Emergency SOS Alert: $senderName needs immediate assistance!';
 
@@ -179,6 +216,7 @@ class SosCloudDispatcher {
       await docRef.set({
         'alertId': alertId,
         'id': alertId,
+        'senderUid': user.uid,
         'senderId': user.uid,
         'sender_uid': user.uid,
         'senderName': senderName,
@@ -194,8 +232,12 @@ class SosCloudDispatcher {
         'note': message,
         'message': message,
         'status': 'active',
+        'lat': latitude,
+        'lng': longitude,
         'latitude': latitude,
         'longitude': longitude,
+        'address': humanAddress,
+        'batteryLevel': batteryLevel,
         'google_maps_url': mapsUrl,
         'location': {
           'latitude': latitude,
@@ -207,6 +249,10 @@ class SosCloudDispatcher {
         'triggeredAt': FieldValue.serverTimestamp(),
         'timestamp': FieldValue.serverTimestamp(),
         'notifiedUids': recipientUids,
+        if (linkedRideId != null || RideCheckinService.instance.activeRide != null)
+          'linkedRideId': linkedRideId ?? RideCheckinService.instance.activeRide?.id,
+        if (RideCheckinService.instance.activeRide != null)
+          'linkedRide': RideCheckinService.instance.activeRide!.toMap(),
         'recentTrail': position != null
             ? [
                 {

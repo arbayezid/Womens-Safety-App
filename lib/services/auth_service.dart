@@ -12,6 +12,7 @@ import 'activity_service.dart';
 import 'contact_service.dart';
 import 'contact_sync_service.dart';
 import 'notification_service.dart';
+import 'phone_registry_service.dart';
 
 /// Result wrapper for Google Authentication attempts.
 class AuthResult {
@@ -228,6 +229,12 @@ class AuthService {
       // Automatically bind contacts and requests to the active user UID
       ContactService.instance.bindUser(user.uid);
       ContactSyncService.instance.initialize();
+
+      // Register a phone number saved before the one-number-per-account rule existed
+      final existingPhone = profileNotifier.value.phone.trim().isNotEmpty
+          ? profileNotifier.value.phone
+          : (user.phoneNumber ?? '');
+      unawaited(PhoneRegistryService.instance.registerExistingNumber(existingPhone));
     } catch (e) {
       debugPrint('[AuthService] Error loading cloud profile: $e');
       if (user != null) {

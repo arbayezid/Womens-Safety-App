@@ -216,6 +216,9 @@ class LiveTrackingService {
           'location': locationMap,
           'latitude': lat,
           'longitude': lng,
+          'lat': lat,
+          'lng': lng,
+          'address': address,
           'google_maps_url': mapsUrl,
           'liveUpdatedAt': FieldValue.serverTimestamp(),
           'lastUpdatedAt': FieldValue.serverTimestamp(),
@@ -234,6 +237,19 @@ class LiveTrackingService {
           'currentLocation': locationMap,
           'lastUpdatedAt': FieldValue.serverTimestamp(),
           'batteryLevel': batteryLevel,
+        }).timeout(const Duration(seconds: 4));
+      } else if (type == 'ride') {
+        await _firestore.collection('ride_checkins').doc(docId).update({
+          'currentLocation': locationMap,
+          'lastUpdatedAt': FieldValue.serverTimestamp(),
+          'batteryLevel': batteryLevel,
+          'recentTrail': FieldValue.arrayUnion([
+            {
+              'latitude': lat,
+              'longitude': lng,
+              'timestamp': DateTime.now().millisecondsSinceEpoch,
+            }
+          ]),
         }).timeout(const Duration(seconds: 4));
       }
 
@@ -323,6 +339,28 @@ class LiveTrackingService {
         await startTrackingSession(
           sessionType: 'journey',
           documentId: journeyId,
+          initialPosition: currentPos,
+        );
+        return;
+      }
+
+      // 3. Check for active Ride Check-in where current user is userId
+      final activeRideSnap = await _firestore
+          .collection('ride_checkins')
+          .where('userId', isEqualTo: user.uid)
+          .where('status', isEqualTo: 'active')
+          .limit(1)
+          .get()
+          .timeout(const Duration(seconds: 3));
+
+      if (activeRideSnap.docs.isNotEmpty) {
+        final rideDoc = activeRideSnap.docs.first;
+        final rideId = rideDoc.id;
+        debugPrint('[LiveTracking] 🔄 Auto-resuming active Ride tracking for $rideId');
+        final currentPos = await Geolocator.getLastKnownPosition();
+        await startTrackingSession(
+          sessionType: 'ride',
+          documentId: rideId,
           initialPosition: currentPos,
         );
       }

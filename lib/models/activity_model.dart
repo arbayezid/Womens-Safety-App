@@ -11,6 +11,7 @@ enum ActivityType {
   location,
   fakeCall,
   audio,
+  ride,
 }
 
 /// Data model representing a logged user action or emergency safety event.
@@ -74,6 +75,8 @@ class ActivityItem {
         return Icons.phone_in_talk_rounded;
       case ActivityType.audio:
         return Icons.mic_rounded;
+      case ActivityType.ride:
+        return Icons.local_taxi_rounded;
     }
   }
 
@@ -94,6 +97,8 @@ class ActivityItem {
         return AppColors.actionPurple;
       case ActivityType.audio:
         return AppColors.actionOrange;
+      case ActivityType.ride:
+        return AppColors.primary;
     }
   }
 
@@ -114,6 +119,8 @@ class ActivityItem {
         return const Color(0xFFF0E6F9);
       case ActivityType.audio:
         return const Color(0xFFFEEDD8);
+      case ActivityType.ride:
+        return const Color(0xFFF0E6F9);
     }
   }
 

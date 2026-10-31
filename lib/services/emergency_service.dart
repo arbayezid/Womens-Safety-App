@@ -16,6 +16,7 @@ import 'auth_service.dart';
 import 'background_service.dart';
 import 'contact_service.dart';
 import 'live_tracking_service.dart';
+import 'native_sms_service.dart';
 import 'siren_service.dart';
 import 'sos_cloud_dispatcher.dart';
 import 'sos_escalation_service.dart';
@@ -58,11 +59,15 @@ class _SmsDispatchResult {
   final bool hasRecipients;
   final bool permissionGranted;
 
+  /// Handed to the radio but not yet confirmed by the network.
+  final int pendingCount;
+
   const _SmsDispatchResult({
     required this.sentCount,
     required this.failedList,
     required this.hasRecipients,
     required this.permissionGranted,
+    this.pendingCount = 0,
   });
 }
 
@@ -330,12 +335,13 @@ class EmergencyService {
 
     debugPrint('[EmergencyService] 📋 Prepared ${recipients.length} SMS recipient(s): $recipients');
 
-    // Step 3: Extract real-time GPS Location with strict 5-second timeout fallback
+    // Step 3: Extract real-time GPS Location, capped at 10 seconds in total so the SMS is never
+    // blocked on location (a pending permission dialog or a cold GPS can otherwise stall it).
     Position? position;
     String? mapUrl;
 
     try {
-      position = await _getCurrentLocation();
+      position = await _getCurrentLocation().timeout(const Duration(seconds: 10));
       if (position != null) {
         mapUrl = generateGoogleMapsUrl(position.latitude, position.longitude);
         debugPrint('[EmergencyService] 📍 Acquired Live Location: ${position.latitude}, ${position.longitude}');
@@ -363,6 +369,18 @@ class EmergencyService {
     if (mapUrl == null) {
       debugPrint('[EmergencyService] ⚠️ GPS unavailable; proceeding with emergency message so SMS dispatch is not blocked.');
     }
+
+    // A cached position older than 2 minutes is not a live fix: contacts get a follow-up SMS
+    // as soon as a fresh fix arrives.
+    final bool hasLiveFix = position != null &&
+        DateTime.now().difference(position.timestamp).abs() < const Duration(minutes: 2);
+    final String smsBody = buildSosSmsMessage(
+      userName: AuthService.instance.displayName,
+      latitude: position?.latitude,
+      longitude: position?.longitude,
+      time: DateTime.now(),
+      customMessage: customMessage,
+    );
 
     // Step 4: NON-BLOCKING DUAL DISPATCH (Cloud SOS + Offline Direct SMS)
     // 1. Fire Cloud SOS asynchronously so network latency/offline state never blocks SMS.
@@ -414,8 +432,7 @@ class EmergencyService {
     if (recipients.isNotEmpty) {
       smsResult = await _dispatchOfflineSms(
         recipients: recipients,
-        mapUrl: mapUrl,
-        customMessage: customMessage,
+        smsBody: smsBody,
       ).catchError((err) {
         debugPrint('[EmergencyService] ❌ SMS dispatch future error: $err');
         final bool isPermissionDenied = err.toString().contains('permission_denied') ||
@@ -434,6 +451,24 @@ class EmergencyService {
         hasRecipients: false,
         permissionGranted: true,
       );
+    }
+
+    // SMS fallback: when direct sending is denied or failed, open the default SMS app with the
+    // recipients and message pre-filled so the user only taps Send. Never in duress mode, which
+    // must stay silent and hidden.
+    bool composerOpened = false;
+    final List<String> composerRecipients =
+        !smsResult.permissionGranted ? recipients : smsResult.failedList;
+    if (composerRecipients.isNotEmpty && !isDuress) {
+      final outcome = await NativeSmsService.instance.openComposer(composerRecipients, smsBody);
+      composerOpened = outcome == 'opened' || outcome == 'notified';
+    }
+
+    // Follow-up SMS with live coordinates once GPS gets a fix (never blocks the first SMS)
+    final List<String> reachedRecipients =
+        recipients.where((r) => !smsResult.failedList.contains(r)).toList();
+    if (!hasLiveFix && smsResult.permissionGranted && reachedRecipients.isNotEmpty) {
+      unawaited(_sendLocationFollowUp(reachedRecipients));
     }
 
     // 3. Evaluate Cloud SOS:
@@ -461,27 +496,39 @@ class EmergencyService {
     }
 
     final int sentCount = smsResult.sentCount;
+    final int pendingCount = smsResult.pendingCount;
     final List<String> failedList = smsResult.failedList;
     final bool cloudSent = cloudAlertId != null;
-    final bool overallSuccess = sentCount > 0 || cloudSent;
+    final bool overallSuccess = sentCount > 0 || pendingCount > 0 || cloudSent;
+
+    // e.g. "SMS sent to 2 of 3 contacts" (+ how many are still going out)
+    String smsCountText = 'SMS sent to $sentCount of ${recipients.length} contact(s)';
+    if (pendingCount > 0) smsCountText += ', $pendingCount still sending';
+    final String composerNote = composerOpened ? ' Messages app opened for the rest; tap Send.' : '';
 
     String resultSummary;
-    if (sentCount > 0 && cloudSent) {
-      resultSummary = 'SOS alert dispatched! SMS sent to $sentCount contact(s) & Cloud alert broadcast.';
-    } else if (sentCount > 0) {
-      resultSummary = 'SMS sent to $sentCount contact(s). Cloud alert queued.';
+    if ((sentCount > 0 || pendingCount > 0) && cloudSent) {
+      resultSummary = 'SOS alert dispatched! $smsCountText & Cloud alert broadcast.$composerNote';
+    } else if (sentCount > 0 || pendingCount > 0) {
+      resultSummary = '$smsCountText. Cloud alert queued.$composerNote';
     } else if (cloudSent) {
       if (recipients.isEmpty) {
         resultSummary = '🚨 Cloud SOS alert broadcast to guardian(s)! Add a mobile number to contact to also send SMS.';
       } else if (!smsResult.permissionGranted) {
-        resultSummary = '🚨 In-App alert sent to guardians! (SMS skipped: allow SMS in phone Settings).';
+        resultSummary = composerOpened
+            ? '🚨 In-App alert sent to guardians! SMS permission is off, so Messages was opened; tap Send.'
+            : '🚨 In-App alert sent to guardians! (SMS skipped: allow SMS in phone Settings).';
       } else if (sentCount == 0 && recipients.isNotEmpty) {
-        resultSummary = '🚨 Alert broadcast to guardians. (SMS not sent automatically; tap below to send via SMS app).';
+        resultSummary = composerOpened
+            ? '🚨 Alert broadcast to guardians. $smsCountText.$composerNote'
+            : '🚨 Alert broadcast to guardians. (SMS not sent automatically; tap below to send via SMS app).';
       } else {
         resultSummary = '🚨 Emergency cloud alert broadcast to all mutual guardians.';
       }
     } else if (!smsResult.permissionGranted) {
-      resultSummary = 'SMS permission was denied. Please allow SMS permission in device settings.';
+      resultSummary = composerOpened
+          ? 'SMS permission is off, so Messages was opened with your SOS; tap Send.'
+          : 'SMS permission was denied. Please allow SMS permission in device settings.';
     } else if (localContacts.isNotEmpty && recipients.isEmpty) {
       resultSummary = 'Your emergency contact has no mobile phone number configured. Please add a phone number for SMS.';
     } else if (!smsResult.hasRecipients) {
@@ -514,8 +561,7 @@ class EmergencyService {
   /// Dispatches offline background SMS messages to valid recipient phone numbers.
   Future<_SmsDispatchResult> _dispatchOfflineSms({
     required List<String> recipients,
-    required String? mapUrl,
-    required String? customMessage,
+    required String smsBody,
   }) async {
     final List<String> validRecipients = recipients
         .map((r) => r.trim())
@@ -532,10 +578,6 @@ class EmergencyService {
     }
 
     try {
-      final String smsBody = (customMessage != null && customMessage.trim().isNotEmpty)
-          ? customMessage.trim()
-          : buildEmergencyMessage(mapUrl);
-
       debugPrint('[EmergencyService] ✉️ Prepared Message: "$smsBody" (${smsBody.length} chars)');
 
       final bool hasSmsPermission = await _checkAndRequestSmsPermission();
@@ -549,6 +591,26 @@ class EmergencyService {
         );
       }
 
+      // Primary path: native sender (explicit SIM selection, multipart, confirmed delivery to the network)
+      final nativeResults = await NativeSmsService.instance.send(validRecipients, smsBody);
+      if (nativeResults != null) {
+        final int sent = nativeResults.where((r) => r.isSent).length;
+        final int pendingCount = nativeResults.where((r) => r.isPending).length;
+        final List<String> failed = nativeResults
+            .where((r) => !r.isSent && !r.isPending)
+            .map((r) => r.recipient)
+            .toList();
+        debugPrint('[EmergencyService] 📨 Native SMS: $sent sent, $pendingCount pending, ${failed.length} failed of ${validRecipients.length}');
+        return _SmsDispatchResult(
+          sentCount: sent,
+          pendingCount: pendingCount,
+          failedList: failed,
+          hasRecipients: true,
+          permissionGranted: !nativeResults.any((r) => r.isPermissionDenied),
+        );
+      }
+
+      // Native sender unavailable (non-Android): telephony plugin
       int sentCount = 0;
       final List<String> failedList = [];
 
@@ -664,6 +726,79 @@ class EmergencyService {
     return false;
   }
 
+  /// Builds the SOS SMS text:
+  /// `EMERGENCY! [Name] needs help. Live location: https://maps.google.com/?q=LAT,LNG  Time: [time]`
+  /// A [customMessage] (fall, journey, duress...) replaces the first sentence; location and time
+  /// are always appended so every SOS SMS carries a working map link.
+  String buildSosSmsMessage({
+    required String userName,
+    double? latitude,
+    double? longitude,
+    required DateTime time,
+    String? customMessage,
+  }) {
+    final name = userName.trim().isNotEmpty ? userName.trim() : 'A Woman Guard user';
+    final intro = (customMessage != null && customMessage.trim().isNotEmpty)
+        ? customMessage.trim()
+        : 'EMERGENCY! $name needs help.';
+    final location = (latitude != null && longitude != null)
+        ? buildSmsMapsLink(latitude, longitude)
+        : 'Location unavailable';
+    return '$intro Live location: $location  Time: ${formatSmsTime(time)}';
+  }
+
+  /// Follow-up text sent once a live GPS fix is available after the first SOS SMS.
+  String buildSosLocationUpdateMessage({
+    required String userName,
+    required double latitude,
+    required double longitude,
+    required DateTime time,
+  }) {
+    final name = userName.trim().isNotEmpty ? userName.trim() : 'A Woman Guard user';
+    return 'EMERGENCY UPDATE: $name needs help. Live location: ${buildSmsMapsLink(latitude, longitude)}  Time: ${formatSmsTime(time)}';
+  }
+
+  /// Short Google Maps link that opens on any phone (smartphone browser or Maps app).
+  String buildSmsMapsLink(double latitude, double longitude) {
+    return 'https://maps.google.com/?q=${latitude.toStringAsFixed(6)},${longitude.toStringAsFixed(6)}';
+  }
+
+  /// Formats e.g. `10:42 PM, 30 Oct 2026`.
+  String formatSmsTime(DateTime time) {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final hour12 = time.hour % 12 == 0 ? 12 : time.hour % 12;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.hour < 12 ? 'AM' : 'PM';
+    return '$hour12:$minute $period, ${time.day} ${months[time.month - 1]} ${time.year}';
+  }
+
+  /// Waits (in the background) for a live GPS fix and texts it to [recipients].
+  Future<void> _sendLocationFollowUp(List<String> recipients) async {
+    try {
+      final fix = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 90),
+        ),
+      );
+      final message = buildSosLocationUpdateMessage(
+        userName: AuthService.instance.displayName,
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        time: DateTime.now(),
+      );
+      debugPrint('[EmergencyService] 📍 Live fix acquired; sending follow-up SMS to ${recipients.length} contact(s)');
+      final results = await NativeSmsService.instance.send(recipients, message);
+      if (results == null) {
+        for (final phone in recipients) {
+          await _telephony.sendSms(to: phone, message: message, isMultipart: true);
+        }
+      }
+    } catch (e) {
+      debugPrint('[EmergencyService] No live GPS fix for follow-up SMS: $e');
+    }
+  }
+
   /// Formats an ultra-concise, single-segment GSM-7 emergency SMS message.
   String buildEmergencyMessage(String? mapUrl) {
     if (mapUrl != null && mapUrl.trim().isNotEmpty) {
@@ -708,13 +843,27 @@ class EmergencyService {
       return null;
     }
 
-    // 3. Extract high accuracy location with strict 5-second timeout
-    return await Geolocator.getCurrentPosition(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: Duration(seconds: 5),
-      ),
-    ).timeout(const Duration(seconds: 5));
+    // 3. Extract location with Android 12+ Approximate accuracy fallback & strict timeout
+    try {
+      return await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 5),
+        ),
+      ).timeout(const Duration(seconds: 5));
+    } catch (highErr) {
+      debugPrint('[EmergencyService] High-accuracy GPS notice: $highErr. Trying medium accuracy.');
+      try {
+        return await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.medium,
+            timeLimit: Duration(seconds: 3),
+          ),
+        ).timeout(const Duration(seconds: 3));
+      } catch (_) {
+        return await Geolocator.getLastKnownPosition();
+      }
+    }
   }
 
   /// Checks and requests SMS permission via [permission_handler] / [telephony].

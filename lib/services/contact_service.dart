@@ -67,6 +67,31 @@ class ContactService extends ChangeNotifier {
   String? _currentBoundUid;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _firestoreSubscription;
 
+  /// Incremented on every local add/update/delete. A cloud fetch that started before a local
+  /// mutation carries stale data and must not overwrite the cache (it used to resurrect deleted contacts).
+  int _mutationVersion = 0;
+
+  /// Doc IDs deleted locally whose removal the server has not confirmed yet, with deletion time.
+  /// Every read path filters them out so stale snapshots, caches or fetches cannot bring them back.
+  final Map<String, DateTime> _deletedDocIds = {};
+
+  /// After this long, a server snapshot that still contains the doc wins (the delete was rejected).
+  static const Duration _tombstoneLifetime = Duration(minutes: 10);
+
+  List<ContactModel> _withoutDeleted(List<ContactModel> contacts) {
+    if (_deletedDocIds.isEmpty) return contacts;
+    return contacts.where((c) => !_deletedDocIds.containsKey(c.id)).toList();
+  }
+
+  /// Drops tombstones once a server-confirmed result shows the doc is gone (or expired).
+  void _settleTombstones(Iterable<String> serverDocIds) {
+    if (_deletedDocIds.isEmpty) return;
+    final present = serverDocIds.toSet();
+    final now = DateTime.now();
+    _deletedDocIds.removeWhere((id, deletedAt) =>
+        !present.contains(id) || now.difference(deletedAt) > _tombstoneLifetime);
+  }
+
   /// Reactive notifier for real-time UI binding (e.g. ValueListenableBuilder)
   final ValueNotifier<List<ContactModel>> contactsNotifier =
       ValueNotifier<List<ContactModel>>([]);
@@ -79,6 +104,7 @@ class ContactService extends ChangeNotifier {
 
   /// Resets in-memory cache and initialization state (useful for unit testing).
   void resetMemoryCache() {
+    _deletedDocIds.clear();
     _cachedContacts = [];
     _isInitialized = false;
     _currentBoundUid = null;
@@ -107,10 +133,10 @@ class ContactService extends ChangeNotifier {
       if (raw != null && raw.isNotEmpty) {
         final decoded = json.decode(raw);
         if (decoded is List) {
-          final list = decoded
+          final list = _withoutDeleted(decoded
               .whereType<Map>()
               .map((item) => ContactModel.fromMap(Map<String, dynamic>.from(item)))
-              .toList();
+              .toList());
           debugPrint('[ContactService] 📂 Loaded ${list.length} contacts from disk cache for $uid');
           return list;
         }
@@ -151,14 +177,17 @@ class ContactService extends ChangeNotifier {
           .collection('contacts')
           .snapshots()
           .listen((snapshot) {
-        _cachedContacts = snapshot.docs.map((doc) {
+        if (!snapshot.metadata.isFromCache) {
+          _settleTombstones(snapshot.docs.map((d) => d.id));
+        }
+        _cachedContacts = _withoutDeleted(snapshot.docs.map((doc) {
           final data = doc.data();
           return ContactModel.fromMap({
             ...data,
             'id': doc.id,
             'contactUid': data['contactUid'] ?? data['contact_uid'] ?? doc.id,
           });
-        }).toList();
+        }).toList());
         _isInitialized = true;
         _emitChange();
         saveToDiskCache(uid);
@@ -176,7 +205,7 @@ class ContactService extends ChangeNotifier {
 
   /// Updates in-memory contacts directly from a remote snapshot or sync stream
   void syncFromCloud(List<ContactModel> synced) {
-    _cachedContacts = List<ContactModel>.from(synced);
+    _cachedContacts = _withoutDeleted(List<ContactModel>.from(synced));
     _isInitialized = true;
     _emitChange();
     final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
@@ -197,8 +226,9 @@ class ContactService extends ChangeNotifier {
 
     // On app start or offline, load the disk cache FIRST so getContacts returns immediately
     if (_cachedContacts.isEmpty && uid != null && uid.isNotEmpty) {
+      final int diskVersionAtStart = _mutationVersion;
       final diskCached = await loadFromDiskCache(uid);
-      if (diskCached.isNotEmpty) {
+      if (diskCached.isNotEmpty && diskVersionAtStart == _mutationVersion) {
         _cachedContacts = diskCached;
         _isInitialized = true;
         _emitChange();
@@ -213,6 +243,7 @@ class ContactService extends ChangeNotifier {
         if (_currentBoundUid != user.uid) {
           bindUser(user.uid);
         }
+        final int versionAtStart = _mutationVersion;
         try {
           final snapshot = await FirebaseFirestore.instance
               .collection('users')
@@ -223,6 +254,7 @@ class ContactService extends ChangeNotifier {
 
           final List<ContactModel> mapped = [];
           for (final doc in snapshot.docs) {
+            if (_deletedDocIds.containsKey(doc.id)) continue;
             final data = doc.data();
             var c = ContactModel.fromMap({
               ...data,
@@ -247,16 +279,18 @@ class ContactService extends ChangeNotifier {
                   final resolvedPhone = (uData['phoneNumber'] ?? uData['phone'] ?? '').toString().trim();
                   if (resolvedPhone.isNotEmpty) {
                     c = c.copyWith(phone: resolvedPhone);
-                    // Silently sync resolved phone back to contact doc in background
+                    // Silently sync resolved phone back to contact doc in background.
+                    // update() (not set+merge) fails on a missing doc, so a back-fill racing a
+                    // delete can never re-create the deleted contact.
                     unawaited(FirebaseFirestore.instance
                         .collection('users')
                         .doc(user.uid)
                         .collection('contacts')
                         .doc(doc.id)
-                        .set({
+                        .update({
                       'phone': resolvedPhone,
                       'contact_optional_phone': resolvedPhone,
-                    }, SetOptions(merge: true)));
+                    }).catchError((_) {}));
                   }
                 }
               } catch (_) {}
@@ -265,7 +299,14 @@ class ContactService extends ChangeNotifier {
             mapped.add(c);
           }
 
-          _cachedContacts = mapped;
+          if (versionAtStart != _mutationVersion) {
+            debugPrint('[ContactService] Discarding stale cloud fetch (contacts changed while loading)');
+            return List<ContactModel>.from(_cachedContacts);
+          }
+          if (!snapshot.metadata.isFromCache) {
+            _settleTombstones(snapshot.docs.map((d) => d.id));
+          }
+          _cachedContacts = _withoutDeleted(mapped);
           _isInitialized = true;
           _emitChange();
           unawaited(saveToDiskCache(user.uid));
@@ -334,6 +375,9 @@ class ContactService extends ChangeNotifier {
         current.add(contactToSave);
       }
 
+      // Re-adding a previously deleted contact must make it visible again
+      _deletedDocIds.remove(contactToSave.id);
+      _mutationVersion++;
       _cachedContacts = current;
       _isInitialized = true;
       _emitChange();
@@ -370,15 +414,23 @@ class ContactService extends ChangeNotifier {
 
   /// Deletes a contact matching [id], [contactUid], [email], or [phone].
   ///
-  /// Instantly removes from in-memory cache, notifies UI listeners, updates disk cache, and deletes from Firestore.
+  /// Instantly removes from in-memory cache, notifies UI listeners, updates disk cache, and deletes
+  /// every matching document from Firestore (plus [extraDocIds], e.g. pending placeholders).
+  /// Returns false, and restores the contact, when Firestore rejects the delete.
+  /// A delete that is still queued offline counts as success: Firestore applies it on reconnect
+  /// and already hides the document locally.
   Future<bool> deleteContact(
     String id, {
     String? contactUid,
     String? email,
     String? phone,
+    Iterable<String> extraDocIds = const [],
   }) async {
+    List<ContactModel>? snapshotBeforeDelete;
+    Set<String> docIdsToDelete = {};
     try {
       final List<ContactModel> current = await getContacts();
+      snapshotBeforeDelete = List<ContactModel>.from(current);
       final int beforeCount = current.length;
       final normalizedEmail = email?.toLowerCase().trim();
       final cleanPhone = phone?.replaceAll(RegExp(r'\s+|-|\(|\)'), '');
@@ -403,29 +455,49 @@ class ContactService extends ChangeNotifier {
         return false;
       }
 
-      final contactToRemove = current.where(matches).firstOrNull;
-      final removedName = contactToRemove?.name ?? id;
+      final matched = current.where(matches).toList();
+      final removedName = matched.firstOrNull?.name ?? id;
       current.removeWhere(matches);
+
+      // Every document the UI removes must also be removed in the cloud, otherwise a duplicate
+      // (same email/phone under another doc ID) reappears on the next refresh.
+      docIdsToDelete = {
+        if (id.isNotEmpty) id,
+        ...matched.map((c) => c.id),
+        ...extraDocIds.where((d) => d.isNotEmpty),
+      };
+      final now = DateTime.now();
+      for (final docId in docIdsToDelete) {
+        _deletedDocIds[docId] = now;
+      }
+      _mutationVersion++;
 
       _cachedContacts = current;
       _isInitialized = true;
       _emitChange();
       final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
       if (uid != null) {
-        unawaited(saveToDiskCache(uid));
+        // Awaited so an app restart right after the delete cannot load the old list from disk
+        await saveToDiskCache(uid);
       }
 
       // Cloud deletion scoped strictly to authenticated user UID
       if (Firebase.apps.isNotEmpty) {
         final user = FirebaseAuth.instance.currentUser;
         if (user != null) {
-          await FirebaseFirestore.instance
+          final contactsRef = FirebaseFirestore.instance
               .collection('users')
               .doc(user.uid)
-              .collection('contacts')
-              .doc(id)
-              .delete()
-              .timeout(const Duration(seconds: 4));
+              .collection('contacts');
+          final batch = FirebaseFirestore.instance.batch();
+          for (final docId in docIdsToDelete) {
+            batch.delete(contactsRef.doc(docId));
+          }
+          try {
+            await batch.commit().timeout(const Duration(seconds: 8));
+          } on TimeoutException {
+            debugPrint('[ContactService] Delete of $docIdsToDelete queued offline; will sync on reconnect');
+          }
         }
       }
 
@@ -435,10 +507,23 @@ class ContactService extends ChangeNotifier {
           contactName: removedName,
         );
       }
-      debugPrint('[ContactService] Contact deleted: $id');
+      debugPrint('[ContactService] Contact deleted: $docIdsToDelete');
       return true;
     } catch (e) {
       debugPrint('[ContactService] Error deleting contact: $e');
+      // Roll back so the list reflects what is really stored in the cloud
+      for (final docId in docIdsToDelete) {
+        _deletedDocIds.remove(docId);
+      }
+      if (snapshotBeforeDelete != null) {
+        _mutationVersion++;
+        _cachedContacts = snapshotBeforeDelete;
+        _emitChange();
+        final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
+        if (uid != null) {
+          unawaited(saveToDiskCache(uid));
+        }
+      }
       return false;
     }
   }
@@ -455,6 +540,7 @@ class ContactService extends ChangeNotifier {
       }
 
       current[index] = contact;
+      _mutationVersion++;
       _cachedContacts = current;
       _isInitialized = true;
       _emitChange();
@@ -563,6 +649,8 @@ class ContactService extends ChangeNotifier {
     final oldUid = _currentBoundUid;
     _firestoreSubscription?.cancel();
     _firestoreSubscription = null;
+    _deletedDocIds.clear();
+    _mutationVersion++;
     _cachedContacts = [];
     _currentBoundUid = null;
     _isInitialized = false;

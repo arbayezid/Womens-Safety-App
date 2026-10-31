@@ -4,6 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import '../models/incident_event_model.dart';
 import '../models/safe_zone_model.dart';
+import 'safe_zone_repository.dart';
 
 /// Central singleton service providing incident timeline logging, subcollection event streaming,
 /// resilient offline milestone synthesis, and geographic safe zone queries for the Emergency Incident Room.
@@ -208,8 +209,15 @@ class IncidentService {
     int count = 3,
     List<SafeZone>? zones,
   }) {
-    final list = List<SafeZone>.from(zones ?? SafeZone.defaultDhakaSafeZones);
-    list.sort((a, b) => a.calculateDistanceKm(lat, lng).compareTo(b.calculateDistanceKm(lat, lng)));
-    return list.take(count).toList();
+    if (zones != null) {
+      final list = List<SafeZone>.from(zones);
+      list.sort((a, b) => a.calculateDistanceKm(lat, lng).compareTo(b.calculateDistanceKm(lat, lng)));
+      return list.take(count).toList();
+    }
+    return SafeZoneRepository.instance.getNearestSafeZones(
+      curLat: lat,
+      curLng: lng,
+      count: count,
+    );
   }
 }

@@ -176,7 +176,7 @@ class ActivityService {
     );
   }
 
-  /// Logs a quick action trigger (e.g. Fake Call, Audio recording).
+  /// Logs a quick action trigger (e.g. Fake Call, Loud Siren).
   Future<void> logQuickAction(String action) async {
     ActivityType type;
     if (action.toLowerCase().contains('call')) {
@@ -194,6 +194,28 @@ class ActivityService {
         title: '$action Activated',
         subtitle: 'Quick Action executed from Safety Dashboard',
         timestamp: DateTime.now(),
+      ),
+    );
+  }
+
+  /// Logs a Ride Safety Check-in event.
+  Future<void> logRideEvent({
+    required String action,
+    required String rideType,
+    required String plateFormatted,
+  }) async {
+    await logActivity(
+      ActivityItem(
+        id: 'ride_${DateTime.now().millisecondsSinceEpoch}',
+        type: ActivityType.ride,
+        title: 'Ride $action',
+        subtitle: '$rideType ($plateFormatted)',
+        timestamp: DateTime.now(),
+        metadata: {
+          'action': action,
+          'rideType': rideType,
+          'plateFormatted': plateFormatted,
+        },
       ),
     );
   }

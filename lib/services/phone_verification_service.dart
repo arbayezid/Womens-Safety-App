@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'auth_service.dart';
+import 'phone_registry_service.dart';
 
 enum PhoneVerificationStep { enterPhone, enterOtp, success, failure }
 
@@ -62,6 +63,12 @@ class PhoneVerificationService {
     required VoidCallback onAutoVerified,
   }) async {
     try {
+      // One number per account: refuse before spending an OTP on a number another account owns
+      if (!await PhoneRegistryService.instance.isAvailableForCurrentUser(phoneNumber)) {
+        onError(const PhoneClaimResult(PhoneClaimStatus.takenByAnotherAccount).message);
+        return;
+      }
+
       debugPrint('[PhoneVerification] Requesting OTP for $phoneNumber');
       await _auth.verifyPhoneNumber(
         phoneNumber: phoneNumber,
@@ -69,11 +76,12 @@ class PhoneVerificationService {
         forceResendingToken: _resendToken,
         verificationCompleted: (PhoneAuthCredential credential) async {
           debugPrint('[PhoneVerification] Automatic SMS code auto-retrieval completed.');
-          final ok = await _linkOrUpdateCredential(credential, phoneNumber);
+          String? failure;
+          final ok = await _linkOrUpdateCredential(credential, phoneNumber, onError: (m) => failure = m);
           if (ok) {
             onAutoVerified();
           } else {
-            onError('Auto-verification failed during account linking.');
+            onError(failure ?? 'Auto-verification failed during account linking.');
           }
         },
         verificationFailed: (FirebaseAuthException e) {
@@ -124,7 +132,7 @@ class PhoneVerificationService {
         smsCode: smsCode.trim(),
       );
 
-      return await _linkOrUpdateCredential(credential, phoneNumber);
+      return await _linkOrUpdateCredential(credential, phoneNumber, onError: onError);
     } on FirebaseAuthException catch (e) {
       debugPrint('[PhoneVerification] FirebaseAuthException: ${e.code} - ${e.message}');
       if (e.code == 'invalid-verification-code') {
@@ -143,9 +151,25 @@ class PhoneVerificationService {
   }
 
   /// Links the verified phone credential with the current user session and synchronizes Firestore.
-  Future<bool> _linkOrUpdateCredential(PhoneAuthCredential credential, String phone) async {
+  Future<bool> _linkOrUpdateCredential(
+    PhoneAuthCredential credential,
+    String phone, {
+    void Function(String message)? onError,
+  }) async {
     final user = _auth.currentUser;
     if (user == null) return false;
+
+    // 0. Register the number to this account first; it may belong to only one account
+    final previousPhone = AuthService.instance.currentProfile.phone;
+    final claim = await PhoneRegistryService.instance.claimForCurrentUser(
+      phone,
+      previousRawPhone: previousPhone,
+    );
+    if (!claim.isClaimed) {
+      onError?.call(claim.message);
+      return false;
+    }
+    phone = claim.normalizedPhone ?? phone;
 
     try {
       // 1. Link Phone Credential to existing Google/Email user session
@@ -155,6 +179,7 @@ class PhoneVerificationService {
         if (e.code == 'provider-already-linked') {
           await user.updatePhoneNumber(credential);
         } else if (e.code == 'credential-already-in-use') {
+          // Firebase Auth also refuses a number already linked to another account
           await user.updatePhoneNumber(credential);
         } else {
           debugPrint('[PhoneVerification] Link notice: ${e.code}');
@@ -192,6 +217,16 @@ class PhoneVerificationService {
 
       debugPrint('[PhoneVerification] Phone successfully verified and synchronized to cloud: $phone');
       return true;
+    } on FirebaseAuthException catch (e) {
+      debugPrint('[PhoneVerification] Error finalizing profile sync: ${e.code}');
+      // Linking failed, so hand the number back unless it was this account's number already
+      if (PhoneRegistryService.normalize(previousPhone) != claim.normalizedPhone) {
+        await PhoneRegistryService.instance.claimForCurrentUser(previousPhone, previousRawPhone: phone);
+      }
+      onError?.call(e.code == 'credential-already-in-use'
+          ? const PhoneClaimResult(PhoneClaimStatus.takenByAnotherAccount).message
+          : (e.message ?? 'Phone verification failed.'));
+      return false;
     } catch (e) {
       debugPrint('[PhoneVerification] Error finalizing profile sync: $e');
       return false;

@@ -1,8 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:ui';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -70,32 +74,78 @@ class BackgroundServiceManager {
 
   static const String _prefBatteryOptPrompted = 'pref_battery_optimization_prompted';
 
+  static const MethodChannel _deviceChannel = MethodChannel('com.smartsafety.smart_safety/device');
+  int? _sdkInt;
+
   /// Initializes the background service configuration.
   Future<void> initialize() async {
     if (_isInitialized) return;
 
     try {
-      await _service.configure(
-        androidConfiguration: AndroidConfiguration(
-          onStart: onStart,
-          autoStart: false,
-          isForegroundMode: true,
-          notificationChannelId: 'sos_emergency_channel',
-          initialNotificationTitle: 'Woman Guard Protection Active',
-          initialNotificationContent: 'Monitoring your safety in the background',
-          foregroundServiceNotificationId: 888,
-        ),
-        iosConfiguration: IosConfiguration(
-          autoStart: false,
-          onForeground: onStart,
-          onBackground: onIosBackground,
-        ),
-      );
+      await _configure(null);
       _isInitialized = true;
       debugPrint('[BackgroundServiceManager] Background service configured.');
     } catch (e) {
       debugPrint('[BackgroundServiceManager] Error configuring background service: $e');
     }
+  }
+
+  Future<void> _configure(List<AndroidForegroundType>? foregroundServiceTypes) {
+    return _service.configure(
+      androidConfiguration: AndroidConfiguration(
+        onStart: onStart,
+        autoStart: false,
+        // Boot-time restarts start a location foreground service from the background, which
+        // Android 14+ rejects with a SecurityException and then kills the app. Live tracking is
+        // resumed by the app itself on next launch (autoResumeActiveSessions).
+        autoStartOnBoot: false,
+        isForegroundMode: true,
+        notificationChannelId: 'sos_emergency_channel',
+        initialNotificationTitle: 'Woman Guard Protection Active',
+        initialNotificationContent: 'Monitoring your safety in the background',
+        foregroundServiceNotificationId: 888,
+        foregroundServiceTypes: foregroundServiceTypes,
+      ),
+      iosConfiguration: IosConfiguration(
+        autoStart: false,
+        onForeground: onStart,
+        onBackground: onIosBackground,
+      ),
+    );
+  }
+
+  /// Picks only the foreground service types whose runtime permissions are granted right now.
+  ///
+  /// On Android 14+ every declared type is permission-checked inside startForeground(). The
+  /// plugin swallows that SecurityException, the service never becomes foreground, and Android
+  /// kills the app a few seconds later (ForegroundServiceDidNotStartInTimeException). Returning
+  /// null keeps the manifest types on Android 13 and lower, where no per-type check exists.
+  Future<List<AndroidForegroundType>?> _resolveForegroundTypes() async {
+    if (kIsWeb || !Platform.isAndroid) return null;
+    try {
+      _sdkInt ??= await _deviceChannel.invokeMethod<int>('getSdkInt');
+    } catch (e) {
+      debugPrint('[BackgroundServiceManager] SDK level lookup failed: $e');
+    }
+    if ((_sdkInt ?? 0) < 34) return null;
+
+    final types = <AndroidForegroundType>[];
+    try {
+      final locationPermission = await Geolocator.checkPermission();
+      final isForeground = WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+      if (locationPermission == LocationPermission.always ||
+          (locationPermission == LocationPermission.whileInUse && isForeground)) {
+        types.add(AndroidForegroundType.location);
+      }
+      if (await Permission.bluetoothConnect.isGranted) {
+        types.add(AndroidForegroundType.connectedDevice);
+      }
+    } catch (e) {
+      debugPrint('[BackgroundServiceManager] Permission check for service types failed: $e');
+    }
+    // specialUse has no runtime permission prerequisite, so the service can always start.
+    if (types.isEmpty) types.add(AndroidForegroundType.specialUse);
+    return types;
   }
 
   /// Starts the foreground service with customizable notification text.
@@ -107,6 +157,9 @@ class BackgroundServiceManager {
     try {
       final isRunning = await _service.isRunning();
       if (!isRunning) {
+        final types = await _resolveForegroundTypes();
+        debugPrint('[BackgroundServiceManager] Starting service with types: ${types?.map((t) => t.name).join(', ') ?? 'manifest'}');
+        await _configure(types);
         await _service.startService();
       }
       updateNotification(title: title, content: content);

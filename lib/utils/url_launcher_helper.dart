@@ -1,4 +1,5 @@
 import 'package:url_launcher/url_launcher.dart';
+import '../services/navigation_service.dart';
 
 /// Reusable utility helper for launching native device intents (Phone Dialer, SMS).
 class UrlLauncherHelper {
@@ -28,10 +29,10 @@ class UrlLauncherHelper {
       if (await canLaunchUrl(uri)) {
         return await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       return false;
     }
-    return false;
   }
 
   /// Launches the native SMS messaging app with [rawPhoneNumber] as recipient.
@@ -53,10 +54,10 @@ class UrlLauncherHelper {
       if (await canLaunchUrl(uri)) {
         return await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       return false;
     }
-    return false;
   }
 
   /// Generates the Google Maps turn-by-turn navigation URL for given coordinates.
@@ -64,21 +65,16 @@ class UrlLauncherHelper {
     return 'https://www.google.com/maps/dir/?api=1&destination=$latitude,$longitude&travelmode=driving';
   }
 
-  /// Launches external Google Maps turn-by-turn navigation to [latitude], [longitude].
+  /// Launches external turn-by-turn navigation to [latitude], [longitude] via [NavigationService].
   ///
   /// Uses [LaunchMode.externalApplication] so the device navigation app handles the route.
   /// Returns `true` if launched successfully, `false` otherwise.
-  static Future<bool> openMapNavigation(double latitude, double longitude) async {
-    final String urlStr = getMapNavigationUrl(latitude, longitude);
-    final Uri uri = Uri.parse(urlStr);
-    try {
-      if (await canLaunchUrl(uri)) {
-        return await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
-    } catch (_) {
-      return false;
-    }
-    return false;
+  static Future<bool> openMapNavigation(double latitude, double longitude, {String? label}) async {
+    return await NavigationService.instance.navigateTo(
+      destLat: latitude,
+      destLng: longitude,
+      destLabel: label,
+    );
   }
 
   /// Launches an external web or map search URL.
@@ -88,9 +84,9 @@ class UrlLauncherHelper {
       if (await canLaunchUrl(uri)) {
         return await launchUrl(uri, mode: LaunchMode.externalApplication);
       }
+      return await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {
       return false;
     }
-    return false;
   }
 }
