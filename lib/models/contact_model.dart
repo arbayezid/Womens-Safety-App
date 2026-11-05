@@ -5,11 +5,25 @@ import 'dart:convert';
 /// Supports email-based mutual consent sync for high-priority cloud push alerts,
 /// and an optional phone number for offline direct background SMS fallback.
 class ContactModel {
+  /// Storage key of the user's Primary contact choice (at most one contact per user).
+  ///
+  /// A new key on purpose: older builds saved the legacy `isPrimary: true` on every contact
+  /// (and guardians on older builds still write it when they accept a request), so the legacy
+  /// key cannot tell which contact the user actually chose. Contacts without this key are
+  /// not primary. The legacy key is still written with the same value for compatibility.
+  static const String primaryKey = 'isPrimaryContact';
+
+  /// Fields that store the Primary flag, for partial Firestore updates.
+  static Map<String, dynamic> primaryFields(bool value) =>
+      <String, dynamic>{primaryKey: value, 'isPrimary': value};
+
   final String id;
   final String name;
   final String email;
   final String phone;
   final String relationship;
+
+  /// True for the user's Primary contact: texted and alerted first during an SOS.
   final bool isPrimary;
   final bool isBackup;
   final String? contactUid;
@@ -64,7 +78,7 @@ class ContactModel {
       'email': email.toLowerCase().trim(),
       'phone': phone.trim(),
       'relationship': relationship,
-      'isPrimary': isPrimary,
+      ...primaryFields(isPrimary),
       'isBackup': isBackup,
       'contactUid': contactUid,
       'isSyncedAppUser': isSyncedAppUser,
@@ -101,7 +115,8 @@ class ContactModel {
       email: resolvedEmail,
       phone: resolvedPhone,
       relationship: map['relationship']?.toString() ?? 'Other',
-      isPrimary: map['isPrimary'] == true,
+      // Only the new key counts: the legacy 'isPrimary' was forced to true on every contact.
+      isPrimary: map[primaryKey] == true,
       isBackup: resolvedBackup,
       contactUid: resolvedUid,
       isSyncedAppUser: resolvedSynced,

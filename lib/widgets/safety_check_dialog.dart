@@ -6,6 +6,8 @@ import '../services/emergency_service.dart';
 import '../services/journey_service.dart';
 import '../services/motion_detection_service.dart';
 import '../services/pin_security_service.dart';
+import '../services/safety_deadline_service.dart';
+import '../services/shake_sos_service.dart';
 import 'pin_input_dialog.dart';
 
 /// Fullscreen intrusive countdown dialog for the Safe Journey Dead-Man's Switch.
@@ -249,6 +251,8 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () async {
+                            // The running check must not send a second, automatic SOS afterwards
+                            await SafetyDeadlineService.instance.claimRunningChecks();
                             await EmergencyService.instance.triggerEmergency(source: 'MANUAL_ESCALATION');
                             if (context.mounted && Navigator.of(context).canPop()) {
                               Navigator.of(context).pop();
@@ -519,6 +523,152 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                         if (context.mounted && Navigator.of(context).canPop()) {
                           Navigator.of(context).pop();
                         }
+                      },
+                      icon: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
+                      label: Text(
+                        'SEND SOS NOW',
+                        style: GoogleFonts.poppins(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.sosRed,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// Short countdown shown after a "Shake to SOS" gesture, so an accidental shake can be
+/// cancelled before the SOS goes out.
+class ShakeSosDialog extends StatelessWidget {
+  const ShakeSosDialog({super.key});
+
+  static Future<void> show(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const ShakeSosDialog(),
+    );
+  }
+
+  void _close(BuildContext context) {
+    if (context.mounted && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: ValueListenableBuilder<int?>(
+        valueListenable: ShakeSosService.instance.activeCountdownNotifier,
+        builder: (context, seconds, _) {
+          if (seconds == null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => _close(context));
+            return const SizedBox.shrink();
+          }
+
+          return Dialog(
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+            backgroundColor: AppColors.surface,
+            insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 88,
+                    height: 88,
+                    decoration: BoxDecoration(
+                      color: AppColors.sosRed,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.sosRed.withValues(alpha: 0.35),
+                          blurRadius: 18,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: Text(
+                        '$seconds',
+                        style: GoogleFonts.poppins(
+                          fontSize: 36,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'Shake Detected',
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.sosRed,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Sending SOS to your emergency contacts in $seconds seconds.',
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      color: AppColors.textSecondary,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 50,
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        ShakeSosService.instance.cancelCountdown();
+                        _close(context);
+                      },
+                      icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
+                      label: Text(
+                        'CANCEL',
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppColors.actionGreen,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        elevation: 0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        _close(context);
+                        await ShakeSosService.instance.sendNow();
                       },
                       icon: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
                       label: Text(

@@ -2,6 +2,7 @@ package com.smartsafety.smart_safety
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
@@ -25,8 +26,9 @@ import kotlin.math.roundToInt
  * Audio for the Fake Call screen.
  *
  * Ringing: the device ringtone (or a ring tone fallback) on the ALARM stream, so it is heard in
- * silent and vibrate mode, plus vibration. Conversation: a bundled voice clip if present, otherwise
- * on-device text-to-speech, on the media stream through the loudspeaker at an audible volume.
+ * silent and vibrate mode, plus vibration. Conversation: the user's own recording or a bundled voice
+ * clip if present, otherwise on-device text-to-speech, on the media stream through the loudspeaker
+ * at an audible volume (default), or through the earpiece after [setSpeaker] (false).
  */
 class FakeCallAudio(private val context: Context) {
     companion object {
@@ -54,6 +56,19 @@ class FakeCallAudio(private val context: Context) {
     /** Result callback of a conversation that has not reported its mode yet. */
     private var pendingResult: ((String) -> Unit)? = null
 
+    /** A recorded clip: an asset ([assetPath]) or a local file ([filePath]). */
+    private data class VoiceClip(val assetPath: String, val filePath: String, val loopGapMs: Long)
+
+    /** Clip of the current conversation, so it can be restarted on the other output route. */
+    private var currentClip: VoiceClip? = null
+    private var currentScript: List<String> = emptyList()
+
+    /** Loudspeaker (default, the original behaviour) or earpiece. */
+    private var speakerOn = true
+
+    /** Audio mode before the earpiece switched to communication mode; null when not switched. */
+    private var savedAudioMode: Int? = null
+
     private val ringAttributes = AudioAttributes.Builder()
         .setUsage(AudioAttributes.USAGE_ALARM)
         .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
@@ -63,6 +78,16 @@ class FakeCallAudio(private val context: Context) {
         .setUsage(AudioAttributes.USAGE_MEDIA)
         .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
         .build()
+
+    /** Earpiece output: a voice-call style stream, routed to the receiver in communication mode. */
+    private val earpieceAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
+
+    private fun voiceAttributes() = if (speakerOn) speechAttributes else earpieceAttributes
+
+    private fun voiceStream() = if (speakerOn) AudioManager.STREAM_MUSIC else AudioManager.STREAM_VOICE_CALL
 
     /** Returns "ringtone", "tone" or "failed". */
     fun startRinging(): String {
@@ -102,14 +127,28 @@ class FakeCallAudio(private val context: Context) {
     }
 
     /**
-     * Stops ringing and starts the "other side" of the call. Reports "asset", "tts" or
-     * "unavailable" through [onResult] (exactly once).
+     * Stops ringing and starts the "other side" of the call: the local recording [filePath] if
+     * given, else the clip [assetPath], else text-to-speech of [script]. Reports "file", "asset",
+     * "tts" or "unavailable" through [onResult] (exactly once).
+     *
+     * [loopGapMs] > 0 replays a clip after that much silence; 0 loops it seamlessly (original
+     * behaviour). [speaker] false starts on the earpiece.
      */
-    fun startConversation(assetPath: String, script: List<String>, onResult: (String) -> Unit) {
+    fun startConversation(
+        assetPath: String,
+        script: List<String>,
+        filePath: String = "",
+        loopGapMs: Long = 0,
+        speaker: Boolean = true,
+        onResult: (String) -> Unit,
+    ) {
         stopRinging()
         val current = ++session
-        ensureVolume(AudioManager.STREAM_MUSIC)
-        requestFocus(speechAttributes, AudioManager.STREAM_MUSIC)
+        speakerOn = speaker
+        applyRoute()
+        ensureVolume(voiceStream())
+        requestFocus(voiceAttributes(), voiceStream())
+        currentScript = script
 
         val report = onceCallback { mode ->
             pendingResult = null
@@ -118,12 +157,50 @@ class FakeCallAudio(private val context: Context) {
         }
         pendingResult = report
 
-        if (assetPath.isNotEmpty() && playVoiceAsset(assetPath, current, script, report)) return
+        if (filePath.isNotEmpty() && playVoice(VoiceClip("", filePath, loopGapMs), current, 0, report)) return
+        if (assetPath.isNotEmpty() && playVoice(VoiceClip(assetPath, "", loopGapMs), current, 0, report)) return
         if (script.isEmpty()) {
             report("unavailable")
             return
         }
         startTts(listOf(null, GOOGLE_TTS, SAMSUNG_TTS), 0, current, script, report)
+    }
+
+    /**
+     * Moves the caller's voice to the loudspeaker ([on] true) or the earpiece. A clip continues
+     * from the same position; text-to-speech restarts its script on the new output.
+     */
+    fun setSpeaker(on: Boolean) {
+        if (speakerOn == on) return
+        speakerOn = on
+        val current = session
+        applyRoute()
+        ensureVolume(voiceStream())
+        requestFocus(voiceAttributes(), voiceStream())
+
+        val player = voicePlayer
+        val clip = currentClip
+        if (player != null && clip != null) {
+            val position = try {
+                if (player.isPlaying) player.currentPosition else 0
+            } catch (_: IllegalStateException) {
+                0
+            }
+            voicePlayer = null
+            try {
+                player.stop()
+            } catch (_: IllegalStateException) {
+            }
+            player.release()
+            playVoice(clip, current, position) { }
+        }
+
+        tts?.let { engine ->
+            engine.setAudioAttributes(voiceAttributes())
+            engine.stop()
+            queueScript(engine, currentScript)
+        }
+        Log.i(TAG, "Voice output: ${if (on) "speaker" else "earpiece"}")
     }
 
     fun stopAll() {
@@ -138,6 +215,7 @@ class FakeCallAudio(private val context: Context) {
             it.release()
         }
         voicePlayer = null
+        currentClip = null
         tts?.let {
             it.stop()
             it.shutdown()
@@ -145,7 +223,45 @@ class FakeCallAudio(private val context: Context) {
         tts = null
         handler.removeCallbacksAndMessages(null)
         releaseFocus()
+        leaveCommunicationMode()
+        speakerOn = true
         restoreVolumes()
+    }
+
+    /** Earpiece needs communication mode with the receiver selected; speaker is the normal mode. */
+    @Suppress("DEPRECATION")
+    private fun applyRoute() {
+        val am = audioManager ?: return
+        if (speakerOn) {
+            leaveCommunicationMode()
+            return
+        }
+        try {
+            if (savedAudioMode == null) savedAudioMode = am.mode
+            am.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val earpiece = am.availableCommunicationDevices
+                    .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE }
+                if (earpiece != null) am.setCommunicationDevice(earpiece)
+            } else {
+                am.isSpeakerphoneOn = false
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not route to earpiece", e)
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun leaveCommunicationMode() {
+        val am = audioManager ?: return
+        val previous = savedAudioMode ?: return
+        savedAudioMode = null
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) am.clearCommunicationDevice()
+            am.mode = previous
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not restore audio mode", e)
+        }
     }
 
     private fun stopRinging() {
@@ -186,39 +302,70 @@ class FakeCallAudio(private val context: Context) {
         vibrator = v
     }
 
-    private fun playVoiceAsset(
-        assetPath: String,
+    /** Plays [clip] from [startAtMs]; returns false (nothing playing) if it cannot be opened. */
+    private fun playVoice(
+        clip: VoiceClip,
         current: Int,
-        script: List<String>,
+        startAtMs: Int,
         onResult: (String) -> Unit,
     ): Boolean {
+        val label = if (clip.filePath.isNotEmpty()) "recording ${clip.filePath}" else "clip ${clip.assetPath}"
+        var player: MediaPlayer? = null
         return try {
-            val key = FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(assetPath)
-            val player = MediaPlayer()
-            player.setAudioAttributes(speechAttributes)
-            context.assets.openFd(key).use { afd ->
-                player.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+            val mp = MediaPlayer()
+            player = mp
+            mp.setAudioAttributes(voiceAttributes())
+            if (clip.filePath.isNotEmpty()) {
+                mp.setDataSource(clip.filePath)
+            } else {
+                val key = FlutterInjector.instance().flutterLoader().getLookupKeyForAsset(clip.assetPath)
+                context.assets.openFd(key).use { afd ->
+                    mp.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                }
             }
-            player.isLooping = true
-            player.setOnErrorListener { mp, what, extra ->
-                Log.e(TAG, "Voice clip playback error what=$what extra=$extra; switching to text-to-speech")
-                mp.release()
-                if (voicePlayer === mp) voicePlayer = null
-                if (current == session) startTts(listOf(null, GOOGLE_TTS, SAMSUNG_TTS), 0, current, script) { }
+            if (clip.loopGapMs <= 0) {
+                mp.isLooping = true
+            } else {
+                // Replay after a pause, like a caller who waits for an answer, instead of a hard loop.
+                mp.setOnCompletionListener { done ->
+                    handler.postDelayed({
+                        if (current == session && voicePlayer === done) {
+                            try {
+                                done.seekTo(0)
+                                done.start()
+                            } catch (e: IllegalStateException) {
+                                Log.w(TAG, "Clip replay failed", e)
+                            }
+                        }
+                    }, clip.loopGapMs)
+                }
+            }
+            mp.setOnErrorListener { failed, what, extra ->
+                Log.e(TAG, "Voice $label playback error what=$what extra=$extra; switching to text-to-speech")
+                failed.release()
+                if (voicePlayer === failed) {
+                    voicePlayer = null
+                    currentClip = null
+                }
+                if (current == session) startTts(listOf(null, GOOGLE_TTS, SAMSUNG_TTS), 0, current, currentScript) { }
                 true
             }
-            player.prepare()
-            player.setVolume(1f, 1f)
-            player.start()
-            voicePlayer = player
-            Log.i(TAG, "Playing conversation clip $assetPath")
-            onResult("asset")
+            mp.prepare()
+            if (startAtMs > 0) mp.seekTo(startAtMs)
+            mp.setVolume(1f, 1f)
+            mp.start()
+            voicePlayer = mp
+            currentClip = clip
+            Log.i(TAG, "Playing conversation $label")
+            onResult(if (clip.filePath.isNotEmpty()) "file" else "asset")
             true
         } catch (e: java.io.FileNotFoundException) {
-            Log.i(TAG, "No bundled conversation clip ($assetPath); using text-to-speech")
+            player?.release()
+            Log.i(TAG, "No conversation $label; using the next voice source")
             false
         } catch (e: Exception) {
-            Log.e(TAG, "Conversation clip failed; using text-to-speech", e)
+            player?.release()
+            Log.e(TAG, "Conversation $label failed; using the next voice source", e)
             false
         }
     }
@@ -287,7 +434,7 @@ class FakeCallAudio(private val context: Context) {
     }
 
     private fun speakScript(engine: TextToSpeech, current: Int, script: List<String>, onResult: (String) -> Unit) {
-        engine.setAudioAttributes(speechAttributes)
+        engine.setAudioAttributes(voiceAttributes())
         engine.setSpeechRate(0.95f)
         val lastId = "line_${script.size - 1}"
         engine.setOnUtteranceProgressListener(object : UtteranceProgressListener() {

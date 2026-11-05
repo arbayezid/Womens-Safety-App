@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/app_colors.dart';
+import '../models/activity_model.dart';
+import '../services/activity_service.dart';
 import '../services/notification_service.dart';
 import 'incident_room_screen.dart';
 
@@ -19,9 +21,14 @@ class SosHistoryScreen extends StatefulWidget {
 
 /// Merges multiple streams emitting lists of items and deduplicates them by ID.
 /// Emits an updated combined list whenever any source stream emits.
+///
+/// A failing source never blanks the result: its error goes to [onStreamError], the last good
+/// data of every source is kept, and the merged list is emitted again. (Previously the error
+/// was forwarded, `StreamBuilder` dropped its data, and the whole history showed as empty.)
 Stream<List<T>> mergeAndDeduplicateStreams<T, K>({
   required List<Stream<List<T>>> streams,
   required K Function(T item) idExtractor,
+  void Function(int streamIndex, Object error)? onStreamError,
 }) {
   final controller = StreamController<List<T>>.broadcast();
   final Map<int, List<T>> latestPerStream = {};
@@ -45,8 +52,10 @@ Stream<List<T>> mergeAndDeduplicateStreams<T, K>({
         latestPerStream[index] = list;
         emitMerged();
       },
-      onError: (err) {
-        if (!controller.isClosed) controller.addError(err);
+      onError: (Object err) {
+        debugPrint('[SosHistory] Query $index failed: $err');
+        onStreamError?.call(index, err);
+        emitMerged();
       },
     );
     subscriptions.add(sub);
@@ -61,19 +70,58 @@ Stream<List<T>> mergeAndDeduplicateStreams<T, K>({
   return controller.stream;
 }
 
+/// History status of an alert: "Active", "Resolved", "False Alarm" or, for an alert received
+/// as a guardian and already answered, "Responded".
+String sosHistoryStatusLabel(
+  Map<String, dynamic> data, {
+  required String myUid,
+  required bool isSender,
+}) {
+  final status = (data['status'] ?? 'active').toString().toLowerCase().trim();
+  if (data['falseAlarm'] == true || status == 'false_alarm' || status == 'false alarm') {
+    return 'False Alarm';
+  }
+  final dismissedBy = ((data['dismissedBy'] as List<dynamic>?) ?? const [])
+      .map((e) => e.toString());
+  final answeredByMe = !isSender && myUid.isNotEmpty && dismissedBy.contains(myUid);
+  if (status == 'active' && !answeredByMe) return 'Active';
+  if (answeredByMe) return 'Responded';
+  return 'Resolved';
+}
+
+/// What raised the alert, e.g. "SOS Button", "Shake", "Silent SOS (duress PIN)".
+String sosAlertTypeLabel(Map<String, dynamic> data) {
+  if (data['isDuress'] == true) return 'Silent SOS (duress PIN)';
+  final source = (data['source'] ?? '').toString().trim();
+  return source.isEmpty ? 'SOS Alert' : source;
+}
+
 class _SosHistoryScreenState extends State<SosHistoryScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _alertsStream;
 
+  /// Queries that failed (e.g. offline with no cache, or rejected). Shown as a banner with
+  /// Retry instead of an empty list.
+  final ValueNotifier<int> _failedQueries = ValueNotifier<int>(0);
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _subscribe();
+  }
+
+  void _subscribe() {
     final user = FirebaseAuth.instance.currentUser;
     final myUid = user?.uid ?? '';
     final myEmail = (user?.email ?? '').toLowerCase().trim();
+    _failedQueries.value = 0;
     _alertsStream = _buildHistoryStream(myUid, myEmail);
+  }
+
+  void _retry() {
+    setState(_subscribe);
   }
 
   Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _buildHistoryStream(
@@ -90,7 +138,8 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           .snapshots()
           .map((snap) => snap.docs),
 
-      // (b) Sender UID query
+      // (b) Sender UID query: the user's own alerts, stored in the cloud by account UID.
+      // Unordered on purpose so no alert is ever left out; sorted below.
       FirebaseFirestore.instance
           .collection('sos_alerts')
           .where('senderId', isEqualTo: myUid)
@@ -109,16 +158,64 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
       );
     }
 
+    final failed = <int>{};
     return mergeAndDeduplicateStreams<QueryDocumentSnapshot<Map<String, dynamic>>, String>(
       streams: streams,
       idExtractor: (doc) => doc.id,
+      onStreamError: (index, _) {
+        failed.add(index);
+        if (mounted) _failedQueries.value = failed.length;
+      },
     );
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _failedQueries.dispose();
     super.dispose();
+  }
+
+  /// Sender only, for an alert that is already resolved: records that it was a false alarm.
+  /// The alert itself and its timeline are kept; nothing is deleted.
+  Future<void> _markFalseAlarm(String alertId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Mark as false alarm?',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 17)),
+        content: Text(
+          'The alert stays in your history with the status "False Alarm". Its time, location '
+          'and timeline are kept.',
+          style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary, height: 1.4),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Mark')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      final ref = FirebaseFirestore.instance.collection('sos_alerts').doc(alertId);
+      await ref.update({'falseAlarm': true, 'falseAlarmAt': FieldValue.serverTimestamp()});
+      final user = FirebaseAuth.instance.currentUser;
+      unawaited(ref.collection('events').add({
+        'type': 'sos_false_alarm',
+        'title': 'Marked as False Alarm',
+        'description': 'The sender marked this alert as a false alarm.',
+        'actorName': user?.displayName ?? 'Sender',
+        'actorUid': user?.uid,
+        'timestamp': FieldValue.serverTimestamp(),
+      }).then((_) {}, onError: (Object e) => debugPrint('[SosHistory] Event notice: $e')));
+    } catch (e) {
+      debugPrint('[SosHistory] Mark false alarm failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update the alert. Please try again.')),
+      );
+    }
   }
 
   String _formatClockTime(DateTime dt) {
@@ -217,7 +314,22 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           ),
         ),
       ),
-      body: StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
+      body: ValueListenableBuilder<List<ActivityItem>>(
+        valueListenable: ActivityService.instance.activitiesNotifier,
+        builder: (context, activities, _) {
+          final deviceOnly = deviceOnlySosActivities(activities);
+          return _buildAlertsBody(myUid, myEmail, deviceOnly);
+        },
+      ),
+    );
+  }
+
+  Widget _buildAlertsBody(
+    String myUid,
+    String myEmail,
+    List<ActivityItem> deviceOnly,
+  ) {
+    return StreamBuilder<List<QueryDocumentSnapshot<Map<String, dynamic>>>>(
         stream: _alertsStream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
@@ -270,101 +382,250 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           return TabBarView(
             controller: _tabController,
             children: [
-              _buildAlertsList(userAlerts, 'all', myUid),
-              _buildAlertsList(userAlerts.where((a) => a['isSender'] == false).toList(), 'received', myUid),
-              _buildAlertsList(userAlerts.where((a) => a['isSender'] == true).toList(), 'sent', myUid),
+              _buildAlertsList(userAlerts, 'all', myUid, deviceOnly),
+              _buildAlertsList(userAlerts.where((a) => a['isSender'] == false).toList(), 'received',
+                  myUid, const []),
+              _buildAlertsList(userAlerts.where((a) => a['isSender'] == true).toList(), 'sent', myUid,
+                  deviceOnly),
             ],
           );
         },
-      ),
     );
   }
 
-  Widget _buildAlertsList(List<Map<String, dynamic>> alerts, String tabType, String myUid) {
-    if (alerts.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                width: 72,
-                height: 72,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF1F5F9),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.shield_outlined,
-                  size: 36,
-                  color: AppColors.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                tabType == 'sent'
-                    ? 'No Dispatched SOS Alerts'
-                    : tabType == 'received'
-                        ? 'No Incoming Guardian Alerts'
-                        : 'No SOS Alerts Recorded',
-                style: GoogleFonts.poppins(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                tabType == 'sent'
-                    ? 'When you activate emergency SOS, your dispatched GPS alerts will appear here.'
-                    : 'When contacts in your guardian network trigger emergency SOS, their alerts with live GPS will appear here.',
-                textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(
-                  fontSize: 12.5,
-                  color: AppColors.textSecondary,
-                  height: 1.4,
-                ),
-              ),
-            ],
-          ),
-        ),
+  Widget _buildAlertsList(
+    List<Map<String, dynamic>> alerts,
+    String tabType,
+    String myUid,
+    List<ActivityItem> deviceOnly,
+  ) {
+    final bool hasOwnAlerts =
+        deviceOnly.isNotEmpty || alerts.any((a) => a['isSender'] == true);
+
+    final header = <Widget>[
+      ValueListenableBuilder<int>(
+        valueListenable: _failedQueries,
+        builder: (context, failed, _) =>
+            failed == 0 ? const SizedBox.shrink() : _buildLoadErrorBanner(),
+      ),
+      if (tabType != 'received' && hasOwnAlerts) _buildAudioStorageNotice(),
+    ];
+
+    if (alerts.isEmpty && deviceOnly.isEmpty) {
+      return ListView(
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        children: [
+          ...header,
+          const SizedBox(height: 60),
+          _buildEmptyState(tabType),
+        ],
       );
     }
 
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-      itemCount: alerts.length,
+      itemCount: header.length + alerts.length + (deviceOnly.isEmpty ? 0 : deviceOnly.length + 1),
       itemBuilder: (context, index) {
-        final alert = alerts[index];
-        final data = alert['data'] as Map<String, dynamic>;
-        final alertId = alert['alertId'] as String;
-        final DateTime dt = alert['dateTime'] as DateTime;
-        final bool isSender = alert['isSender'] as bool;
+        if (index < header.length) return header[index];
+        var i = index - header.length;
+        if (i < alerts.length) {
+          final alert = alerts[i];
+          final data = alert['data'] as Map<String, dynamic>;
+          final alertId = alert['alertId'] as String;
+          final DateTime dt = alert['dateTime'] as DateTime;
+          final bool isSender = alert['isSender'] as bool;
 
-        final senderName = data['senderName'] ?? data['sender_name'] ?? 'Emergency Contact';
-        final senderEmail = data['senderEmail'] ?? data['sender_email'] ?? '';
-        final senderPhone = data['senderPhone'] ?? data['sender_phone'] ?? '';
-        final address = data['location']?['address'] ?? data['address'] ?? 'Live GPS Coordinates Available';
-        final mapsUrl = data['google_maps_url'] ?? data['location']?['googleMapsUrl'] ?? '';
-        final status = (data['status'] ?? 'active').toString().toLowerCase();
-        final List<dynamic> dismissedBy = (data['dismissedBy'] as List<dynamic>?) ?? [];
-        final bool isAcknowledged = dismissedBy.map((e) => e.toString()).contains(myUid);
+          final senderName = data['senderName'] ?? data['sender_name'] ?? 'Emergency Contact';
+          final senderEmail = data['senderEmail'] ?? data['sender_email'] ?? '';
+          final senderPhone = data['senderPhone'] ?? data['sender_phone'] ?? '';
+          final address = data['location']?['address'] ?? data['address'] ?? 'Live GPS Coordinates Available';
+          final mapsUrl = data['google_maps_url'] ?? data['location']?['googleMapsUrl'] ?? '';
+          final status = (data['status'] ?? 'active').toString().toLowerCase();
+          final List<dynamic> dismissedBy = (data['dismissedBy'] as List<dynamic>?) ?? [];
+          final bool isAcknowledged = dismissedBy.map((e) => e.toString()).contains(myUid);
 
-        return _buildAlertCard(
-          alertId: alertId,
-          data: data,
-          senderName: senderName.toString(),
-          senderEmail: senderEmail.toString(),
-          senderPhone: senderPhone.toString(),
-          address: address.toString(),
-          mapsUrl: mapsUrl.toString(),
-          status: status,
-          isAcknowledged: isAcknowledged,
-          isSender: isSender,
-          dateTime: dt,
-        );
+          return _buildAlertCard(
+            alertId: alertId,
+            data: data,
+            senderName: senderName.toString(),
+            senderEmail: senderEmail.toString(),
+            senderPhone: senderPhone.toString(),
+            address: address.toString(),
+            mapsUrl: mapsUrl.toString(),
+            status: status,
+            isAcknowledged: isAcknowledged,
+            isSender: isSender,
+            dateTime: dt,
+            myUid: myUid,
+          );
+        }
+        i -= alerts.length;
+        if (i == 0) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(4, 8, 4, 10),
+            child: Text(
+              'Sent without an account (SMS only)',
+              style: GoogleFonts.poppins(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          );
+        }
+        return _buildDeviceOnlyCard(deviceOnly[i - 1]);
       },
+    );
+  }
+
+  Widget _buildEmptyState(String tabType) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            width: 72,
+            height: 72,
+            decoration: const BoxDecoration(
+              color: Color(0xFFF1F5F9),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.shield_outlined,
+              size: 36,
+              color: AppColors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            tabType == 'sent'
+                ? 'No Dispatched SOS Alerts'
+                : tabType == 'received'
+                    ? 'No Incoming Guardian Alerts'
+                    : 'No SOS Alerts Recorded',
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            tabType == 'sent'
+                ? 'When you activate emergency SOS, your dispatched GPS alerts will appear here.'
+                : 'When contacts in your guardian network trigger emergency SOS, their alerts with live GPS will appear here.',
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+              fontSize: 12.5,
+              color: AppColors.textSecondary,
+              height: 1.4,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLoadErrorBanner() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.cloud_off_rounded, color: Colors.orange, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Some alerts could not be loaded. Check your connection.',
+              style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textPrimary),
+            ),
+          ),
+          TextButton(onPressed: _retry, child: const Text('Retry')),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAudioStorageNotice() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF5F3FF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline_rounded, color: AppColors.primary, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Alert records are saved to your account. Audio recordings are saved only on '
+              'this phone and are lost if the app is uninstalled or its data is cleared. '
+              'Use Export / Share to keep a copy.',
+              style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textPrimary, height: 1.4),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// SOS sent while no account was signed in: only SMS went out, so there is no cloud record.
+  Widget _buildDeviceOnlyCard(ActivityItem item) {
+    final mapUrl = (item.metadata['mapUrl'] ?? '').toString();
+    final source = (item.metadata['source'] ?? '').toString();
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.sms_rounded, color: AppColors.textSecondary, size: 22),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  source.isEmpty ? item.title : '${item.title} - $source',
+                  style: GoogleFonts.poppins(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Text(
+                  _formatFullDate(item.timestamp),
+                  style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                ),
+                Text(
+                  item.subtitle,
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          if (mapUrl.isNotEmpty)
+            IconButton(
+              tooltip: 'Open location on map',
+              icon: const Icon(Icons.map_rounded, color: AppColors.primary),
+              onPressed: () => _launchUrl(mapUrl),
+            ),
+        ],
+      ),
     );
   }
 
@@ -380,8 +641,11 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
     required bool isAcknowledged,
     required bool isSender,
     required DateTime dateTime,
+    required String myUid,
   }) {
     final bool isActive = status == 'active' && !isAcknowledged;
+    final String statusLabel = sosHistoryStatusLabel(data, myUid: myUid, isSender: isSender);
+    final bool isFalseAlarm = statusLabel == 'False Alarm';
 
     final liveLoc = data['liveLocation'] as Map<String, dynamic>?;
     final effectiveAddress = (liveLoc?['address'] != null && liveLoc!['address'].toString().isNotEmpty)
@@ -513,27 +777,33 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: isActive
-                            ? const Color(0xFFFFE5E5)
-                            : isAcknowledged
-                                ? AppColors.successBackground
-                                : const Color(0xFFEEF2F6),
+                        color: isFalseAlarm
+                            ? const Color(0xFFFEF3C7)
+                            : isActive
+                                ? const Color(0xFFFFE5E5)
+                                : isAcknowledged
+                                    ? AppColors.successBackground
+                                    : const Color(0xFFEEF2F6),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        isActive
-                            ? '🚨 Active'
-                            : isAcknowledged
-                                ? '✅ Responded'
-                                : 'Resolved',
+                        isFalseAlarm
+                            ? 'False Alarm'
+                            : isActive
+                                ? '🚨 Active'
+                                : isAcknowledged
+                                    ? '✅ Responded'
+                                    : 'Resolved',
                         style: GoogleFonts.poppins(
                           fontSize: 10,
                           fontWeight: FontWeight.w700,
-                          color: isActive
-                              ? AppColors.sosRed
-                              : isAcknowledged
-                                  ? AppColors.actionGreen
-                                  : AppColors.textSecondary,
+                          color: isFalseAlarm
+                              ? const Color(0xFFB45309)
+                              : isActive
+                                  ? AppColors.sosRed
+                                  : isAcknowledged
+                                      ? AppColors.actionGreen
+                                      : AppColors.textSecondary,
                         ),
                       ),
                     ),
@@ -610,7 +880,27 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                 ),
               ],
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
+
+            // Alert type
+            Row(
+              children: [
+                const Icon(Icons.bolt_rounded, size: 14, color: AppColors.textSecondary),
+                const SizedBox(width: 5),
+                Flexible(
+                  child: Text(
+                    'Type: ${sosAlertTypeLabel(data)}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
 
             // Location Box
             Container(
@@ -659,6 +949,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                 ],
               ),
             ),
+
             const SizedBox(height: 12),
 
             // Action Buttons
@@ -752,6 +1043,14 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     },
                   ),
                 ],
+                if (isSender && status == 'resolved' && !isFalseAlarm) ...[
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'Mark as false alarm',
+                    icon: const Icon(Icons.flag_outlined, color: AppColors.textSecondary, size: 22),
+                    onPressed: () => _markFalseAlarm(alertId),
+                  ),
+                ],
               ],
             ),
           ],
@@ -761,4 +1060,17 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
   ),
 );
   }
+}
+
+/// SOS entries logged while no account was signed in. Only SMS went out for these, so they
+/// have no `sos_alerts` record; they are listed from the activity history instead.
+List<ActivityItem> deviceOnlySosActivities(List<ActivityItem> activities) {
+  return activities
+      .where((a) =>
+          a.type == ActivityType.sos &&
+          a.id.startsWith('sos_') &&
+          a.metadata.containsKey('accountUid') &&
+          a.metadata['accountUid'] == null)
+      .toList()
+    ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
 }

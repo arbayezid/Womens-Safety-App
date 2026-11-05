@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,7 @@ import 'activity_service.dart';
 import 'contact_service.dart';
 import 'emergency_service.dart';
 import 'notification_service.dart';
+import 'safety_deadline_service.dart';
 
 /// Configuration timing and thresholds for Smart SOS Escalation.
 class EscalationConfig {
@@ -136,6 +138,67 @@ class SosEscalationService {
     _stage2Timer = Timer(Duration(seconds: stage2Sec), () async {
       await _executeStage2(alertId);
     });
+
+    // 4. Native exact-alarm backstops: the stages still run if the app is closed or killed
+    final uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid ?? '' : '';
+    final now = DateTime.now();
+    for (final stage in const [1, 2]) {
+      unawaited(SafetyDeadlineService.instance.arm(SafetyDeadline(
+        id: sosStageDeadlineId(alertId, stage),
+        kind: stage == 1 ? SafetyDeadlineKind.sosStage1 : SafetyDeadlineKind.sosStage2,
+        refId: alertId,
+        uid: uid,
+        fireAt: sosStageAt(startedAt: now, stageSeconds: stage == 1 ? stage1Sec : stage2Sec),
+        direct: true,
+      )));
+    }
+  }
+
+  /// Native deadline for [stage] fired (the in-app timer did not run, e.g. the app was closed).
+  /// Re-checks the alert first: nothing is sent once it is resolved or acknowledged.
+  Future<String> runStageFromDeadline(String alertId, int stage) async {
+    Map<String, dynamic>? data;
+    try {
+      final ref = FirebaseFirestore.instance.collection('sos_alerts').doc(alertId);
+      DocumentSnapshot<Map<String, dynamic>> snap;
+      try {
+        snap = await ref.get(const GetOptions(source: Source.server)).timeout(const Duration(seconds: 8));
+      } catch (_) {
+        snap = await ref.get(const GetOptions(source: Source.cache));
+      }
+      data = snap.data();
+    } catch (e) {
+      debugPrint('[SosEscalation] Could not load alert $alertId for stage $stage: $e');
+    }
+
+    final acknowledged = (data?['acknowledgedBy'] as List<dynamic>?)?.isNotEmpty ?? false;
+    if (data == null || data['status'] != 'active' || acknowledged || !await isEnabled()) {
+      debugPrint('[SosEscalation] Stage $stage for $alertId not needed (resolved/acknowledged/disabled)');
+      await SafetyDeadlineService.instance.clearSosStages(alertId);
+      return 'skipped';
+    }
+
+    final previousAlertId = _activeAlertId;
+    final previousName = _senderName;
+    final previousMaps = _mapsUrl;
+    _activeAlertId = alertId;
+    _senderName = (data['senderName'] ?? data['sender_name'])?.toString() ?? previousName;
+    final docMaps = data['google_maps_url']?.toString() ?? '';
+    _mapsUrl = docMaps.isNotEmpty ? docMaps : previousMaps;
+    try {
+      if (stage == 1) {
+        await _executeStage1(alertId);
+      } else {
+        await _executeStage2(alertId);
+      }
+    } finally {
+      if (previousAlertId != alertId) {
+        _activeAlertId = previousAlertId;
+        _senderName = previousName;
+        _mapsUrl = previousMaps;
+      }
+    }
+    return 'escalated';
   }
 
   /// Listens to the alert document in Firestore.
@@ -177,11 +240,13 @@ class SosEscalationService {
   /// Stage 1 Escalation: No response after 3 minutes
   Future<void> _executeStage1(String alertId) async {
     if (_activeAlertId != alertId) return;
+    // Exactly one of the in-app timer and the native backstop runs this stage
+    if (!await SafetyDeadlineService.instance.claim(sosStageDeadlineId(alertId, 1))) return;
 
     debugPrint('[SosEscalation] ⚠️ STAGE 1 ESCALATION: 3 minutes elapsed with no guardian response.');
     currentStageNotifier.value = EscalationStage.stage1BackupAlerted;
 
-    final contacts = await ContactService.instance.getContacts();
+    final contacts = ContactService.primaryFirst(await ContactService.instance.getContacts());
     final backupContacts = contacts.where((c) => c.isBackup).toList();
     final regularContacts = contacts.where((c) => !c.isBackup).toList();
 
@@ -194,7 +259,7 @@ class SosEscalationService {
         final formattedPhone = EmergencyService.instance.formatRecipientPhone(backup.phone);
         if (formattedPhone.isNotEmpty) {
           final msg =
-              'EMERGENCY ESCALATION: $name triggered SOS. Primary contacts have not responded after 3 minutes. You are alerted as backup. Location: $locationUrl';
+              'EMERGENCY ESCALATION: $name triggered SOS. Emergency contacts have not responded after 3 minutes. You are alerted as backup. Location: $locationUrl';
           try {
             await _telephony.sendSms(to: formattedPhone, message: msg, isMultipart: false);
             debugPrint('[SosEscalation] ✉️ Sent Stage 1 backup SMS to $formattedPhone');
@@ -290,11 +355,12 @@ class SosEscalationService {
   /// Stage 2 Escalation: No response after 8 minutes
   Future<void> _executeStage2(String alertId) async {
     if (_activeAlertId != alertId) return;
+    if (!await SafetyDeadlineService.instance.claim(sosStageDeadlineId(alertId, 2))) return;
 
     debugPrint('[SosEscalation] 🚨 STAGE 2 ESCALATION: 8 minutes elapsed with no guardian response.');
     currentStageNotifier.value = EscalationStage.stage2EmergencyServicesPrompted;
 
-    final contacts = await ContactService.instance.getContacts();
+    final contacts = ContactService.primaryFirst(await ContactService.instance.getContacts());
     final name = _senderName ?? 'User';
     final locationUrl = _mapsUrl ?? 'Location tracking active in app';
 
@@ -366,6 +432,8 @@ class SosEscalationService {
 
   /// Cancels all ongoing timers and listeners for escalation
   void stopEscalation() {
+    final alertId = _activeAlertId;
+    if (alertId != null) unawaited(SafetyDeadlineService.instance.clearSosStages(alertId));
     _stage1Timer?.cancel();
     _stage1Timer = null;
     _stage2Timer?.cancel();

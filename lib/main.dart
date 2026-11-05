@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -17,6 +18,7 @@ import 'screens/camouflage_calculator_screen.dart';
 import 'services/contact_sync_service.dart';
 import 'services/pin_security_service.dart';
 import 'services/ride_checkin_service.dart';
+import 'services/safety_deadline_service.dart';
 import 'services/app_permission_service.dart';
 import 'services/esp32_ble_service.dart';
 
@@ -35,6 +37,15 @@ void _reportUncaughtError(Object error, StackTrace stack) {
 /// Entry point of the Smart Safety application.
 void main() {
   runZonedGuarded<Future<void>>(_bootstrap, _reportUncaughtError);
+}
+
+/// Headless entry point started by Android (SafetyDeadlineService) when a safety timer expires
+/// while the app is closed. Runs the app's existing SOS pipeline; no UI.
+@pragma('vm:entry-point')
+Future<void> safetyDeadlineBackgroundMain() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  DartPluginRegistrant.ensureInitialized();
+  await SafetyDeadlineService.runHeadless();
 }
 
 Future<void> _bootstrap() async {
@@ -81,6 +92,9 @@ Future<void> _bootstrap() async {
     debugPrint('[Main] PinSecurityService init warning: $e');
   }
 
+  // Receive safety-deadline callbacks (exact-alarm backstops) in the running app
+  SafetyDeadlineService.instance.initForApp(rootNavigatorKey);
+
   // Register the FCM background message handler safely
   try {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
@@ -121,6 +135,9 @@ Future<void> _bootstrap() async {
 
     // Native background SOS alert receiver; runs only while a user is signed in
     GuardianAlertService.instance.initialize(rootNavigatorKey);
+
+    // Re-arm safety deadlines recorded in Firestore (reinstall / cleared app data)
+    unawaited(SafetyDeadlineService.instance.resyncFromCloud());
 
     BackgroundServiceManager.instance.initialize().then((_) {
       LiveTrackingService.instance.autoResumeActiveSessions().catchError((err) {

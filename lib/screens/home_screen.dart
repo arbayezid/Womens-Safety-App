@@ -17,10 +17,9 @@ import 'map_screen.dart';
 import 'contacts_screen.dart';
 import 'settings_screen.dart';
 import 'profile_screen.dart';
-import 'sos_history_screen.dart';
 import 'incident_room_screen.dart';
 import 'followed_mode_screen.dart';
-import '../widgets/fake_call_dialog.dart';
+import '../widgets/fake_call_caller_sheet.dart';
 import '../models/journey_model.dart';
 import '../services/journey_service.dart';
 import '../widgets/active_journey_card.dart';
@@ -28,13 +27,15 @@ import '../widgets/safety_check_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
 import '../services/pin_security_service.dart';
 import '../services/motion_detection_service.dart';
+import '../services/shake_sos_service.dart';
 import 'start_journey_sheet.dart';
 import '../models/ride_checkin.dart';
 import '../services/ride_checkin_service.dart';
 import '../services/esp32_ble_service.dart';
+import '../widgets/esp32_scan_sheet.dart';
 import 'ride_checkin_screen.dart';
 import 'active_ride_screen.dart';
-import 'ride_history_screen.dart';
+import 'ride_details_screen.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -62,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   bool _isSOSLoading = false;
   bool _isSafetyCheckShowing = false;
   bool _isFallCheckShowing = false;
+  bool _isShakeCheckShowing = false;
 
   @override
   void initState() {
@@ -90,12 +92,15 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     JourneyService.instance.activeSafetyCheckNotifier.addListener(_handleSafetyCheckChange);
     MotionDetectionService.instance.initialize();
     MotionDetectionService.instance.activeCountdownNotifier.addListener(_handleFallCheckChange);
+    ShakeSosService.instance.initialize();
+    ShakeSosService.instance.activeCountdownNotifier.addListener(_handleShakeCheckChange);
 
     // Initialize ESP32 BLE hardware service safely
     Esp32BleService.instance.initialize();
 
     // Initialize real-time incoming guardian emergency alerts
     NotificationService.instance.startSosAlertStreamListener();
+    NotificationService.instance.startGuardianRideCheckinListener();
     NotificationService.instance.activeIncomingSosNotifier.addListener(_handleIncomingSosChange);
 
     // App open PIN check and incoming emergency modal verification
@@ -137,6 +142,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
   }
 
+  void _handleShakeCheckChange() {
+    final seconds = ShakeSosService.instance.activeCountdownNotifier.value;
+    if (seconds != null && mounted && !_isShakeCheckShowing) {
+      _isShakeCheckShowing = true;
+      ShakeSosDialog.show(context).whenComplete(() {
+        _isShakeCheckShowing = false;
+      });
+    }
+  }
+
   void _handleFallCheckChange() {
     final seconds = MotionDetectionService.instance.activeCountdownNotifier.value;
     if (seconds != null && mounted && !_isFallCheckShowing) {
@@ -152,6 +167,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     NotificationService.instance.activeIncomingSosNotifier.removeListener(_handleIncomingSosChange);
     JourneyService.instance.activeSafetyCheckNotifier.removeListener(_handleSafetyCheckChange);
     MotionDetectionService.instance.activeCountdownNotifier.removeListener(_handleFallCheckChange);
+    ShakeSosService.instance.activeCountdownNotifier.removeListener(_handleShakeCheckChange);
     _pulseController.dispose();
     super.dispose();
   }
@@ -374,7 +390,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     HapticFeedback.selectionClick();
 
     if (label == 'Fake Call') {
-      await FakeCallDialog.show(context);
+      // Pick the caller (remembered), then ring Now or After 10s.
+      await FakeCallCallerSheet.show(context);
       return;
     }
 
@@ -750,7 +767,7 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
-            // ── Active Ride Safety Check-in Card ───────────────────
+            // ── Active Ride Safety Check-in Card (Sender) ─────────
             ValueListenableBuilder<RideCheckinModel?>(
               valueListenable: RideCheckinService.instance.activeRideNotifier,
               builder: (context, activeRide, _) {
@@ -760,6 +777,21 @@ class _SafetyDashboard extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: _ActiveRideCard(ride: activeRide),
+                );
+              },
+            ),
+
+            // ── Incoming Protected Contacts Active Ride Card (Receiver) ─
+            ValueListenableBuilder<List<RideCheckinModel>>(
+              valueListenable: NotificationService.instance.incomingActiveRidesNotifier,
+              builder: (context, incomingRides, _) {
+                if (incomingRides.isEmpty) {
+                  return const SizedBox.shrink();
+                }
+                final latestRide = incomingRides.first;
+                return Padding(
+                  padding: const EdgeInsets.only(top: 14),
+                  child: _IncomingProtectedRideCard(ride: latestRide),
                 );
               },
             ),
@@ -1465,62 +1497,6 @@ class _TopAppBarState extends State<_TopAppBar> {
               ),
             ),
 
-            // ── SOS History Quick Access Button ──────────────────────
-            Tooltip(
-              message: 'SOS Alert History',
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const SosHistoryScreen()),
-                  );
-                },
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  margin: const EdgeInsets.only(right: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFEEEE),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.25)),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.history_rounded,
-                    color: AppColors.sosRed,
-                    size: 19,
-                  ),
-                ),
-              ),
-            ),
-
-            // ── Ride Check-in History Button ────────────────────────
-            Tooltip(
-              message: 'Ride Check-in History',
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const RideHistoryScreen()),
-                  );
-                },
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  margin: const EdgeInsets.only(right: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE3F2FD),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.actionBlue.withValues(alpha: 0.25)),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Icon(
-                    Icons.directions_car_rounded,
-                    color: AppColors.actionBlue,
-                    size: 18,
-                  ),
-                ),
-              ),
-            ),
-
             // ── ESP32 status badge ───────────────────────────────────────
             _ESP32Badge(),
           ],
@@ -1567,11 +1543,7 @@ class _ESP32Badge extends StatelessWidget {
         }
 
         return GestureDetector(
-          onTap: () {
-            if (status != Esp32ConnectionStatus.connected) {
-              Esp32BleService.instance.connectToDevice();
-            }
-          },
+          onTap: () => Esp32ScanSheet.show(context),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
@@ -2365,6 +2337,133 @@ class _ActiveRideCard extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Icon(Icons.arrow_forward_ios_rounded, color: badgeColor, size: 16),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Banner displayed on the Safety dashboard when a contact this user protects
+/// has an active Ride Safety Check-in session in progress.
+class _IncomingProtectedRideCard extends StatelessWidget {
+  final RideCheckinModel ride;
+
+  const _IncomingProtectedRideCard({required this.ride});
+
+  @override
+  Widget build(BuildContext context) {
+    final isOverdue = ride.isOverdue;
+    final cardBg = isOverdue ? const Color(0xFFFFF3E0) : const Color(0xFFF3E8FF);
+    final borderColor = isOverdue ? const Color(0xFFFFB74D) : const Color(0xFFC084FC);
+    final badgeColor = isOverdue ? Colors.deepOrange : const Color(0xFF7E22CE);
+
+    return GestureDetector(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => RideDetailsScreen(rideId: ride.id)),
+        );
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor, width: 1.3),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: badgeColor,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.shield_rounded, color: Colors.white, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isOverdue ? Colors.deepOrange : const Color(0xFF9333EA),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        isOverdue ? 'PROTECTED RIDE OVERDUE' : 'PROTECTED CONTACT ON RIDE',
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: badgeColor,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        'LIVE',
+                        style: GoogleFonts.poppins(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: const Color(0xFF9333EA),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${ride.userName} • ${ride.rideType}',
+                    style: GoogleFonts.poppins(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    'Vehicle: ${ride.plateFormatted} • Tap to track live',
+                    style: GoogleFonts.poppins(
+                      fontSize: 11,
+                      color: AppColors.textSecondary,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: badgeColor,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Track',
+                style: GoogleFonts.poppins(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
           ],
         ),
       ),

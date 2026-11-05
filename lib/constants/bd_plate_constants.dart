@@ -84,6 +84,17 @@ class BdPlateConstants {
     'Rickshaw / Other',
   ];
 
+  /// Plate series a vehicle of each ride type normally carries; null = no expectation.
+  /// Used to flag an OCR'd series that can't be right (e.g. খ/KHA private car on a CNG,
+  /// a classic থ/খ misread).
+  static Set<String>? expectedSeriesFor(String rideType) => switch (rideType) {
+        'CNG' => const {'THA'},
+        'Bike (Ride-share)' => const {'HA', 'LA'},
+        'Car (Ride-share)' => const {'GA', 'KHA', 'KA', 'GHA', 'CHA', 'PA'},
+        'Bus' => const {'JA', 'JHA', 'BA', 'CHA', 'CHHA'},
+        _ => null,
+      };
+
   /// Supported ride apps or standalone options
   static const List<String> appOptions = [
     'Uber',

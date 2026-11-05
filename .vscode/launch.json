@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Smart Safety (with Gemini plate OCR)",
+      "request": "launch",
+      "type": "dart",
+      "args": ["--dart-define-from-file=secrets.json"]
+    },
+    {
+      "name": "Smart Safety (offline OCR only)",
+      "request": "launch",
+      "type": "dart"
+    }
+  ]
+}

@@ -12,6 +12,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../firebase_options.dart';
 import '../screens/incident_room_screen.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../models/ride_checkin.dart';
 import '../screens/ride_details_screen.dart';
 import '../widgets/intrusive_sos_dialog.dart';
 import 'activity_service.dart';
@@ -108,6 +110,27 @@ class NotificationService {
   StreamSubscription? _rideCheckinSubUid;
   StreamSubscription? _rideCheckinSubEmail;
   final Set<String> _notifiedRideKeys = {};
+
+  /// Active rides currently underway by contacts this user protects
+  final ValueNotifier<List<RideCheckinModel>> incomingActiveRidesNotifier =
+      ValueNotifier<List<RideCheckinModel>>([]);
+
+  /// Alerts whose heads-up banner this device posted (removed again once the alert ends).
+  final Set<String> _bannerAlertIds = {};
+
+  static int _bannerIdFor(String alertId) => 600000 + (alertId.hashCode & 0xFFFF);
+
+  /// Headless safety-deadline run (app closed): only the local notifications plugin is needed
+  /// for status notifications. No listeners, dialogs or FCM.
+  Future<void> initForBackgroundIsolate() async {
+    try {
+      await _localNotifications.initialize(
+        const InitializationSettings(android: AndroidInitializationSettings('@mipmap/ic_launcher')),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Background init notice: $e');
+    }
+  }
 
   /// Initializes notification channels, permissions, FCM listeners, and real-time Firestore streams.
   Future<void> init(GlobalKey<NavigatorState> navigatorKey) async {
@@ -249,7 +272,18 @@ class NotificationService {
           enableVibration: true,
         );
 
-        // Standard Importance Android Notification Channel for Ride Safety Check-ins (Non-intrusive)
+        // High-Importance Android Notification Channel for Ride Safety Alerts
+        final AndroidNotificationChannel rideSafetyAlertsChannel = AndroidNotificationChannel(
+          'ride_safety_alerts_channel_v2',
+          'Ride Safety Alerts',
+          description: 'High-priority alerts when contacts start, update, or complete a ride.',
+          importance: Importance.high,
+          playSound: true,
+          enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 400, 200, 400]),
+        );
+
+        // Keep legacy channel for backward compatibility
         const AndroidNotificationChannel rideCheckinChannel = AndroidNotificationChannel(
           'ride_checkin_channel',
           'Ride Safety Check-in',
@@ -264,6 +298,7 @@ class NotificationService {
         if (androidPlugin != null) {
           await androidPlugin.createNotificationChannel(sosChannelV2);
           await androidPlugin.createNotificationChannel(safetyCheckChannel);
+          await androidPlugin.createNotificationChannel(rideSafetyAlertsChannel);
           await androidPlugin.createNotificationChannel(rideCheckinChannel);
           await androidPlugin.requestNotificationsPermission();
         }
@@ -303,6 +338,28 @@ class NotificationService {
             SirenService.instance.startSiren();
             _showIntrusiveSosDialog(message.data);
           }
+        } else if (type == 'RIDE_CHECKIN') {
+          final rideId = message.data['rideId']?.toString() ?? '';
+          final status = (message.data['status'] ?? 'active').toString().toLowerCase();
+          final travelerName = message.data['travelerName'] ?? 'Traveler';
+          final plate = message.data['plate'] ?? 'Vehicle Plate';
+          final rideType = message.data['rideType'] ?? 'Ride';
+          showRideCheckinNotification(
+            title: status == 'arrived'
+                ? '✅ $travelerName arrived safely'
+                : '🚗 $travelerName started a $rideType ride — $plate',
+            body: status == 'arrived'
+                ? 'The ride in vehicle $plate has completed safely.'
+                : 'Vehicle: $plate. Tap to view live location & driver details.',
+            payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
+          );
+          _showInAppRideAlert(
+            rideId: rideId,
+            travelerName: travelerName,
+            rideType: rideType,
+            plate: plate,
+            status: status,
+          );
         } else {
           _showLocalNotification(message);
         }
@@ -313,6 +370,16 @@ class NotificationService {
         if (message.data['type'] == 'SOS_ALERT') {
           SirenService.instance.startSiren();
           _showIntrusiveSosDialog(message.data);
+        } else if (message.data['type'] == 'RIDE_CHECKIN') {
+          final rideId = message.data['rideId']?.toString() ?? '';
+          if (rideId.isNotEmpty) {
+            final context = _navigatorKey?.currentContext;
+            if (context != null) {
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => RideDetailsScreen(rideId: rideId)),
+              );
+            }
+          }
         }
       });
 
@@ -655,6 +722,13 @@ class NotificationService {
       });
     }
 
+    // Resolved / acknowledged / dismissed alerts: remove their banners from the shade
+    final eligibleIds = eligibleAlerts.map((a) => a['alertId'] as String).toSet();
+    for (final endedId in _bannerAlertIds.where((id) => !eligibleIds.contains(id)).toList()) {
+      _bannerAlertIds.remove(endedId);
+      unawaited(_localNotifications.cancel(_bannerIdFor(endedId)));
+    }
+
     if (eligibleAlerts.isEmpty) {
       if (activeIncomingSosNotifier.value != null) {
         activeIncomingSosNotifier.value = null;
@@ -747,10 +821,12 @@ class NotificationService {
     }
 
     SirenService.instance.startSiren();
+    _bannerAlertIds.add(alertId);
     _showLocalSosAlertBanner(
       title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
       body: '${latestData['senderName']} needs immediate help! Tap to view live location & incident command.',
       payload: alertPayload,
+      notificationId: _bannerIdFor(alertId),
     );
   }
 
@@ -809,6 +885,7 @@ class NotificationService {
     required String title,
     required String body,
     required Map<String, dynamic> payload,
+    int? notificationId,
   }) async {
     final Int64List vibrationPattern = Int64List.fromList([0, 1000, 500, 1000, 500, 1000]);
 
@@ -874,7 +951,7 @@ class NotificationService {
     final String encodedPayload = jsonEncode(serializablePayload);
 
     await _localNotifications.show(
-      DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      notificationId ?? DateTime.now().millisecondsSinceEpoch ~/ 1000,
       title,
       body,
       platformDetails,
@@ -1046,27 +1123,31 @@ class NotificationService {
     await _localNotifications.show(id, title, body, details);
   }
 
-  /// Displays non-intrusive notification for ride check-in events
+  /// Displays high-priority heads-up notification for ride check-in events
   Future<void> showRideCheckinNotification({
     required String title,
     required String body,
     String? payload,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'ride_checkin_channel',
-      'Ride Safety Check-in',
-      channelDescription: 'Non-intrusive notifications for vehicle plate updates and ride status.',
-      importance: Importance.defaultImportance,
-      priority: Priority.defaultPriority,
+    final androidDetails = AndroidNotificationDetails(
+      'ride_safety_alerts_channel_v2',
+      'Ride Safety Alerts',
+      channelDescription: 'High-priority alerts when contacts start, update, or complete a ride.',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 400, 200, 400]),
       icon: '@mipmap/ic_launcher',
+      color: const Color(0xFF5A4FCF),
     );
     const iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
       presentSound: true,
     );
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
-    final notifId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    final notifId = (title.hashCode.abs() % 100000) + 8000;
     await _localNotifications.show(notifId, title, body, details, payload: payload);
   }
 
@@ -1104,6 +1185,9 @@ class NotificationService {
     List<QueryDocumentSnapshot<Map<String, dynamic>>> docs,
     String myUid,
   ) {
+    final List<RideCheckinModel> activeRides = [];
+    final now = DateTime.now();
+
     for (final doc in docs) {
       final data = doc.data();
       final rideId = doc.id;
@@ -1115,14 +1199,40 @@ class NotificationService {
       final rideType = data['rideType'] ?? 'Ride';
       final plate = data['plateFormatted'] ?? 'Vehicle Plate';
 
+      DateTime? eventTime;
+      final rawTime = data['lastUpdatedAt'] ?? data['createdAt'];
+      if (rawTime is Timestamp) {
+        eventTime = rawTime.toDate();
+      } else if (rawTime is String) {
+        eventTime = DateTime.tryParse(rawTime);
+      }
+
+      if (status == 'active') {
+        try {
+          activeRides.add(RideCheckinModel.fromMap(data, rideId));
+        } catch (_) {}
+      }
+
+      // Do not notify for stale non-active rides (older than 20 minutes)
+      if (status != 'active' && eventTime != null && now.difference(eventTime).inMinutes > 20) {
+        continue;
+      }
+
       // 1. New active ride
       final activeKey = '${rideId}_active';
       if (status == 'active' && !_notifiedRideKeys.contains(activeKey)) {
         _notifiedRideKeys.add(activeKey);
         showRideCheckinNotification(
-          title: '$travelerName started a $rideType ride — $plate',
+          title: '🚗 $travelerName started a $rideType ride — $plate',
           body: 'Vehicle: $plate. Tap to view live location & driver details.',
           payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
+        );
+        _showInAppRideAlert(
+          rideId: rideId,
+          travelerName: travelerName,
+          rideType: rideType,
+          plate: plate,
+          status: status,
         );
       }
 
@@ -1131,9 +1241,16 @@ class NotificationService {
       if (status == 'arrived' && !_notifiedRideKeys.contains(arrivedKey)) {
         _notifiedRideKeys.add(arrivedKey);
         showRideCheckinNotification(
-          title: '$travelerName arrived safely.',
+          title: '✅ $travelerName arrived safely.',
           body: 'The ride in vehicle $plate has completed safely.',
           payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
+        );
+        _showInAppRideAlert(
+          rideId: rideId,
+          travelerName: travelerName,
+          rideType: rideType,
+          plate: plate,
+          status: status,
         );
       }
 
@@ -1146,7 +1263,143 @@ class NotificationService {
           body: 'Ride in vehicle $plate is overdue by 10+ minutes.',
           payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
         );
+        _showInAppRideAlert(
+          rideId: rideId,
+          travelerName: travelerName,
+          rideType: rideType,
+          plate: plate,
+          status: status,
+        );
       }
+    }
+
+    incomingActiveRidesNotifier.value = activeRides;
+  }
+
+  void _showInAppRideAlert({
+    required String rideId,
+    required String travelerName,
+    required String rideType,
+    required String plate,
+    required String status,
+  }) {
+    final context = _navigatorKey?.currentContext;
+    if (context == null || !context.mounted) return;
+
+    if (status == 'active') {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 8),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF1E1B4B),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          content: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF4338CA),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '🚗 $travelerName started a ride',
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      '$rideType • $plate',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11.5,
+                        color: Colors.white70,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'TRACK LIVE',
+            textColor: const Color(0xFF38BDF8),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => RideDetailsScreen(rideId: rideId),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    } else if (status == 'arrived') {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          duration: const Duration(seconds: 6),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: const Color(0xFF065F46),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          content: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF059669),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '✅ $travelerName arrived safely',
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Text(
+                      'Ride in $plate completed safely',
+                      style: GoogleFonts.poppins(
+                        fontSize: 11.5,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          action: SnackBarAction(
+            label: 'VIEW',
+            textColor: Colors.white,
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => RideDetailsScreen(rideId: rideId),
+                ),
+              );
+            },
+          ),
+        ),
+      );
     }
   }
 }

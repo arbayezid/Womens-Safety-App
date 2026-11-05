@@ -6,9 +6,15 @@ import 'package:flutter/foundation.dart';
 import '../models/contact_model.dart';
 import 'auth_service.dart';
 import 'contact_service.dart';
+import 'guardian_link_logic.dart';
+import 'guardian_link_migration_service.dart';
 
-/// Service managing real-time mutual consent emergency contact synchronization,
-/// email-based user lookup, connection requests, and live Firestore streams.
+/// Service managing consent-based, one-way guardian links, email-based user lookup,
+/// connection requests, and live Firestore streams.
+///
+/// Direction: the sender of a request is protected; the accepter becomes their
+/// guardian. Only the sender's `users/{uid}/contacts` list gains an entry. The
+/// accepter sees the link in [protectedPeopleNotifier] ("People I Protect").
 class ContactSyncService {
   ContactSyncService._internal() {
     _initAuthAndRequestsListener();
@@ -62,6 +68,16 @@ class ContactSyncService {
   List<Map<String, dynamic>> get currentPendingRequests =>
       List.unmodifiable(incomingRequestsNotifier.value);
 
+  /// People who added the current user as their guardian (accepted incoming requests).
+  /// Read-only: the current user receives their alerts but they are NOT the current
+  /// user's guardians.
+  final ValueNotifier<List<ProtectedPerson>> protectedPeopleNotifier =
+      ValueNotifier<List<ProtectedPerson>>(const []);
+
+  /// Incoming request states kept in memory: pending ones feed the request cards,
+  /// accepted ones feed "People I Protect".
+  static bool _isTrackedStatus(Object? status) => status == 'pending' || status == 'accepted';
+
   /// Ensures active listener to Firebase Auth state, real-time requests, and auto-sync heartbeat.
   void initialize() {
     _initAuthAndRequestsListener();
@@ -71,6 +87,9 @@ class ContactSyncService {
     if (uid != null || email != null) {
       _startRequestsListeners(uid ?? '', email ?? '');
       refreshIncomingRequests();
+    }
+    if (uid != null) {
+      unawaited(GuardianLinkMigrationService.instance.runOnceForUser(uid, email ?? ''));
     }
   }
 
@@ -97,6 +116,7 @@ class ContactSyncService {
           _startRequestsListeners(uid, email);
           _startHeartbeatTimer();
           refreshIncomingRequests();
+          unawaited(GuardianLinkMigrationService.instance.runOnceForUser(uid, email));
         } else {
           _cancelRequestsSubscriptions();
           _clearAllRequests();
@@ -153,7 +173,7 @@ class ContactSyncService {
               _docsByReceiverId.clear();
               for (final doc in snap.docs) {
                 final data = doc.data();
-                if (data['status'] == 'pending') {
+                if (_isTrackedStatus(data['status'])) {
                   _docsByReceiverId[doc.id] = {'docId': doc.id, ...data};
                 }
               }
@@ -174,7 +194,7 @@ class ContactSyncService {
               _docsByReceiverUid.clear();
               for (final doc in snap.docs) {
                 final data = doc.data();
-                if (data['status'] == 'pending') {
+                if (_isTrackedStatus(data['status'])) {
                   _docsByReceiverUid[doc.id] = {'docId': doc.id, ...data};
                 }
               }
@@ -222,7 +242,7 @@ class ContactSyncService {
               _docsByReceiverEmail.clear();
               for (final doc in snap.docs) {
                 final data = doc.data();
-                if (data['status'] == 'pending') {
+                if (_isTrackedStatus(data['status'])) {
                   _docsByReceiverEmail[doc.id] = {'docId': doc.id, ...data};
                 }
               }
@@ -243,7 +263,7 @@ class ContactSyncService {
               _docsByReceiverEmailCamel.clear();
               for (final doc in snap.docs) {
                 final data = doc.data();
-                if (data['status'] == 'pending') {
+                if (_isTrackedStatus(data['status'])) {
                   _docsByReceiverEmailCamel[doc.id] = {'docId': doc.id, ...data};
                 }
               }
@@ -289,6 +309,21 @@ class ContactSyncService {
     incomingRequestsNotifier.value = List.unmodifiable(list);
     if (!_broadcastRequestsController.isClosed) {
       _broadcastRequestsController.add(List.unmodifiable(list));
+    }
+    _notifyProtectedPeople();
+  }
+
+  void _notifyProtectedPeople() {
+    final records = _requestsMap.entries
+        .map((e) => GuardianRequestRecord.fromMap(e.key, e.value))
+        .toList();
+    final people = derivePeopleIProtect(
+      records,
+      myUid: _currentUid ?? '',
+      myEmail: _currentEmail ?? '',
+    );
+    if (!listEquals(people, protectedPeopleNotifier.value)) {
+      protectedPeopleNotifier.value = List.unmodifiable(people);
     }
   }
 
@@ -384,6 +419,7 @@ class ContactSyncService {
   /// or directly to [receiverEmail].
   ///
   /// Also stores the pending contact in User A's contacts list and local database.
+  /// [isPrimary] makes the new contact the user's only Primary contact.
   Future<void> sendConnectionRequest({
     String? receiverUid,
     required String receiverEmail,
@@ -391,6 +427,7 @@ class ContactSyncService {
     required String relationship,
     String? optionalPhone,
     bool isBackup = false,
+    bool isPrimary = false,
   }) async {
     final user = _auth.currentUser;
     if (user == null) {
@@ -505,7 +542,7 @@ class ContactSyncService {
       contactUid: receiverUid,
       isSyncedAppUser: false,
       syncStatus: 'pending',
-      isPrimary: true,
+      isPrimary: isPrimary,
       isBackup: isBackup,
     );
 
@@ -523,6 +560,10 @@ class ContactSyncService {
 
     // 5. Always persist locally in SharedPreferences for offline SMS fallback
     await ContactService.instance.addContact(contactModel);
+    if (isPrimary) {
+      // Unsets the previous Primary contact, if any (only one primary at a time)
+      await ContactService.instance.setPrimaryContact(contactId);
+    }
     unawaited(ContactService.instance.getContacts(forceRefresh: true));
     unawaited(refreshIncomingRequests());
 
@@ -538,6 +579,7 @@ class ContactSyncService {
     required String relationship,
     String? optionalPhone,
     bool isBackup = false,
+    bool isPrimary = false,
   }) async {
     final user = _auth.currentUser;
     final senderId = user?.uid;
@@ -554,7 +596,7 @@ class ContactSyncService {
       contactUid: null,
       isSyncedAppUser: false,
       syncStatus: 'offline_only',
-      isPrimary: true,
+      isPrimary: isPrimary,
       isBackup: isBackup,
     );
 
@@ -573,6 +615,9 @@ class ContactSyncService {
 
     // Cache locally for offline SMS dispatch
     await ContactService.instance.addContact(contactModel);
+    if (isPrimary) {
+      await ContactService.instance.setPrimaryContact(contactId);
+    }
     debugPrint('[ContactSync] 📱 Saved offline contact: ${contactModel.name} ($cleanPhone)');
     return contactModel;
   }
@@ -622,7 +667,7 @@ class ContactSyncService {
           if (snap != null) {
             _docsByReceiverId.clear();
             for (final doc in snap.docs) {
-              if (doc.data()['status'] == 'pending') {
+              if (_isTrackedStatus(doc.data()['status'])) {
                 _docsByReceiverId[doc.id] = {'docId': doc.id, ...doc.data()};
               }
             }
@@ -632,7 +677,7 @@ class ContactSyncService {
           if (snap != null) {
             _docsByReceiverUid.clear();
             for (final doc in snap.docs) {
-              if (doc.data()['status'] == 'pending') {
+              if (_isTrackedStatus(doc.data()['status'])) {
                 _docsByReceiverUid[doc.id] = {'docId': doc.id, ...doc.data()};
               }
             }
@@ -645,7 +690,7 @@ class ContactSyncService {
           if (snap != null) {
             _docsByReceiverEmail.clear();
             for (final doc in snap.docs) {
-              if (doc.data()['status'] == 'pending') {
+              if (_isTrackedStatus(doc.data()['status'])) {
                 _docsByReceiverEmail[doc.id] = {'docId': doc.id, ...doc.data()};
               }
             }
@@ -655,7 +700,7 @@ class ContactSyncService {
           if (snap != null) {
             _docsByReceiverEmailCamel.clear();
             for (final doc in snap.docs) {
-              if (doc.data()['status'] == 'pending') {
+              if (_isTrackedStatus(doc.data()['status'])) {
                 _docsByReceiverEmailCamel[doc.id] = {'docId': doc.id, ...doc.data()};
               }
             }
@@ -694,10 +739,16 @@ class ContactSyncService {
 
   /// Approves an incoming connection request and updates its state to `accepted`.
   ///
-  /// Executes atomic batch write so both User A and User B are linked simultaneously.
+  /// One-way link: the current user (receiver B) becomes the guardian of the sender A.
+  /// Exactly one direction is written: B is added to A's `users/A/contacts`. Nothing is
+  /// added to B's own guardian list; A appears in B's "People I Protect"
+  /// ([protectedPeopleNotifier]), derived from this accepted request.
   Future<void> acceptRequest(String requestId) async {
-    // 0. Optimistically remove from pending requests map for instant UI response
-    _requestsMap.remove(requestId);
+    // 0. Optimistic UI: the card leaves "pending" and the sender shows in "People I Protect"
+    final optimistic = _requestsMap[requestId];
+    if (optimistic != null) {
+      _requestsMap[requestId] = {...optimistic, 'status': 'accepted'};
+    }
     _notifyIncomingRequests();
 
     final reqDoc = await _firestore.collection('connection_requests').doc(requestId).get();
@@ -710,24 +761,13 @@ class ContactSyncService {
         : (_currentUid ?? '');
     if (receiverId.isEmpty) return;
 
-    final senderName = (data['sender_name'] ?? data['senderName']) ?? 'Emergency Contact';
-    final senderEmail = (data['sender_email'] ?? data['senderEmail']) ?? '';
-    var senderPhone = (data['optional_phone'] ?? data['optionalPhone'] ?? '').toString();
     final relationship = (data['relationship'] as String?) ?? 'Guardian';
 
     final currentUserName = AuthService.instance.displayName;
     final currentUserEmail = _currentEmail ?? '';
     var currentUserPhone = AuthService.instance.currentProfile.phone;
 
-    // Fallback: Resolve sender or current user phone from their Firestore profiles if not in request
-    if (senderPhone.isEmpty) {
-      try {
-        final senderDoc = await _firestore.collection('users').doc(senderId).get();
-        if (senderDoc.exists && senderDoc.data() != null) {
-          senderPhone = (senderDoc.data()!['phoneNumber'] ?? senderDoc.data()!['phone'] ?? '').toString();
-        }
-      } catch (_) {}
-    }
+    // Fallback: resolve the current user's phone from their Firestore profile if not loaded
     if (currentUserPhone.isEmpty) {
       try {
         final receiverDoc = await _firestore.collection('users').doc(receiverId).get();
@@ -745,7 +785,7 @@ class ContactSyncService {
       'respondedAt': FieldValue.serverTimestamp(),
     });
 
-    // 2. Client-side optimistic batch write for instant mutual linking
+    // 2. Write the single direction of the link: guardian B into protected user A's list
     try {
       final batch = _firestore.batch();
 
@@ -763,7 +803,7 @@ class ContactSyncService {
         'phone': currentUserPhone,
         'contact_optional_phone': currentUserPhone,
         'relationship': relationship,
-        'isPrimary': true,
+        // No primary flag: only the owner chooses their Primary contact (merge keeps it)
         'isSyncedAppUser': true,
         'is_synced_app_user': true,
         'syncStatus': 'synced',
@@ -780,48 +820,14 @@ class ContactSyncService {
           .doc('pending_$safeEmailKey');
       batch.delete(placeholderRef);
 
-      // Add Sender A into Receiver B's contacts list
-      final receiverContactRef =
-          _firestore.collection('users').doc(receiverId).collection('contacts').doc(senderId);
-      batch.set(receiverContactRef, {
-        'id': senderId,
-        'contactUid': senderId,
-        'contact_uid': senderId,
-        'name': senderName,
-        'contact_name': senderName,
-        'email': senderEmail,
-        'contact_email': senderEmail,
-        'phone': senderPhone,
-        'contact_optional_phone': senderPhone,
-        'relationship': 'Safety Ward',
-        'isPrimary': true,
-        'isSyncedAppUser': true,
-        'is_synced_app_user': true,
-        'syncStatus': 'synced',
-        'sync_status': 'synced',
-        'syncedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      // No reverse write: the sender is NOT added to the current user's guardian list.
 
       await batch.commit();
-      debugPrint('[ContactSync] 🤝 Mutually linked $senderId and $receiverId');
+      debugPrint('[ContactSync] 🛡️ $receiverId is now a guardian of $senderId (one-way)');
     } catch (e) {
-      debugPrint('[ContactSync] Batch mutual linking notice: $e');
+      debugPrint('[ContactSync] Guardian link write notice: $e');
     }
 
-    // 3. Save into local persistent storage for offline fallback & instant promotion in UI
-    final localContact = ContactModel(
-      id: senderId,
-      name: senderName.toString(),
-      email: senderEmail.toString(),
-      phone: senderPhone.toString(),
-      relationship: 'Safety Ward',
-      contactUid: senderId,
-      isSyncedAppUser: true,
-      syncStatus: 'synced',
-      isPrimary: true,
-    );
-    await ContactService.instance.addContact(localContact);
-    unawaited(ContactService.instance.getContacts(forceRefresh: true));
     unawaited(refreshIncomingRequests());
   }
 
@@ -840,8 +846,9 @@ class ContactSyncService {
     unawaited(refreshIncomingRequests());
   }
 
-  /// Permanently removes a contact from the user's Firestore list, mutual partner's list,
-  /// any existing connection requests, and local device storage.
+  /// Permanently removes a guardian/contact from the user's own Firestore list, this
+  /// direction's connection requests, and local device storage. The other user's own
+  /// guardian list is not changed (one-way links).
   ///
   /// Returns false when the contact could not be removed from the user's own list.
   Future<bool> deleteSyncedContact(
@@ -928,40 +935,31 @@ class ContactSyncService {
       }
     }
 
-    // Mutual unlink: Remove current user from partner's contacts subcollection
+    // One-way links: removing a guardian ends only the "they guard me" direction. The partner's
+    // own guardian list is theirs alone, EXCEPT for the reverse entry that older app versions
+    // wrongly wrote there on accept. That entry is removed only when the server proves the
+    // partner never asked the current user to be their guardian.
     if (resolvedUid != null && resolvedUid.isNotEmpty) {
-      try {
-        await _firestore
-            .collection('users')
-            .doc(resolvedUid)
-            .collection('contacts')
-            .doc(uid)
-            .delete()
-            .timeout(opTimeout);
-      } catch (e) {
-        debugPrint('[ContactSync] Notice unlinking partner contacts doc ($resolvedUid): $e');
-      }
-
-      if (_currentEmail != null && _currentEmail!.isNotEmpty) {
-        final mySafeEmail = _currentEmail!.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
+      final partnerChoseMe = await _hasActiveRequestFrom(resolvedUid, uid);
+      if (partnerChoseMe == false) {
         try {
           await _firestore
               .collection('users')
               .doc(resolvedUid)
               .collection('contacts')
-              .doc('pending_$mySafeEmail')
+              .doc(uid)
               .delete()
               .timeout(opTimeout);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('[ContactSync] Notice removing legacy reverse entry ($resolvedUid): $e');
+        }
       }
     }
 
-    // Delete connection requests in both directions & email
+    // Delete only this direction's request records (me -> partner). The partner's own requests
+    // to me describe the other direction and stay untouched.
     final List<String> requestIdsToDelete = {
-      if (resolvedUid != null && resolvedUid.isNotEmpty) ...[
-        '${uid}_$resolvedUid',
-        '${resolvedUid}_$uid',
-      ],
+      if (resolvedUid != null && resolvedUid.isNotEmpty) '${uid}_$resolvedUid',
       if (safeEmailKey.isNotEmpty) '${uid}_$safeEmailKey',
     }.toList();
 
@@ -980,6 +978,39 @@ class ContactSyncService {
     }
   }
 
+  /// Whether [partnerUid] has a pending or accepted request asking [myUid] to be their guardian,
+  /// read from the server. Returns null when this cannot be determined (offline, denied).
+  Future<bool?> _hasActiveRequestFrom(String partnerUid, String myUid) async {
+    final myEmail = _currentEmail ?? '';
+    final queries = <Query<Map<String, dynamic>>>[
+      _firestore
+          .collection('connection_requests')
+          .where('senderId', isEqualTo: partnerUid)
+          .where('receiverId', isEqualTo: myUid),
+      if (myEmail.isNotEmpty)
+        _firestore
+            .collection('connection_requests')
+            .where('senderId', isEqualTo: partnerUid)
+            .where('receiver_email', isEqualTo: myEmail),
+    ];
+    try {
+      for (final query in queries) {
+        final snap = await query
+            .get(const GetOptions(source: Source.server))
+            .timeout(const Duration(seconds: 5));
+        final active = snap.docs.any((d) {
+          final status = d.data()['status'];
+          return status == 'pending' || status == 'accepted';
+        });
+        if (active) return true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('[ContactSync] Could not check requests from $partnerUid: $e');
+      return null;
+    }
+  }
+
   /// Upgrades an existing offline contact by dispatching a Guardian Connection Request.
   /// Works even if the contact has not yet initialized their Firestore profile.
   Future<bool> upgradeOfflineToSynced(ContactModel offlineContact) async {
@@ -995,6 +1026,7 @@ class ContactSyncService {
       receiverName: offlineContact.name,
       relationship: offlineContact.relationship,
       optionalPhone: offlineContact.phone.isNotEmpty ? offlineContact.phone : null,
+      isPrimary: offlineContact.isPrimary,
     );
 
     // If the old contact used an offline_ timestamp ID, remove the old offline record

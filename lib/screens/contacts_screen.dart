@@ -5,10 +5,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
 import '../models/contact_model.dart';
 import '../services/contact_service.dart';
 import '../services/contact_sync_service.dart';
+import '../services/guardian_link_logic.dart';
 import '../utils/auth_guard.dart';
 import '../widgets/add_contact_dialog.dart';
 import '../widgets/pending_requests_section.dart';
@@ -18,7 +20,7 @@ import 'package:url_launcher/url_launcher.dart';
 ///
 /// Provides live search, add contact modal with Bangladesh phone validation,
 /// real-time persistence via [ContactService], delete confirmation,
-/// and primary SOS contact tagging.
+/// and the Primary contact star (one primary, pinned to the top, texted first on SOS).
 class ContactsScreen extends StatefulWidget {
   final bool isActive;
   const ContactsScreen({super.key, this.isActive = true});
@@ -33,6 +35,10 @@ class _ContactsScreenState extends State<ContactsScreen> {
   List<ContactModel> _contacts = [];
   bool _isLoading = true;
   StreamSubscription<List<ContactModel>>? _contactsSubscription;
+
+  /// Whether the one-time "tap the star" hint was already dismissed (or a primary was set).
+  /// Starts true so the hint never flashes before the saved value is loaded.
+  bool _primaryHintSeen = true;
 
   @override
   void initState() {
@@ -51,6 +57,145 @@ class _ContactsScreenState extends State<ContactsScreen> {
     ContactSyncService.instance.initialize();
     _loadContacts();
     _subscribeToSyncedContacts();
+    _loadPrimaryHintState();
+  }
+
+  // ── Primary contact ───────────────────────────────────────────────────────
+
+  String get _primaryHintKey {
+    final uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
+    return 'contacts_primary_hint_seen_${uid ?? 'guest'}';
+  }
+
+  Future<void> _loadPrimaryHintState() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final seen = prefs.getBool(_primaryHintKey) ?? false;
+      if (mounted) setState(() => _primaryHintSeen = seen);
+    } catch (_) {}
+  }
+
+  Future<void> _setPrimaryHintSeen(bool seen) async {
+    if (mounted) setState(() => _primaryHintSeen = seen);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_primaryHintKey, seen);
+    } catch (_) {}
+  }
+
+  bool _isPrimary(ContactModel contact) =>
+      ContactService.primaryOf(_contacts)?.id == contact.id;
+
+  /// Star tap: makes [contact] the only Primary contact, or removes it when it already is.
+  Future<void> _togglePrimary(ContactModel contact) async {
+    await _applyPrimary(contact, makePrimary: !_isPrimary(contact));
+  }
+
+  Future<void> _applyPrimary(ContactModel contact, {required bool makePrimary}) async {
+    HapticFeedback.selectionClick();
+    final ok = await ContactService.instance
+        .setPrimaryContact(makePrimary ? contact.id : null);
+    if (!mounted) return;
+    if (ok && makePrimary) unawaited(_setPrimaryHintSeen(true));
+    _showPrimarySnack(
+      ok
+          ? (makePrimary
+              ? '${contact.name} is now your primary contact'
+              : '${contact.name} is no longer your primary contact')
+          : 'Could not change your primary contact. Check your connection and try again.',
+      success: ok,
+    );
+  }
+
+  void _showPrimarySnack(String message, {required bool success}) {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Row(
+        children: [
+          Icon(success ? Icons.star_rounded : Icons.error_outline_rounded,
+              color: Colors.white, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
+          ),
+        ],
+      ),
+      backgroundColor: success ? AppColors.primary : AppColors.sosRed,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.all(16),
+      duration: Duration(seconds: success ? 2 : 4),
+    ));
+  }
+
+  /// Long-press menu on a contact card.
+  Future<void> _showContactMenu(ContactModel contact) async {
+    HapticFeedback.mediumImpact();
+    final bool isPrimary = _isPrimary(contact);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                child: Text(
+                  contact.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                      fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                ),
+              ),
+              ListTile(
+                leading: Icon(isPrimary ? Icons.star_border_rounded : Icons.star_rounded,
+                    color: AppColors.primary),
+                title: Text(
+                  isPrimary ? 'Remove as primary contact' : 'Set as primary contact',
+                  style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+                subtitle: isPrimary
+                    ? null
+                    : Text('Gets your SOS alert and text first',
+                        style: GoogleFonts.poppins(
+                            fontSize: 11.5, color: AppColors.textSecondary)),
+                onTap: () => Navigator.pop(ctx, 'primary'),
+              ),
+              ListTile(
+                leading: const Icon(Icons.edit_outlined, color: AppColors.primary),
+                title: Text('Edit contact',
+                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600)),
+                onTap: () => Navigator.pop(ctx, 'edit'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    if (action == 'primary') {
+      await _applyPrimary(contact, makePrimary: !isPrimary);
+    } else if (action == 'edit') {
+      await _showEditPhoneDialog(contact);
+    }
   }
 
   @override
@@ -128,9 +273,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final emergency = _filtered.where((c) => c.isPrimary).toList();
-    final others = _filtered.where((c) => !c.isPrimary).toList();
-    final int totalEmergencyCount = _contacts.where((c) => c.isPrimary).length;
+    final filtered = _filtered;
+    final ContactModel? primary = ContactService.primaryOf(_contacts);
+    final ContactModel? shownPrimary =
+        primary != null && filtered.any((c) => c.id == primary.id) ? primary : null;
+    final others = filtered.where((c) => c.id != primary?.id).toList();
+    // Everyone except backup contacts gets the SOS straight away (all of them if only backups exist)
+    final int regularCount = _contacts.where((c) => !c.isBackup).length;
+    final int totalEmergencyCount = regularCount > 0 ? regularCount : _contacts.length;
+    final bool showPrimaryHint = primary == null &&
+        !_primaryHintSeen &&
+        _searchQuery.trim().isEmpty &&
+        others.isNotEmpty;
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -145,7 +299,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             _buildSearchBar(),
 
             // ── SOS count banner ────────────────────────────────────
-            _buildSOSBanner(totalEmergencyCount),
+            _buildSOSBanner(totalEmergencyCount, primary),
 
             // ── Contacts list ────────────────────────────────────────
             Expanded(
@@ -161,38 +315,30 @@ class _ContactsScreenState extends State<ContactsScreen> {
                             parent: BouncingScrollPhysics()),
                         padding: const EdgeInsets.fromLTRB(20, 4, 20, 80),
                         children: [
-                          // ── Incoming Mutual Consent Requests ──────────────────────
+                          // ── Incoming Guardian Requests (consent) ──────────────────
                           const PendingRequestsSection(),
 
-                          if (emergency.isNotEmpty) ...[
-                            const _SectionLabel(label: 'Emergency Contacts (SOS)'),
+                          // ── Primary contact, pinned to the top ────────────────────
+                          if (shownPrimary != null) ...[
+                            const _SectionLabel(label: 'Primary Contact'),
                             const SizedBox(height: 10),
-                            ...emergency.map((c) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 10),
-                                  child: _ContactCard(
-                                    contact: c,
-                                    onCall: () => makePhoneCall(c.phone),
-                                    onMessage: () => openSMSApp(c.phone),
-                                    onDelete: () => _confirmDelete(c),
-                                    onUpgrade: () => _handleUpgrade(c),
-                                    onEditPhone: () => _showEditPhoneDialog(c),
-                                  ),
-                                )),
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: _buildContactCard(shownPrimary, isPrimary: true),
+                            ),
                             const SizedBox(height: 8),
                           ],
                           if (others.isNotEmpty) ...[
-                            const _SectionLabel(label: 'Other Contacts'),
+                            _SectionLabel(
+                                label: primary == null
+                                    ? 'Emergency Contacts (SOS)'
+                                    : 'Other Emergency Contacts'),
                             const SizedBox(height: 10),
+                            if (showPrimaryHint)
+                              _PrimaryHint(onDismiss: () => _setPrimaryHintSeen(true)),
                             ...others.map((c) => Padding(
                                   padding: const EdgeInsets.only(bottom: 10),
-                                  child: _ContactCard(
-                                    contact: c,
-                                    onCall: () => makePhoneCall(c.phone),
-                                    onMessage: () => openSMSApp(c.phone),
-                                    onDelete: () => _confirmDelete(c),
-                                    onUpgrade: () => _handleUpgrade(c),
-                                    onEditPhone: () => _showEditPhoneDialog(c),
-                                  ),
+                                  child: _buildContactCard(c, isPrimary: false),
                                 )),
                           ],
                           if (_filtered.isEmpty && !_isLoading)
@@ -204,6 +350,23 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                   ? 'No contacts added yet.\nTap "Add Contact" to add emergency contacts.'
                                   : 'No contacts match "$_searchQuery"',
                             ),
+
+                          // ── People I Protect (read-only, one-way links) ──────────
+                          ValueListenableBuilder<List<ProtectedPerson>>(
+                            valueListenable: ContactSyncService.instance.protectedPeopleNotifier,
+                            builder: (context, people, _) {
+                              final query = _searchQuery.trim().toLowerCase();
+                              final shown = query.isEmpty
+                                  ? people
+                                  : people
+                                      .where((p) =>
+                                          p.name.toLowerCase().contains(query) ||
+                                          p.email.toLowerCase().contains(query))
+                                      .toList();
+                              if (shown.isEmpty) return const SizedBox.shrink();
+                              return _PeopleIProtectSection(people: shown);
+                            },
+                          ),
                         ],
                       ),
                     ),
@@ -222,6 +385,20 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ),
         elevation: 6,
       ),
+    );
+  }
+
+  Widget _buildContactCard(ContactModel c, {required bool isPrimary}) {
+    return _ContactCard(
+      contact: c,
+      isPrimary: isPrimary,
+      onTogglePrimary: () => _togglePrimary(c),
+      onLongPress: () => _showContactMenu(c),
+      onCall: () => makePhoneCall(c.phone),
+      onMessage: () => openSMSApp(c.phone),
+      onDelete: () => _confirmDelete(c),
+      onUpgrade: () => _handleUpgrade(c),
+      onEditPhone: () => _showEditPhoneDialog(c),
     );
   }
 
@@ -291,7 +468,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  Widget _buildSOSBanner(int count) {
+  Widget _buildSOSBanner(int count, ContactModel? primary) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
       child: Container(
@@ -345,6 +522,28 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         fontSize: 10,
                         color: Colors.white.withValues(alpha: 0.85)),
                   ),
+                  if (_contacts.isNotEmpty) ...[
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        Icon(primary != null ? Icons.star_rounded : Icons.star_border_rounded,
+                            color: Colors.white, size: 13),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            primary != null
+                                ? 'Primary: ${primary.name} (alerted first)'
+                                : 'No primary contact yet. Tap the star on a contact.',
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.poppins(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.white),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -517,6 +716,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         );
 
         if (confirmed == true) {
+          final bool wasPrimary = _isPrimary(contact);
           if (mounted) {
             setState(() {
               // _contacts is often the unmodifiable list from ContactService, so build a new
@@ -528,6 +728,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
           }
           // Permanently delete across Firestore (both directions) and local storage
           final removed = await ContactSyncService.instance.deleteSyncedContact(contact);
+          // No primary any more: show the "tap the star" hint again
+          if (removed && wasPrimary) unawaited(_setPrimaryHintSeen(false));
           await _loadContacts();
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
@@ -603,6 +805,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
   Future<void> _showEditPhoneDialog(ContactModel contact) async {
     final phoneController = TextEditingController(text: contact.phone);
     final formKey = GlobalKey<FormState>();
+    final bool wasPrimary = _isPrimary(contact);
+    bool wantPrimary = wasPrimary;
 
     await showModalBottomSheet(
       context: context,
@@ -703,6 +907,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     validator: (val) {
                       final clean = (val ?? '').replaceAll(RegExp(r'\s+|-|\(|\)'), '');
                       if (clean.isEmpty) {
+                        // A contact without a phone may still change only its Primary setting
+                        if (!contact.hasPhone && wantPrimary != wasPrimary) return null;
                         return 'Please enter a valid phone number';
                       }
                       if (clean.length < 9) {
@@ -711,7 +917,32 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       return null;
                     },
                   ),
-                  const SizedBox(height: 20),
+                  const SizedBox(height: 8),
+                  StatefulBuilder(
+                    builder: (context, setSwitchState) => SwitchListTile(
+                      value: wantPrimary,
+                      contentPadding: EdgeInsets.zero,
+                      activeThumbColor: AppColors.primary,
+                      secondary: Icon(
+                        wantPrimary ? Icons.star_rounded : Icons.star_border_rounded,
+                        color: wantPrimary ? AppColors.primary : AppColors.textSecondary,
+                      ),
+                      title: Text(
+                        'Primary contact',
+                        style: GoogleFonts.poppins(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.textPrimary),
+                      ),
+                      subtitle: Text(
+                        'Gets your SOS alert and text first. Only one contact can be primary.',
+                        style: GoogleFonts.poppins(
+                            fontSize: 11.5, color: AppColors.textSecondary),
+                      ),
+                      onChanged: (val) => setSwitchState(() => wantPrimary = val),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
                     height: 48,
@@ -725,27 +956,42 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       ),
                       onPressed: () async {
                         if (!formKey.currentState!.validate()) return;
+                        final bool hasNewPhone = phoneController.text.trim().isNotEmpty;
                         final newPhone = ContactSyncService.instance
                             .normalizePhone(phoneController.text.trim());
                         Navigator.pop(ctx);
 
-                        final updatedContact = contact.copyWith(phone: newPhone);
-                        await ContactService.instance.updateContact(updatedContact);
+                        if (hasNewPhone) {
+                          // Start from the latest copy so a stale Primary flag is never written back
+                          final latest = ContactService.instance.contacts
+                                  .where((c) => c.id == contact.id)
+                                  .firstOrNull ??
+                              contact;
+                          final updatedContact = latest.copyWith(phone: newPhone);
+                          await ContactService.instance.updateContact(updatedContact);
 
-                        // Persist to Firestore subcollection if authenticated
-                        if (Firebase.apps.isNotEmpty) {
-                          final user = FirebaseAuth.instance.currentUser;
-                          if (user != null) {
-                            await FirebaseFirestore.instance
-                                .collection('users')
-                                .doc(user.uid)
-                                .collection('contacts')
-                                .doc(contact.id)
-                                .set({
-                              'phone': newPhone,
-                              'contact_optional_phone': newPhone,
-                            }, SetOptions(merge: true));
+                          // Persist to Firestore subcollection if authenticated
+                          if (Firebase.apps.isNotEmpty) {
+                            final user = FirebaseAuth.instance.currentUser;
+                            if (user != null) {
+                              await FirebaseFirestore.instance
+                                  .collection('users')
+                                  .doc(user.uid)
+                                  .collection('contacts')
+                                  .doc(contact.id)
+                                  .set({
+                                'phone': newPhone,
+                                'contact_optional_phone': newPhone,
+                              }, SetOptions(merge: true));
+                            }
                           }
+                        }
+
+                        if (wantPrimary != wasPrimary) {
+                          // Shows "{Name} is now your primary contact" (or the error)
+                          await _applyPrimary(contact, makePrimary: wantPrimary);
+                          _loadContacts();
+                          return;
                         }
 
                         if (!mounted) return;
@@ -775,7 +1021,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         _loadContacts();
                       },
                       child: Text(
-                        'Save Phone Number',
+                        'Save',
                         style: GoogleFonts.poppins(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -796,6 +1042,95 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
 // ─── Sub-widgets ────────────────────────────────────────────────────────────
 
+/// Read-only list of people who added the current user as their guardian.
+/// They are NOT the current user's guardians: the current user only receives their alerts.
+class _PeopleIProtectSection extends StatelessWidget {
+  final List<ProtectedPerson> people;
+  const _PeopleIProtectSection({required this.people});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionLabel(label: 'People I Protect (${people.length})'),
+          const SizedBox(height: 2),
+          Text(
+            'You receive their SOS alerts. They do not receive yours.',
+            style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
+          ),
+          const SizedBox(height: 10),
+          ...people.map((p) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _ProtectedPersonCard(person: p),
+              )),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProtectedPersonCard extends StatelessWidget {
+  final ProtectedPerson person;
+  const _ProtectedPersonCard({required this.person});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 42,
+            height: 42,
+            decoration: const BoxDecoration(color: Color(0xFFEDE7F6), shape: BoxShape.circle),
+            alignment: Alignment.center,
+            child: Text(
+              person.initial,
+              style: GoogleFonts.poppins(
+                  fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primaryViolet),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  person.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                      fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                ),
+                if (person.email.isNotEmpty && person.email != person.name)
+                  Text(
+                    person.email,
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                  ),
+                if (person.relationship.isNotEmpty)
+                  Text(
+                    'Added you as: ${person.relationship}',
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(fontSize: 11, color: AppColors.primaryViolet),
+                  ),
+              ],
+            ),
+          ),
+          const Icon(Icons.shield_outlined, size: 18, color: AppColors.primaryViolet),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionLabel extends StatelessWidget {
   final String label;
   const _SectionLabel({required this.label});
@@ -815,12 +1150,18 @@ class _SectionLabel extends StatelessWidget {
 
 class _ContactCard extends StatelessWidget {
   final ContactModel contact;
+  final bool isPrimary;
+  final VoidCallback onTogglePrimary;
+  final VoidCallback? onLongPress;
   final VoidCallback onCall, onMessage, onDelete;
   final VoidCallback? onUpgrade;
   final VoidCallback? onEditPhone;
 
   const _ContactCard({
     required this.contact,
+    required this.isPrimary,
+    required this.onTogglePrimary,
+    this.onLongPress,
     required this.onCall,
     required this.onMessage,
     required this.onDelete,
@@ -830,13 +1171,18 @@ class _ContactCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorStyle = _getColorForContact(contact);
+    final colorStyle = _getColorForContact(contact, isPrimary: isPrimary);
 
-    return Container(
+    return GestureDetector(
+      onLongPress: onLongPress,
+      child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(18),
+        border: isPrimary
+            ? Border.all(color: AppColors.primary.withValues(alpha: 0.55), width: 1.5)
+            : null,
         boxShadow: [
           BoxShadow(
               color: Colors.black.withValues(alpha: 0.05),
@@ -864,17 +1210,19 @@ class _ContactCard extends StatelessWidget {
                       color: colorStyle.text),
                 ),
               ),
-              if (contact.isPrimary)
+              if (isPrimary)
                 Positioned(
                   right: 0,
                   bottom: 0,
                   child: Container(
-                    width: 13,
-                    height: 13,
+                    width: 17,
+                    height: 17,
                     decoration: BoxDecoration(
-                        color: AppColors.sosRed,
+                        color: AppColors.primary,
                         shape: BoxShape.circle,
                         border: Border.all(color: AppColors.surface, width: 2)),
+                    alignment: Alignment.center,
+                    child: const Icon(Icons.star_rounded, size: 10, color: Colors.white),
                   ),
                 ),
             ],
@@ -897,20 +1245,21 @@ class _ContactCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (contact.isPrimary) ...[
+                    if (isPrimary) ...[
                       const SizedBox(width: 6),
                       Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                            color: const Color(0xFFFFE5E5),
+                            color: AppColors.primarySurface,
                             borderRadius: BorderRadius.circular(6)),
                         child: Text(
-                          'SOS',
+                          'PRIMARY',
                           style: GoogleFonts.poppins(
                               fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.sosRed),
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.4,
+                              color: AppColors.primary),
                         ),
                       ),
                     ],
@@ -1078,8 +1427,13 @@ class _ContactCard extends StatelessWidget {
               ],
             ),
           ),
-          // Actions: Call, Message, Sync, Delete
-          Row(
+          // Star (Primary contact) above the actions: Sync, Call, Message, Edit, Delete
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              _PrimaryStarButton(isPrimary: isPrimary, onPressed: onTogglePrimary),
+              Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               if (!contact.isSynced && !contact.isPending && contact.email.isNotEmpty && onUpgrade != null) ...[
@@ -1124,8 +1478,98 @@ class _ContactCard extends StatelessWidget {
               ),
             ],
           ),
+            ],
+          ),
         ],
       ),
+      ),
+    );
+  }
+}
+
+/// Star toggle for the Primary contact: outlined when not primary, filled in the accent
+/// colour when primary. 48x48 tap target.
+class _PrimaryStarButton extends StatelessWidget {
+  final bool isPrimary;
+  final VoidCallback onPressed;
+  const _PrimaryStarButton({required this.isPrimary, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      onPressed: onPressed,
+      tooltip: isPrimary ? 'Primary contact (tap to remove)' : 'Set as primary contact',
+      isSelected: isPrimary,
+      constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+      padding: EdgeInsets.zero,
+      iconSize: 28,
+      icon: const Icon(Icons.star_border_rounded, color: AppColors.textSecondary),
+      selectedIcon: const Icon(Icons.star_rounded, color: AppColors.primary),
+    );
+  }
+}
+
+/// One-time hint shown above the first contact card while no Primary contact is set.
+/// The arrow points down at that card's star button.
+class _PrimaryHint extends StatelessWidget {
+  final VoidCallback onDismiss;
+  const _PrimaryHint({required this.onDismiss});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
+          decoration: BoxDecoration(
+            color: AppColors.primarySurface,
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.star_border_rounded, color: AppColors.primary, size: 24),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Choose your primary contact',
+                      style: GoogleFonts.poppins(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Tap the star on a contact. Your primary contact gets your SOS alert and '
+                      'text first. Everyone else is still alerted.',
+                      style: GoogleFonts.poppins(
+                          fontSize: 11.5, height: 1.35, color: AppColors.textSecondary),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: onDismiss,
+                child: Text('Got it',
+                    style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.w700, color: AppColors.primary)),
+              ),
+            ],
+          ),
+        ),
+        // Card padding (10) + half the 48dp star button (24) - half this icon (11) = 23
+        const Align(
+          alignment: Alignment.centerRight,
+          child: Padding(
+            padding: EdgeInsets.only(right: 23),
+            child: Icon(Icons.arrow_downward_rounded, color: AppColors.primary, size: 22),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1203,8 +1647,8 @@ const List<_AvatarColorPair> _avatarPalette = [
   _AvatarColorPair(Color(0xFFFEEDD8), AppColors.actionOrange),
 ];
 
-_AvatarColorPair _getColorForContact(ContactModel contact) {
-  if (contact.isPrimary) {
+_AvatarColorPair _getColorForContact(ContactModel contact, {required bool isPrimary}) {
+  if (isPrimary) {
     return _avatarPalette[0];
   }
   final index = contact.name.hashCode.abs() % _avatarPalette.length;

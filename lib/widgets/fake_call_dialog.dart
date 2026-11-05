@@ -3,29 +3,69 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
+import '../models/fake_caller.dart';
 import '../services/activity_service.dart';
-import '../services/contact_service.dart';
+import '../services/auth_service.dart';
 import '../services/fake_call_audio_service.dart';
+import '../services/fake_call_settings_service.dart';
 
 /// Full-screen realistic incoming phone call simulator.
 ///
 /// Designed as a discreet, authentic escape mechanism for women in uncomfortable
 /// or unsafe environments. Simulates an incoming call with vibration and an active
 /// call timer upon answering.
+///
+/// The caller is always a preset ("Ammu", "Police Station", ...) or a custom name the user chose,
+/// never a contact's or the user's own profile name.
 class FakeCallDialog extends StatefulWidget {
-  const FakeCallDialog({super.key});
+  final FakeCaller caller;
 
-  /// Displays the fake call simulator as a full-screen modal route.
-  static Future<void> show(BuildContext context) {
-    return Navigator.of(context, rootNavigator: true).push<void>(
-      PageRouteBuilder(
-        opaque: true,
-        pageBuilder: (_, __, ___) => const FakeCallDialog(),
-        transitionsBuilder: (_, anim, __, child) {
-          return FadeTransition(opacity: anim, child: child);
-        },
-      ),
-    );
+  const FakeCallDialog({super.key, this.caller = FakeCaller.defaultCaller});
+
+  /// True while a fake call screen is on screen (or about to be), so a double tap or a
+  /// scheduled call firing during a call never stacks a second call screen.
+  static bool _active = false;
+  static bool get isActive => _active;
+
+  /// Displays the fake call simulator as a full-screen modal route. Without [caller], the
+  /// caller saved in Fake Call settings is used.
+  static Future<void> show(BuildContext context, {FakeCaller? caller}) {
+    return showOn(Navigator.of(context, rootNavigator: true), caller: caller);
+  }
+
+  /// Same as [show], for callers that hold a navigator rather than a context (scheduled calls).
+  static Future<void> showOn(NavigatorState navigator, {FakeCaller? caller}) async {
+    if (_active) {
+      debugPrint('[FakeCall] A fake call is already showing; ignoring the new one.');
+      return;
+    }
+    _active = true;
+    try {
+      final chosen = await resolveCaller(caller);
+      if (!navigator.mounted) return;
+      await navigator.push<void>(
+        PageRouteBuilder(
+          opaque: true,
+          pageBuilder: (_, __, ___) => FakeCallDialog(caller: chosen),
+          transitionsBuilder: (_, anim, __, child) {
+            return FadeTransition(opacity: anim, child: child);
+          },
+        ),
+      );
+    } finally {
+      _active = false;
+    }
+  }
+
+  /// [caller] or the saved default, never showing the user's own profile name.
+  static Future<FakeCaller> resolveCaller(FakeCaller? caller) async {
+    var chosen = caller ?? await FakeCallSettingsService.instance.loadCaller();
+    String? ownName;
+    try {
+      ownName = AuthService.instance.isAuthenticated ? AuthService.instance.displayName : null;
+    } catch (_) {}
+    if (!chosen.isValid || chosen.usesOwnName(ownName)) chosen = FakeCaller.defaultCaller;
+    return chosen;
   }
 
   @override
@@ -35,28 +75,25 @@ class FakeCallDialog extends StatefulWidget {
 class _FakeCallDialogState extends State<FakeCallDialog> {
   bool _isCallAnswered = false;
   bool _isMuted = false;
-  bool _isSpeaker = false;
+
+  /// Matches the real output: the caller's voice starts on the loudspeaker (unchanged default).
+  bool _isSpeaker = true;
 
   Timer? _vibrationTimer;
   Timer? _callDurationTimer;
   int _secondsElapsed = 0;
 
-  late String _callerName;
-  late String _callerPhone;
+  late final String _callerName;
+  late final String _callerPhone;
+  late final String _avatarLetter;
 
   @override
   void initState() {
     super.initState();
 
-    // Dynamically use primary contact or Mom as caller
-    final contacts = ContactService.instance.contacts;
-    final primary = contacts.where((c) => c.isPrimary).firstOrNull ??
-        contacts.firstOrNull;
-
-    _callerName = primary?.name ?? 'Mom';
-    _callerPhone = primary != null && primary.phone.isNotEmpty
-        ? primary.phone
-        : '+880 1711-000001';
+    _callerName = widget.caller.name;
+    _callerPhone = widget.caller.subtitle;
+    _avatarLetter = widget.caller.avatarLetter;
 
     _startIncomingRinging();
     ActivityService.instance.logQuickAction('Fake Call');
@@ -67,12 +104,12 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
     _vibrationTimer?.cancel();
     _callDurationTimer?.cancel();
     // No sound may outlive the call screen (back button, hang up, or route removed)
-    FakeCallAudioService.instance.stop();
+    FakeCallAudioService.instance.stop(owner: this);
     super.dispose();
   }
 
   void _startIncomingRinging() {
-    FakeCallAudioService.instance.startRinging();
+    FakeCallAudioService.instance.startRinging(owner: this);
     HapticFeedback.vibrate();
     _vibrationTimer = Timer.periodic(const Duration(milliseconds: 1200), (_) {
       if (!_isCallAnswered && mounted) {
@@ -101,7 +138,10 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
   }
 
   Future<void> _startConversationAudio() async {
-    final mode = await FakeCallAudioService.instance.startConversation();
+    final mode = await FakeCallAudioService.instance.startConversation(
+      caller: widget.caller,
+      speaker: _isSpeaker,
+    );
     if (mode != 'unavailable' || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(
@@ -114,11 +154,19 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
     ));
   }
 
+  /// Earpiece/Speaker toggle: moves the caller's voice between the loudspeaker and the earpiece.
+  void _toggleSpeaker() {
+    HapticFeedback.selectionClick();
+    final speaker = !_isSpeaker;
+    setState(() => _isSpeaker = speaker);
+    FakeCallAudioService.instance.setSpeaker(speaker);
+  }
+
   void _endCall() {
     HapticFeedback.mediumImpact();
     _vibrationTimer?.cancel();
     _callDurationTimer?.cancel();
-    FakeCallAudioService.instance.stop();
+    FakeCallAudioService.instance.stop(owner: this);
     Navigator.of(context).pop();
   }
 
@@ -170,7 +218,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
               ),
               child: Center(
                 child: Text(
-                  _callerName.isNotEmpty ? _callerName[0].toUpperCase() : 'M',
+                  _avatarLetter,
                   style: GoogleFonts.poppins(
                     fontSize: 42,
                     fontWeight: FontWeight.bold,
@@ -298,7 +346,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
               ),
               child: Center(
                 child: Text(
-                  _callerName.isNotEmpty ? _callerName[0].toUpperCase() : 'M',
+                  _avatarLetter,
                   style: GoogleFonts.poppins(
                     fontSize: 34,
                     fontWeight: FontWeight.bold,
@@ -354,13 +402,10 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
                   _callOption(
                     icon: _isSpeaker
                         ? Icons.volume_up_rounded
-                        : Icons.volume_down_rounded,
-                    label: 'Speaker',
+                        : Icons.phone_in_talk_rounded,
+                    label: _isSpeaker ? 'Speaker' : 'Earpiece',
                     isActive: _isSpeaker,
-                    onTap: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _isSpeaker = !_isSpeaker);
-                    },
+                    onTap: _toggleSpeaker,
                   ),
                 ],
               ),

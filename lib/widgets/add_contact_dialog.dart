@@ -29,7 +29,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
   final TextEditingController _phoneCtrl = TextEditingController();
 
   String _selectedRelation = 'Parent';
-  bool _isPrimary = true;
+  bool _isPrimary = false;
   bool _isBackup = false;
   bool _isSubmitting = false;
   String? _errorMessage;
@@ -71,6 +71,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
     final String name = _nameCtrl.text.trim();
     final String email = _emailCtrl.text.trim().toLowerCase();
     final String phone = _phoneCtrl.text.trim();
+    final String primaryNote = _isPrimary ? ' $name is now your primary contact.' : '';
 
     try {
       // 1. Search if target email is a registered app user
@@ -90,6 +91,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
           relationship: _selectedRelation,
           optionalPhone: resolvedPhone.isNotEmpty ? resolvedPhone : null,
           isBackup: _isBackup,
+          isPrimary: _isPrimary,
         );
 
         if (mounted) {
@@ -101,7 +103,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Connection request sent to $email! They will be notified to accept.',
+                      'Connection request sent to $email! They will be notified to accept.$primaryNote',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 13),
                     ),
                   ),
@@ -123,6 +125,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
           relationship: _selectedRelation,
           optionalPhone: phone.isNotEmpty ? phone : null,
           isBackup: _isBackup,
+          isPrimary: _isPrimary,
         );
 
         if (mounted) {
@@ -134,7 +137,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Guardian request sent to $email! Once they open the app and accept, live sync will activate.',
+                      'Guardian request sent to $email! Once they open the app and accept, live sync will activate.$primaryNote',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 13),
                     ),
                   ),
@@ -168,6 +171,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
           relationship: _selectedRelation,
           optionalPhone: phone.isNotEmpty ? phone : null,
           isBackup: _isBackup,
+          isPrimary: _isPrimary,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -178,7 +182,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Contact saved! (Offline SMS alerts active; sync will retry when online).',
+                      'Contact saved! (Offline SMS alerts active; sync will retry when online).$primaryNote',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12.5),
                     ),
                   ),
@@ -480,13 +484,17 @@ class _AddContactDialogState extends State<AddContactDialog> {
               ),
               const SizedBox(height: 14),
 
-              // 5. Priority SOS toggle
+              // 5. Primary contact toggle (same as the star on the contact card)
               SwitchListTile(
                 value: _isPrimary,
                 contentPadding: EdgeInsets.zero,
                 activeThumbColor: AppColors.primary,
+                secondary: Icon(
+                  _isPrimary ? Icons.star_rounded : Icons.star_border_rounded,
+                  color: _isPrimary ? AppColors.primary : AppColors.textSecondary,
+                ),
                 title: Text(
-                  'Mark as Primary Emergency Contact',
+                  'Primary contact',
                   style: GoogleFonts.poppins(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -494,7 +502,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   ),
                 ),
                 subtitle: Text(
-                  'Receives highest priority in the SOS broadcast list',
+                  'Gets your SOS alert and text first. Everyone else is still alerted. Only one contact can be primary.',
                   style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
                 ),
                 onChanged: (val) => setState(() => _isPrimary = val),

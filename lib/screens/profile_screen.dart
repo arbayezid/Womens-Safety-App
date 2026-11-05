@@ -922,7 +922,8 @@ class _ProfileScreenState extends State<ProfileScreen>
             style: GoogleFonts.poppins(
                 fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
         content: Text(
-            'Are you sure you want to clear all logged safety activities? This cannot be undone.',
+            'Clear routine activity (contacts, siren, profile changes) from your account? '
+            'SOS alert records are kept as evidence and are not cleared.',
             style: GoogleFonts.poppins(
                 fontSize: 13, color: AppColors.textSecondary)),
         actions: [
@@ -940,7 +941,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Activity history cleared.'),
+                  content: Text('Routine activity cleared. SOS records were kept.'),
                   backgroundColor: AppColors.textPrimary,
                   behavior: SnackBarBehavior.floating,
                 ),

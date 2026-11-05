@@ -371,10 +371,6 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
         // Escalation Level
         final int escalationLevel = (docData['escalationLevel'] as num?)?.toInt() ?? 0;
 
-        // Audio Evidence URL
-        final String audioUrl = (docData['audioUrl'] ?? docData['audio_url'] ?? docData['recordingUrl'])?.toString() ?? '';
-        final bool hasAudio = (docData['hasAudio'] as bool?) ?? audioUrl.isNotEmpty;
-
         return Scaffold(
           backgroundColor: const Color(0xFFF8FAFC),
           appBar: AppBar(
@@ -502,13 +498,10 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                       dismissedBy: rawDismissedBy.map((e) => e.toString()).toList(),
                       acknowledgedBy: rawAcknowledgedBy.map((e) => e.toString()).toList(),
                       acknowledgedAt: rawAcknowledgedAt,
+                      isSender: isSender,
+                      currentUid: currentUid,
+                      currentEmail: currentEmail,
                     ),
-
-                    if (hasAudio) ...[
-                      const SizedBox(height: 16),
-                      // 6. Audio Evidence Player
-                      _buildAudioEvidenceCard(audioUrl: audioUrl),
-                    ],
 
                     const SizedBox(height: 16),
 
@@ -1331,9 +1324,36 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
     required List<String> dismissedBy,
     required List<String> acknowledgedBy,
     required Map<String, dynamic> acknowledgedAt,
+    required bool isSender,
+    required String currentUid,
+    required String currentEmail,
   }) {
     // Collect all contacts
     final Set<String> allIdentities = {...recipientEmails, ...recipientUids};
+
+    // Sender keeps viewing ALL contacts.
+    // Receiver ONLY sees their own contact entry for privacy protection.
+    final Set<String> displayedIdentities;
+    if (isSender) {
+      displayedIdentities = allIdentities;
+    } else {
+      bool isMe(String identity) {
+        final isUid = !identity.contains('@');
+        if (isUid && currentUid.isNotEmpty && identity == currentUid) return true;
+        if (!isUid && currentEmail.isNotEmpty && identity.toLowerCase() == currentEmail) return true;
+        return false;
+      }
+
+      displayedIdentities = allIdentities.where(isMe).toSet();
+      // Fallback: If current user was acknowledged or has a UID, ensure they are shown
+      if (displayedIdentities.isEmpty && currentUid.isNotEmpty) {
+        displayedIdentities.add(currentUid);
+      }
+    }
+
+    final panelTitle = isSender
+        ? 'Guardians Dispatched (${allIdentities.length})'
+        : 'Your Guardian Status';
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -1350,7 +1370,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               const Icon(Icons.shield_outlined, color: AppColors.primary, size: 18),
               const SizedBox(width: 8),
               Text(
-                'Guardians Dispatched (${allIdentities.length})',
+                panelTitle,
                 style: GoogleFonts.poppins(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
@@ -1360,14 +1380,20 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             ],
           ),
           const SizedBox(height: 12),
-          if (allIdentities.isEmpty)
+          if (displayedIdentities.isEmpty)
             Text(
-              'No guardian contacts attached to this alert.',
+              isSender
+                  ? 'No guardian contacts attached to this alert.'
+                  : 'You are viewing this emergency incident.',
               style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
             )
           else
-            ...allIdentities.map((identity) {
+            ...displayedIdentities.map((identity) {
               final isUid = !identity.contains('@');
+              final bool isMe = (!isSender) ||
+                  (isUid && currentUid.isNotEmpty && identity == currentUid) ||
+                  (!isUid && currentEmail.isNotEmpty && identity.toLowerCase() == currentEmail);
+
               ContactModel? match;
               try {
                 match = _cachedContacts.firstWhere(
@@ -1375,10 +1401,19 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 );
               } catch (_) {}
 
-              final displayName = match?.name ?? (isUid ? 'Guardian ($identity)' : identity);
+              final String displayName;
+              if (!isSender && isMe) {
+                final emailSuffix = currentEmail.isNotEmpty ? ' ($currentEmail)' : '';
+                displayName = 'You$emailSuffix';
+              } else {
+                displayName = match?.name ?? (isUid ? 'Guardian ($identity)' : identity);
+              }
+
               final bool isBackup = match?.isBackup ?? false;
-              final bool isAcknowledged = isUid && acknowledgedBy.contains(identity);
-              final bool isSeen = isUid && dismissedBy.contains(identity);
+              final bool isAcknowledged = (isUid && acknowledgedBy.contains(identity)) ||
+                  (isMe && currentUid.isNotEmpty && acknowledgedBy.contains(currentUid));
+              final bool isSeen = (isUid && dismissedBy.contains(identity)) ||
+                  (isMe && currentUid.isNotEmpty && dismissedBy.contains(currentUid));
 
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1412,7 +1447,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    if (isBackup) ...[
+                    if (isBackup && isSender) ...[
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         margin: const EdgeInsets.only(right: 6),
@@ -1453,67 +1488,17 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 ),
               );
             }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildAudioEvidenceCard({required String audioUrl}) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.orange.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(10),
-            decoration: const BoxDecoration(
-              color: Colors.orange,
-              shape: BoxShape.circle,
+          if (!isSender && allIdentities.length > displayedIdentities.length) ...[
+            const SizedBox(height: 8),
+            Text(
+              '🛡️ ${allIdentities.length - displayedIdentities.length} other guardian contact(s) also notified by sender',
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                color: AppColors.textSecondary,
+                fontStyle: FontStyle.italic,
+              ),
             ),
-            child: const Icon(Icons.mic_rounded, color: Colors.white, size: 22),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Emergency Audio Evidence',
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
-                ),
-                Text(
-                  'Audio recording captured at emergency dispatch',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 8),
-          ElevatedButton.icon(
-            onPressed: () => _launchExternalUrl(audioUrl),
-            icon: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 16),
-            label: Text(
-              'Play',
-              style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.orange,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              elevation: 0,
-            ),
-          ),
+          ],
         ],
       ),
     );

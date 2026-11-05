@@ -20,6 +20,7 @@ import 'emergency_service.dart';
 import 'journey_service.dart';
 import 'live_tracking_service.dart';
 import 'notification_service.dart';
+import 'safety_deadline_service.dart';
 
 /// Central Singleton Service managing Ride Safety Check-in sessions,
 /// image compression, Firestore persistence, live GPS tracking, SMS fallback,
@@ -249,6 +250,7 @@ class RideCheckinService {
     // 9. Attach real-time Firestore listener and start overdue timer
     _attachRideListener(rideId);
     _startOverdueMonitor(ride);
+    _armRideDeadline(ride);
 
     // 10. Log Activity
     ActivityService.instance.logActivity(
@@ -324,6 +326,7 @@ class RideCheckinService {
     // 3. Clear local state
     _overdueMonitorTimer?.cancel();
     _overdueMonitorTimer = null;
+    unawaited(SafetyDeadlineService.instance.clear(rideDeadlineId(targetId)));
     _activeRideDocSub?.cancel();
     _activeRideDocSub = null;
     activeRideNotifier.value = null;
@@ -392,6 +395,7 @@ class RideCheckinService {
 
     _overdueMonitorTimer?.cancel();
     _overdueMonitorTimer = null;
+    unawaited(SafetyDeadlineService.instance.clear(rideDeadlineId(targetId)));
     _activeRideDocSub?.cancel();
     _activeRideDocSub = null;
     activeRideNotifier.value = null;
@@ -432,6 +436,7 @@ class RideCheckinService {
         expectedMinutes: updatedMinutes,
         status: RideStatus.active,
       );
+      _armRideDeadline(ride, expectedMinutes: updatedMinutes, replace: true);
     } catch (e) {
       debugPrint('[RideCheckinService] Failed to extend ride time: $e');
     }
@@ -455,6 +460,7 @@ class RideCheckinService {
       if (!ride.isActive && !ride.isOverdue) {
         _overdueMonitorTimer?.cancel();
         _overdueMonitorTimer = null;
+        unawaited(SafetyDeadlineService.instance.clear(rideDeadlineId(ride.id)));
       }
     }, onError: (e) {
       debugPrint('[RideCheckinService] Ride doc listener error: $e');
@@ -480,32 +486,14 @@ class RideCheckinService {
 
     if (now.isAfter(graceDeadline) && ride.status == RideStatus.active) {
       debugPrint('[RideCheckinService] ⚠️ RIDE IS OVERDUE! Triggering overdue protocol...');
-      // 1. Mark overdue in Firestore
-      try {
-        await _firestore.collection('ride_checkins').doc(ride.id).update({
-          'status': RideStatus.overdue.name,
-          'lastUpdatedAt': FieldValue.serverTimestamp(),
-        });
-      } catch (_) {}
+      // 1-2. Mark overdue in Firestore + SMS guardians
+      await _runOverdueProtocol(ride);
 
-      // 2. Alert primary guardians via SMS fallback
-      final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
-      final mapUrl = 'https://maps.google.com/?q=${ride.currentLat},${ride.currentLng}';
-      final alertMsg =
-          'OVERDUE RIDE ALERT: ${ride.userName}\'s ${ride.rideType} ride (${ride.plateFormatted}) is overdue by 10+ minutes. Last location: $mapUrl';
-
-      for (final phone in phoneNumbers) {
-        final formatted = EmergencyService.instance.formatRecipientPhone(phone);
-        if (formatted.isNotEmpty) {
-          try {
-            await _telephony.sendSms(
-              to: formatted,
-              message: alertMsg,
-              isMultipart: true,
-            );
-          } catch (_) {}
-        }
-      }
+      // Native backstop: SOS if this check stays unanswered (in-app or after the app is closed)
+      unawaited(SafetyDeadlineService.instance.prompt(
+        rideDeadlineId(ride.id),
+        now.add(const Duration(seconds: 60)),
+      ));
 
       // 3. Trigger 60s Dead-Man's Switch via JourneyService safety check
       JourneyService.instance.activeSafetyCheckNotifier.value = SafetyCheckState(
@@ -536,6 +524,132 @@ class RideCheckinService {
     }
   }
 
+  /// Steps 1-2 of the overdue protocol: mark the ride overdue and SMS the guardians.
+  Future<void> _runOverdueProtocol(RideCheckinModel ride) async {
+    try {
+      await _firestore.collection('ride_checkins').doc(ride.id).update({
+        'status': RideStatus.overdue.name,
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (_) {}
+
+    final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
+    final mapUrl = 'https://maps.google.com/?q=${ride.currentLat},${ride.currentLng}';
+    final alertMsg =
+        'OVERDUE RIDE ALERT: ${ride.userName}\'s ${ride.rideType} ride (${ride.plateFormatted}) is overdue by 10+ minutes. Last location: $mapUrl';
+
+    for (final phone in phoneNumbers) {
+      final formatted = EmergencyService.instance.formatRecipientPhone(phone);
+      if (formatted.isNotEmpty) {
+        try {
+          await _telephony.sendSms(
+            to: formatted,
+            message: alertMsg,
+            isMultipart: true,
+          );
+        } catch (_) {}
+      }
+    }
+  }
+
+  // ── Safety deadline (exact-alarm backstop) ─────────────────────────────────
+
+  void _armRideDeadline(RideCheckinModel ride, {int? expectedMinutes, bool replace = false}) {
+    final minutes = expectedMinutes ?? ride.expectedMinutes;
+    if (minutes == null) return;
+    unawaited(SafetyDeadlineService.instance.arm(
+      SafetyDeadline(
+        id: rideDeadlineId(ride.id),
+        kind: SafetyDeadlineKind.ride,
+        refId: ride.id,
+        uid: FirebaseAuth.instance.currentUser?.uid ?? ride.userId,
+        fireAt: rideOverdueAt(createdAt: ride.createdAt, expectedMinutes: minutes),
+        title: '⚠️ Ride overdue: are you OK?',
+        body: 'Your ${ride.rideType} ride (${ride.plateFormatted}) is more than 10 minutes overdue.',
+      ),
+      replace: replace,
+    ));
+  }
+
+  Future<RideCheckinModel?> _loadRide(String rideId) async {
+    final current = activeRide;
+    if (current != null && current.id == rideId) return current;
+    try {
+      final snap = await _firestore
+          .collection('ride_checkins')
+          .doc(rideId)
+          .get()
+          .timeout(const Duration(seconds: 8));
+      if (snap.exists && snap.data() != null) return RideCheckinModel.fromMap(snap.data()!, snap.id);
+    } catch (e) {
+      debugPrint('[RideCheckinService] Could not load ride $rideId: $e');
+    }
+    return null;
+  }
+
+  /// Ride deadline reached. In the live app this runs the normal in-app overdue check; while the
+  /// app is closed it runs the overdue protocol (status + SMS) and native code shows the prompt.
+  /// Returns 'prompted', 'native' or 'none'.
+  Future<String> handleOverdueDeadline(String rideId, {required bool inApp}) async {
+    final ride = await _loadRide(rideId);
+    if (ride == null || (!ride.isActive && !ride.isOverdue)) {
+      await SafetyDeadlineService.instance.clear(rideDeadlineId(rideId));
+      return 'none';
+    }
+    if (inApp && activeRide?.id == rideId) {
+      if (ride.isActive) await _checkOverdueState();
+      return JourneyService.instance.activeSafetyCheckNotifier.value != null ? 'prompted' : 'native';
+    }
+    if (ride.isActive) await _runOverdueProtocol(ride);
+    return 'native';
+  }
+
+  /// The ride-overdue check stayed unanswered: send the SOS through the existing pipeline.
+  Future<String> escalateOverdueFromDeadline(String rideId) async {
+    final ride = await _loadRide(rideId);
+    if (ride == null || (!ride.isActive && !ride.isOverdue)) {
+      await SafetyDeadlineService.instance.clear(rideDeadlineId(rideId));
+      return 'skipped';
+    }
+    if (!await SafetyDeadlineService.instance.claim(rideDeadlineId(rideId))) return 'skipped';
+
+    final check = JourneyService.instance.activeSafetyCheckNotifier.value;
+    if (check != null && check.trigger.title == 'Ride Overdue Check-In') {
+      JourneyService.instance.activeSafetyCheckNotifier.value = null;
+    }
+    await NotificationService.instance.cancelSafetyCheckNotification();
+
+    bool playSiren = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      playSiren = prefs.getBool(JourneyService.prefKeySirenOnAutoSos) ?? false;
+    } catch (_) {}
+
+    await EmergencyService.instance.triggerEmergency(
+      source: 'RIDE_OVERDUE_SOS',
+      customMessage:
+          'AUTOMATIC EMERGENCY ALERT: ${ride.userName}\'s ${ride.rideType} ride (${ride.plateFormatted}) is overdue and the safety check was not answered. Immediate assistance needed!',
+      playSiren: playSiren,
+    );
+
+    NotificationService.instance.showStatusNotification(
+      id: 1002,
+      title: '🚨 Emergency SOS Dispatched',
+      body: 'Your guardians were alerted automatically because the ride safety check was unanswered.',
+    );
+    return 'escalated';
+  }
+
+  /// "I'm safe" in the shared safety-check dialog: stop a running ride-overdue backstop.
+  Future<void> onSafetyCheckConfirmed() async {
+    final ride = activeRide;
+    if (ride == null) return;
+    final id = rideDeadlineId(ride.id);
+    if (await SafetyDeadlineService.instance.stateOf(id) == 'prompting') {
+      await SafetyDeadlineService.instance.clear(id);
+    }
+  }
+
   /// Automatically restores any active ride on app launch
   Future<void> autoResumeActiveRide() async {
     final user = FirebaseAuth.instance.currentUser;
@@ -556,6 +670,7 @@ class RideCheckinService {
         activeRideNotifier.value = ride;
         _attachRideListener(ride.id);
         _startOverdueMonitor(ride);
+        _armRideDeadline(ride);
 
         debugPrint('[RideCheckinService] 🔄 Auto-resumed active ride: ${ride.id}');
 

@@ -87,7 +87,8 @@ exports.onConnectionRequestCreated = onDocumentCreated("connection_requests/{req
 
 /**
  * 2. Listen for Connection Request updates (Accept / Reject)
- * Atomically updates mutual emergency contact documents upon acceptance.
+ * Adds the accepting guardian to the requester's contacts (one-way link) upon acceptance.
+ * NOTE: Cloud Functions require the Blaze plan; on Spark the app performs this write itself.
  */
 exports.onConnectionRequestUpdated = onDocumentUpdated("connection_requests/{requestId}", async (event) => {
   const before = event.data?.before.data();
@@ -138,30 +139,11 @@ exports.onConnectionRequestUpdated = onDocumentUpdated("connection_requests/{req
       syncedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    // 3. Mutual Sync: Add/Update Sender A into Receiver B's emergency contacts
-    const receiverContactRef = db.collection("users").doc(receiverId).collection("contacts").doc(senderId);
-    batch.set(receiverContactRef, {
-      id: senderId,
-      contact_uid: senderId,
-      contactUid: senderId,
-      name: sender.displayName || sender.name || "Emergency Ward",
-      contact_name: sender.displayName || sender.name || "Emergency Ward",
-      email: (sender.email || "").toLowerCase().trim(),
-      contact_email: (sender.email || "").toLowerCase().trim(),
-      phone: sender.phoneNumber || sender.phone || "",
-      contact_optional_phone: sender.phoneNumber || sender.phone || "",
-      relationship: "Safety Ward",
-      isPrimary: true,
-      isSyncedAppUser: true,
-      is_synced_app_user: true,
-      syncStatus: "synced",
-      sync_status: "synced",
-      fcmToken: sender.fcm_token || sender.fcmToken || "",
-      syncedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
+    // One-way link: the sender (A) is NOT added to the receiver's (B's) guardian list.
+    // B sees A under "People I Protect", derived from the accepted request.
 
     await batch.commit();
-    console.log(`[Sync] Mutual emergency contacts created between ${senderId} and ${receiverId}`);
+    console.log(`[Sync] ${receiverId} is now a guardian of ${senderId} (one-way)`);
 
     // Notify Sender A that Receiver B accepted
     const senderFCM = sender.fcm_token || sender.fcmToken;
@@ -361,5 +343,208 @@ exports.onSosAlertTriggered = onDocumentCreated("sos_alerts/{alertId}", async (e
     });
   } catch (error) {
     console.error("[SOS] Error broadcasting SOS alert:", error);
+  }
+});
+/**
+ * 4. High-Priority Ride Check-in Alert Dispatcher
+ * Dispatches high-priority push notifications to guardians when a ride starts or is updated.
+ */
+exports.onRideCheckinCreated = onDocumentCreated("ride_checkins/{rideId}", async (event) => {
+  const rideData = event.data?.data();
+  if (!rideData) return;
+
+  const rideId = event.params.rideId;
+  const status = (rideData.status || "").toLowerCase();
+  if (status !== "active") return;
+
+  const senderId = rideData.userId || "";
+  const travelerName = rideData.userName || "Traveler";
+  const rideType = rideData.rideType || "Ride";
+  const plate = rideData.plateFormatted || "Vehicle Plate";
+
+  try {
+    const candidateUids = new Set(
+      Array.isArray(rideData.guardianIds) ? rideData.guardianIds.filter((u) => u && !u.startsWith("offline_")) : []
+    );
+
+    const recipientEmails = Array.isArray(rideData.guardianEmails)
+      ? rideData.guardianEmails.map((e) => String(e).toLowerCase().trim()).filter((e) => e.length > 0)
+      : [];
+
+    if (recipientEmails.length > 0) {
+      try {
+        const emailDocs = await db.collection("users")
+          .where("email", "in", recipientEmails.slice(0, 30))
+          .get();
+        emailDocs.docs.forEach((doc) => candidateUids.add(doc.id));
+      } catch (e) {
+        console.warn("[Ride] Error resolving guardian emails:", e);
+      }
+    }
+
+    const targetUids = Array.from(candidateUids).filter((uid) => uid !== senderId);
+    if (targetUids.length === 0) return;
+
+    const userDocsSnap = await db.collection("users")
+      .where(admin.firestore.FieldPath.documentId(), "in", targetUids.slice(0, 30))
+      .get();
+
+    const tokens = [];
+    userDocsSnap.forEach((doc) => {
+      const data = doc.data();
+      const token = data.fcm_token || data.fcmToken;
+      if (token && typeof token === "string" && token.length > 10) {
+        tokens.push(token);
+      }
+    });
+
+    if (tokens.length === 0) return;
+
+    const uniqueTokens = [...new Set(tokens)];
+    const message = {
+      tokens: uniqueTokens,
+      notification: {
+        title: `🚗 ${travelerName} started a ${rideType} ride — ${plate}`,
+        body: `Vehicle: ${plate}. Tap to view live location & driver details.`,
+      },
+      data: {
+        type: "RIDE_CHECKIN",
+        rideId: String(rideId),
+        status: "active",
+        travelerName: String(travelerName),
+        rideType: String(rideType),
+        plate: String(plate),
+        timestamp: String(Date.now()),
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "ride_safety_alerts_channel_v2",
+          defaultVibrateTimings: true,
+          visibility: "public",
+          color: "#5A4FCF",
+          priority: "high",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    await admin.messaging().sendEachForMulticast(message);
+    console.log(`[Ride] Sent ride check-in notification to ${uniqueTokens.length} devices.`);
+  } catch (error) {
+    console.error("[Ride] Error sending ride notification:", error);
+  }
+});
+
+exports.onRideCheckinUpdated = onDocumentUpdated("ride_checkins/{rideId}", async (event) => {
+  const before = event.data?.before.data();
+  const after = event.data?.after.data();
+  if (!before || !after) return;
+
+  const oldStatus = (before.status || "").toLowerCase();
+  const newStatus = (after.status || "").toLowerCase();
+  if (oldStatus === newStatus) return;
+
+  const rideId = event.params.rideId;
+  const senderId = after.userId || "";
+  const travelerName = after.userName || "Traveler";
+  const plate = after.plateFormatted || "Vehicle Plate";
+
+  let title = "";
+  let body = "";
+
+  if (newStatus === "arrived") {
+    title = `✅ ${travelerName} arrived safely`;
+    body = `The ride in vehicle ${plate} has completed safely.`;
+  } else if (newStatus === "overdue") {
+    title = `⚠️ Ride Overdue: ${travelerName}`;
+    body = `Ride in vehicle ${plate} is overdue by 10+ minutes.`;
+  } else {
+    return;
+  }
+
+  try {
+    const candidateUids = new Set(
+      Array.isArray(after.guardianIds) ? after.guardianIds.filter((u) => u && !u.startsWith("offline_")) : []
+    );
+    const recipientEmails = Array.isArray(after.guardianEmails)
+      ? after.guardianEmails.map((e) => String(e).toLowerCase().trim()).filter((e) => e.length > 0)
+      : [];
+
+    if (recipientEmails.length > 0) {
+      try {
+        const emailDocs = await db.collection("users")
+          .where("email", "in", recipientEmails.slice(0, 30))
+          .get();
+        emailDocs.docs.forEach((doc) => candidateUids.add(doc.id));
+      } catch (e) {
+        console.warn("[Ride] Error resolving guardian emails:", e);
+      }
+    }
+
+    const targetUids = Array.from(candidateUids).filter((uid) => uid !== senderId);
+    if (targetUids.length === 0) return;
+
+    const userDocsSnap = await db.collection("users")
+      .where(admin.firestore.FieldPath.documentId(), "in", targetUids.slice(0, 30))
+      .get();
+
+    const tokens = [];
+    userDocsSnap.forEach((doc) => {
+      const data = doc.data();
+      const token = data.fcm_token || data.fcmToken;
+      if (token && typeof token === "string" && token.length > 10) {
+        tokens.push(token);
+      }
+    });
+
+    if (tokens.length === 0) return;
+
+    const uniqueTokens = [...new Set(tokens)];
+    const message = {
+      tokens: uniqueTokens,
+      notification: {
+        title: title,
+        body: body,
+      },
+      data: {
+        type: "RIDE_CHECKIN",
+        rideId: String(rideId),
+        status: String(newStatus),
+        travelerName: String(travelerName),
+        plate: String(plate),
+        timestamp: String(Date.now()),
+      },
+      android: {
+        priority: "high",
+        notification: {
+          channelId: "ride_safety_alerts_channel_v2",
+          defaultVibrateTimings: true,
+          visibility: "public",
+          color: "#5A4FCF",
+          priority: "high",
+        },
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            badge: 1,
+          },
+        },
+      },
+    };
+
+    await admin.messaging().sendEachForMulticast(message);
+    console.log(`[Ride] Sent ride status update (${newStatus}) to ${uniqueTokens.length} devices.`);
+  } catch (error) {
+    console.error("[Ride] Error sending ride status notification:", error);
   }
 });

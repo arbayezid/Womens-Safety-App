@@ -17,6 +17,7 @@ import 'background_service.dart';
 import 'contact_service.dart';
 import 'live_tracking_service.dart';
 import 'native_sms_service.dart';
+import 'safety_deadline_service.dart';
 import 'siren_service.dart';
 import 'sos_cloud_dispatcher.dart';
 import 'sos_escalation_service.dart';
@@ -102,6 +103,12 @@ class EmergencyService {
   /// Synchronous getter for current active alert ID
   String? get activeAlertId => activeAlertIdNotifier.value;
 
+  Future<void> _postDispatchWork = Future<void>.value();
+
+  /// Completes when the follow-up work of the last SOS (live tracking, background service,
+  /// escalation arming) has finished. A background deadline run waits for it before exiting.
+  Future<void> get postDispatchWork => _postDispatchWork;
+
   /// Restores active alert ID from SharedPreferences on app launch
   Future<void> restoreActiveAlertId() async {
     try {
@@ -123,6 +130,8 @@ class EmergencyService {
     // 1. Resolve alert in Cloud Firestore
     if (targetId != null && targetId.isNotEmpty) {
       await SosCloudDispatcher.instance.resolveSosAlert(targetId);
+      // Cancel this alert's escalation backstops (also when escalation timers are not running here)
+      unawaited(SafetyDeadlineService.instance.clearSosStages(targetId));
     }
 
     // 2. Clear local active alert ID
@@ -266,9 +275,14 @@ class EmergencyService {
     final List<String> routedCloudEmails = [];
     final List<String> routedCloudUids = [];
 
-    for (final contact in localContacts) {
+    // The Primary contact goes first in every list: the native sender hands SMS to the radio in
+    // list order, so the primary is texted first. Everyone else keeps their place and is still
+    // alerted exactly as before.
+    final List<ContactModel> orderedContacts = ContactService.primaryFirst(localContacts);
+
+    for (final contact in orderedContacts) {
       // Backup contacts are excluded from the initial SOS dispatch.
-      // They are engaged in Stage 1 escalation if primary guardians do not acknowledge.
+      // They are engaged in Stage 1 escalation if the regular contacts do not acknowledge.
       if (contact.isBackup) continue;
 
       // Channel 1: Offline SMS
@@ -295,7 +309,7 @@ class EmergencyService {
 
     // Safety fallback: if user ONLY has backup contacts, include them immediately so SOS is never empty
     if (routedSmsRecipients.isEmpty && routedCloudEmails.isEmpty && routedCloudUids.isEmpty) {
-      for (final contact in localContacts) {
+      for (final contact in orderedContacts) {
         if (contact.phone.trim().isNotEmpty) {
           final formatted = formatRecipientPhone(contact.phone);
           if (formatted.isNotEmpty && !routedSmsRecipients.contains(formatted)) {
@@ -397,7 +411,7 @@ class EmergencyService {
     });
 
     // Hook live tracking and active alert state as soon as Cloud SOS document is created
-    cloudFuture.then((alertId) async {
+    _postDispatchWork = cloudFuture.then((alertId) async {
       if (alertId != null && alertId.isNotEmpty) {
         activeAlertIdNotifier.value = alertId;
         try {

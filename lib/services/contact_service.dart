@@ -102,6 +102,140 @@ class ContactService extends ChangeNotifier {
   /// Synchronous getter for total contacts count
   int get contactsCount => _cachedContacts.length;
 
+  /// The user's Primary contact, or null when none is set.
+  ContactModel? get primaryContact => primaryOf(_cachedContacts);
+
+  /// The Primary contact in [contacts]. Only one contact is primary; if a race between two
+  /// devices ever left two flagged, the first one wins everywhere (UI and SOS order).
+  static ContactModel? primaryOf(Iterable<ContactModel> contacts) {
+    for (final c in contacts) {
+      if (c.isPrimary) return c;
+    }
+    return null;
+  }
+
+  /// [contacts] with the Primary contact moved to the front. Everyone else keeps their
+  /// original order, so the SOS reaches the same people as before, the primary first.
+  static List<ContactModel> primaryFirst(Iterable<ContactModel> contacts) {
+    final list = contacts.toList();
+    final primary = primaryOf(list);
+    if (primary == null) return list;
+    return [primary, ...list.where((c) => !identical(c, primary))];
+  }
+
+  /// Makes [contactId] the only Primary contact (null clears it). Any previous primary is
+  /// unset in the same Firestore batch. Updates memory and the disk cache first, so the
+  /// choice applies immediately and offline. Returns false, and restores the previous flags,
+  /// when Firestore rejects the write.
+  Future<bool> setPrimaryContact(String? contactId) async {
+    final List<ContactModel> current = await getContacts();
+    if (contactId != null && !current.any((c) => c.id == contactId)) {
+      debugPrint('[ContactService] Contact $contactId not found; primary not changed.');
+      return false;
+    }
+
+    final Map<String, bool> previousFlags = {for (final c in current) c.id: c.isPrimary};
+    final List<ContactModel> changed = [];
+    final updated = current.map((c) {
+      final bool shouldBePrimary = c.id == contactId;
+      if (c.isPrimary == shouldBePrimary) return c;
+      final next = c.copyWith(isPrimary: shouldBePrimary);
+      changed.add(next);
+      return next;
+    }).toList();
+    if (changed.isEmpty) return true;
+
+    _mutationVersion++;
+    _cachedContacts = updated;
+    _isInitialized = true;
+    _emitChange();
+    final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
+    if (uid != null) {
+      // Awaited so an app restart right after the tap keeps the new primary
+      await saveToDiskCache(uid);
+    }
+
+    if (Firebase.apps.isNotEmpty) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        final contactsRef = FirebaseFirestore.instance
+            .collection('users')
+            .doc(user.uid)
+            .collection('contacts');
+        try {
+          // update() (not set+merge) so this can never re-create a contact deleted elsewhere
+          final batch = FirebaseFirestore.instance.batch();
+          for (final c in changed) {
+            batch.update(contactsRef.doc(c.id), ContactModel.primaryFields(c.isPrimary));
+          }
+          await batch.commit().timeout(const Duration(seconds: 8));
+        } on TimeoutException {
+          debugPrint('[ContactService] Primary change queued offline; will sync on reconnect');
+        } on FirebaseException catch (e) {
+          if (e.code != 'not-found') {
+            debugPrint('[ContactService] Primary change rejected: $e');
+            _restorePrimaryFlags(previousFlags, uid);
+            return false;
+          }
+          // A contact only stored on this device: write the others one by one
+          for (final c in changed) {
+            try {
+              await contactsRef
+                  .doc(c.id)
+                  .update(ContactModel.primaryFields(c.isPrimary))
+                  .timeout(const Duration(seconds: 4));
+            } catch (err) {
+              debugPrint('[ContactService] Primary flag not saved for ${c.id}: $err');
+            }
+          }
+        } catch (e) {
+          debugPrint('[ContactService] Primary change error: $e');
+          _restorePrimaryFlags(previousFlags, uid);
+          return false;
+        }
+      }
+    }
+
+    debugPrint('[ContactService] Primary contact set to: ${contactId ?? 'none'}');
+    return true;
+  }
+
+  void _restorePrimaryFlags(Map<String, bool> flags, String? uid) {
+    _mutationVersion++;
+    _cachedContacts = _cachedContacts
+        .map((c) => flags.containsKey(c.id) ? c.copyWith(isPrimary: flags[c.id]) : c)
+        .toList();
+    _emitChange();
+    if (uid != null) unawaited(saveToDiskCache(uid));
+  }
+
+  /// When a guardian accepts an email invite, the `pending_<email>` placeholder is replaced by a
+  /// doc keyed by the guardian's uid, which has no Primary flag. If the placeholder was the
+  /// Primary contact, the flag moves to the new doc so the user's choice is not lost.
+  List<ContactModel> _carryPrimaryOver(List<ContactModel> incoming) {
+    final previous = primaryOf(_cachedContacts);
+    if (previous == null || !previous.id.startsWith('pending_')) return incoming;
+    if (incoming.any((c) => c.isPrimary || c.id == previous.id)) return incoming;
+    final email = previous.email.toLowerCase().trim();
+    if (email.isEmpty) return incoming;
+    final index = incoming.indexWhere((c) => c.email.toLowerCase().trim() == email);
+    if (index < 0) return incoming;
+
+    final promoted = incoming[index].copyWith(isPrimary: true);
+    final user = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser : null;
+    if (user != null) {
+      unawaited(FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .collection('contacts')
+          .doc(promoted.id)
+          .update(ContactModel.primaryFields(true))
+          .catchError((Object e) => debugPrint('[ContactService] Primary carry-over notice: $e')));
+    }
+    debugPrint('[ContactService] Primary moved from ${previous.id} to ${promoted.id} (invite accepted)');
+    return List<ContactModel>.from(incoming)..[index] = promoted;
+  }
+
   /// Resets in-memory cache and initialization state (useful for unit testing).
   void resetMemoryCache() {
     _deletedDocIds.clear();
@@ -180,14 +314,14 @@ class ContactService extends ChangeNotifier {
         if (!snapshot.metadata.isFromCache) {
           _settleTombstones(snapshot.docs.map((d) => d.id));
         }
-        _cachedContacts = _withoutDeleted(snapshot.docs.map((doc) {
+        _cachedContacts = _carryPrimaryOver(_withoutDeleted(snapshot.docs.map((doc) {
           final data = doc.data();
           return ContactModel.fromMap({
             ...data,
             'id': doc.id,
             'contactUid': data['contactUid'] ?? data['contact_uid'] ?? doc.id,
           });
-        }).toList());
+        }).toList()));
         _isInitialized = true;
         _emitChange();
         saveToDiskCache(uid);
@@ -205,7 +339,7 @@ class ContactService extends ChangeNotifier {
 
   /// Updates in-memory contacts directly from a remote snapshot or sync stream
   void syncFromCloud(List<ContactModel> synced) {
-    _cachedContacts = _withoutDeleted(List<ContactModel>.from(synced));
+    _cachedContacts = _carryPrimaryOver(_withoutDeleted(List<ContactModel>.from(synced)));
     _isInitialized = true;
     _emitChange();
     final uid = _currentBoundUid ?? (Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null);
@@ -306,7 +440,7 @@ class ContactService extends ChangeNotifier {
           if (!snapshot.metadata.isFromCache) {
             _settleTombstones(snapshot.docs.map((d) => d.id));
           }
-          _cachedContacts = _withoutDeleted(mapped);
+          _cachedContacts = _carryPrimaryOver(_withoutDeleted(mapped));
           _isInitialized = true;
           _emitChange();
           unawaited(saveToDiskCache(user.uid));
@@ -578,8 +712,9 @@ class ContactService extends ChangeNotifier {
   /// Extracts clean phone numbers for SOS SMS dispatch.
   /// Dispatches to all emergency contacts that have a non-empty, valid phone number,
   /// regardless of whether their sync status is Synced App User, Sync Pending, or offline.
+  /// The Primary contact's number comes first so it is texted first.
   Future<List<String>> getEmergencyPhoneNumbers({bool primaryOnly = false}) async {
-    final List<ContactModel> contacts = await getContacts();
+    final List<ContactModel> contacts = primaryFirst(await getContacts());
     if (contacts.isEmpty) return [];
 
     List<ContactModel> targetContacts = contacts;

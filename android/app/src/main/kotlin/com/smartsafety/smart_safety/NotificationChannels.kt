@@ -23,6 +23,12 @@ object NotificationChannels {
     /** Incoming SOS alerts from people who added this user as a guardian. */
     const val GUARDIAN_ALERTS = "guardian_emergency_alerts_channel"
 
+    /** The sender's own "are you safe?" check when a safety timer runs out while the app is closed. */
+    const val SAFETY_CHECKS = "safety_deadline_checks_channel"
+
+    /** Incoming ride check-in alerts from protected contacts. */
+    const val RIDE_ALERTS = "ride_safety_alerts_channel_v2"
+
     fun ensureCreated(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -57,6 +63,26 @@ object NotificationChannels {
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 // Only honoured when the user grants Do Not Disturb access; ignored otherwise.
                 setBypassDnd(true)
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(SAFETY_CHECKS, "Safety Checks", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Asks if you are safe when a Safe Journey, Followed Mode or ride timer runs out."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 600, 300, 600, 300, 600)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(RIDE_ALERTS, "Ride Safety Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Incoming ride check-ins and safety status updates from people you protect."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 400, 200, 400)
+                enableLights(true)
+                lightColor = Color.BLUE
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )
     }

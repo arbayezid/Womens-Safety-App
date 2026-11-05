@@ -24,13 +24,14 @@ class MainActivity : FlutterActivity() {
         const val SOURCE_TAP = "tap"
         const val SOURCE_FULL_SCREEN = "full_screen"
 
-        private const val DEVICE_CHANNEL = "com.smartsafety.smart_safety/device"
         private const val GUARDIAN_CHANNEL = "com.smartsafety.smart_safety/guardian"
-        private const val SMS_CHANNEL = "com.smartsafety.smart_safety/sms"
         private const val FAKE_CALL_CHANNEL = "com.smartsafety.smart_safety/fake_call"
 
         @Volatile
         private var resumedActivity: WeakReference<Activity>? = null
+
+        @Volatile
+        var pendingRideId: String? = null
 
         /** The visible activity, or null when the app is in the background. */
         fun foregroundActivity(): Activity? = resumedActivity?.get()
@@ -40,12 +41,14 @@ class MainActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         handleAlertIntent(intent)
+        handleRideIntent(intent)
         super.onCreate(savedInstanceState)
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleAlertIntent(intent)
+        handleRideIntent(intent)
     }
 
     override fun onResume() {
@@ -70,15 +73,11 @@ class MainActivity : FlutterActivity() {
         NotificationChannels.ensureCreated(this)
 
         val messenger = flutterEngine.dartExecutor.binaryMessenger
-        MethodChannel(messenger, DEVICE_CHANNEL).setMethodCallHandler { call, result ->
-            when (call.method) {
-                "getSdkInt" -> result.success(Build.VERSION.SDK_INT)
-                "getManufacturer" -> result.success(Build.MANUFACTURER ?: "")
-                else -> result.notImplemented()
-            }
-        }
+        // Device + SMS handlers are shared with the headless engine that runs safety deadlines.
+        AppChannels.registerShared(messenger, this)
+        AppChannels.registerDeadline(messenger, this)
+        DeadlineDartRunner.mainMessenger = messenger
         MethodChannel(messenger, GUARDIAN_CHANNEL).setMethodCallHandler(::onGuardianCall)
-        MethodChannel(messenger, SMS_CHANNEL).setMethodCallHandler(::onSmsCall)
 
         val audio = FakeCallAudio(applicationContext)
         fakeCallAudio = audio
@@ -88,7 +87,14 @@ class MainActivity : FlutterActivity() {
                 "startConversation" -> audio.startConversation(
                     assetPath = call.argument<String>("assetPath") ?: "",
                     script = call.argument<List<String>>("script") ?: emptyList(),
+                    filePath = call.argument<String>("filePath") ?: "",
+                    loopGapMs = (call.argument<Number>("loopGapMs") ?: 0).toLong(),
+                    speaker = call.argument<Boolean>("speaker") ?: true,
                 ) { mode -> runOnUiThread { result.success(mode) } }
+                "setSpeaker" -> {
+                    audio.setSpeaker(call.argument<Boolean>("speaker") ?: true)
+                    result.success(null)
+                }
                 "stop" -> {
                     audio.stopAll()
                     result.success(null)
@@ -99,6 +105,9 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        if (DeadlineDartRunner.mainMessenger === flutterEngine.dartExecutor.binaryMessenger) {
+            DeadlineDartRunner.mainMessenger = null
+        }
         fakeCallAudio?.stopAll()
         fakeCallAudio = null
         super.cleanUpFlutterEngine(flutterEngine)
@@ -115,6 +124,12 @@ class MainActivity : FlutterActivity() {
                 GuardianAlertService.stop(this)
                 result.success(null)
             }
+            "setProtecting" -> {
+                val protecting = call.argument<Boolean>("value") ?: true
+                GuardianAlertService.setProtecting(this, protecting)
+                if (protecting) GuardianAlertService.start(this) else GuardianAlertService.stop(this)
+                result.success(null)
+            }
             "isRunning" -> result.success(GuardianAlertService.isRunning)
             "claimAlert" -> result.success(AlertRegistry.tryClaim(this, call.argument<String>("alertId") ?: ""))
             "stopSiren" -> {
@@ -123,27 +138,22 @@ class MainActivity : FlutterActivity() {
             }
             "canUseFullScreenIntent" -> result.success(canUseFullScreenIntent())
             "openFullScreenIntentSettings" -> result.success(openFullScreenIntentSettings())
+            "getPendingRideId" -> {
+                val id = pendingRideId
+                pendingRideId = null
+                result.success(id)
+            }
             else -> result.notImplemented()
         }
     }
 
-    private fun onSmsCall(call: MethodCall, result: MethodChannel.Result) {
-        when (call.method) {
-            "sendSms" -> {
-                val recipients = call.argument<List<String>>("recipients") ?: emptyList()
-                val message = call.argument<String>("message") ?: ""
-                val timeoutMs = (call.argument<Number>("timeoutMs") ?: 20000).toLong()
-                SmsSender.sendAsync(applicationContext, recipients, message, timeoutMs) { results ->
-                    runOnUiThread { result.success(results) }
-                }
-            }
-            "openComposer" -> {
-                val recipients = call.argument<List<String>>("recipients") ?: emptyList()
-                val message = call.argument<String>("message") ?: ""
-                result.success(SmsSender.openComposer(applicationContext, recipients, message))
-            }
-            else -> result.notImplemented()
+    private fun handleRideIntent(intent: Intent?) {
+        val rideId = intent?.getStringExtra("ride_id") ?: return
+        pendingRideId = rideId
+        DeadlineDartRunner.mainMessenger?.let {
+            MethodChannel(it, GUARDIAN_CHANNEL).invokeMethod("onRideTapped", rideId)
         }
+        intent.removeExtra("ride_id")
     }
 
     private fun canUseFullScreenIntent(): Boolean {

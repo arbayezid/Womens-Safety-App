@@ -6,16 +6,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
 import '../models/user_profile_model.dart';
 import '../models/activity_model.dart';
+import '../models/fake_caller.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import '../services/battery_alert_service.dart';
+import '../services/fake_call_settings_service.dart';
 import '../services/pin_security_service.dart';
 import '../services/motion_detection_service.dart';
+import '../services/shake_sos_service.dart';
 import '../services/sos_escalation_service.dart';
 import '../services/esp32_ble_service.dart';
+import '../widgets/esp32_scan_sheet.dart';
+import '../widgets/fake_call_caller_sheet.dart';
 import '../widgets/pin_input_dialog.dart';
+import 'background_reliability_screen.dart';
+import 'fake_call_voice_screen.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
+import 'ride_history_screen.dart';
 
 /// Settings screen — app preferences, security, notifications,
 /// device setup, alert history and logout.
@@ -27,7 +35,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _voiceActivation = true;
   bool _locationSharing = true;
   bool _notifications = true;
   bool _shakeToSOS = false;
@@ -39,6 +46,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _requirePinOnOpen = false;
   bool _hasRealPin = false;
   bool _hasDuressPin = false;
+  FakeCallVoiceLanguage _fakeCallLanguage = FakeCallVoiceLanguage.bangla;
 
   @override
   void initState() {
@@ -54,18 +62,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final prefs = await SharedPreferences.getInstance();
     final criticalBattery = await BatteryAlertService.instance.isEnabled();
     final fallEnabled = await MotionDetectionService.instance.isFallDetectionEnabled();
+    final shakeEnabled = await ShakeSosService.instance.isShakeEnabled();
     final escalationEnabled = await SosEscalationService.instance.isEnabled();
     final pinEnabled = await PinSecurityService.instance.isPinEnabled();
     final requireOnOpen = await PinSecurityService.instance.isPinRequiredOnOpen();
     final hasReal = await PinSecurityService.instance.isRealPinConfigured();
     final hasDuress = await PinSecurityService.instance.isDuressPinConfigured();
+    final fakeCallLanguage = await FakeCallSettingsService.instance.loadLanguage();
+    await FakeCallSettingsService.instance.loadCaller();
 
     if (!mounted) return;
     setState(() {
-      _voiceActivation = prefs.getBool('pref_voice_activation') ?? true;
       _locationSharing = prefs.getBool('pref_location_sharing') ?? true;
       _notifications = prefs.getBool('pref_notifications') ?? true;
-      _shakeToSOS = prefs.getBool('pref_shake_to_sos') ?? false;
+      _shakeToSOS = shakeEnabled;
       _criticalBatteryAlert = criticalBattery;
       _sirenOnAutoSos = prefs.getBool('pref_siren_on_auto_sos') ?? false;
       _fallDetection = fallEnabled;
@@ -74,7 +84,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _requirePinOnOpen = requireOnOpen;
       _hasRealPin = hasReal;
       _hasDuressPin = hasDuress;
+      _fakeCallLanguage = fakeCallLanguage;
     });
+  }
+
+  Future<void> _pickFakeCallLanguage() async {
+    final picked = await showDialog<FakeCallVoiceLanguage>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text('Caller Voice Language',
+            style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700)),
+        children: [
+          for (final lang in FakeCallVoiceLanguage.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, lang),
+              child: Row(
+                children: [
+                  Icon(
+                    lang == _fakeCallLanguage
+                        ? Icons.radio_button_checked_rounded
+                        : Icons.radio_button_off_rounded,
+                    color: AppColors.actionBlue,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      lang == FakeCallVoiceLanguage.bangla
+                          ? 'Bangla (default) — real recorded voices'
+                          : 'English — original voice',
+                      style: GoogleFonts.poppins(fontSize: 13.5),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await FakeCallSettingsService.instance.saveLanguage(picked);
+    if (mounted) setState(() => _fakeCallLanguage = picked);
   }
 
   Future<void> _saveSetting(String key, bool value) async {
@@ -157,27 +207,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 title: 'Safety Features',
                 items: [
                   _buildToggleItem(
-                    icon: Icons.mic_rounded,
-                    iconColor: AppColors.actionOrange,
-                    iconBg: const Color(0xFFFEEDD8),
-                    label: 'Voice Activation',
-                    subtitle: 'Say "Help" to trigger SOS',
-                    value: _voiceActivation,
-                    onChanged: (v) {
-                      setState(() => _voiceActivation = v);
-                      _saveSetting('pref_voice_activation', v);
-                    },
-                  ),
-                  _buildToggleItem(
                     icon: Icons.vibration_rounded,
                     iconColor: AppColors.sosRed,
                     iconBg: const Color(0xFFFFE5E5),
                     label: 'Shake to SOS',
-                    subtitle: 'Shake phone 3× to alert',
+                    subtitle: 'Shake phone hard 3× to alert (5s to cancel)',
                     value: _shakeToSOS,
-                    onChanged: (v) {
+                    onChanged: (v) async {
                       setState(() => _shakeToSOS = v);
-                      _saveSetting('pref_shake_to_sos', v);
+                      await ShakeSosService.instance.setEnabled(v);
                     },
                   ),
                   _buildToggleItem(
@@ -239,6 +277,46 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       setState(() => _smartEscalation = v);
                       await SosEscalationService.instance.setEnabled(v);
                     },
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // ── Section: Fake Call ──────────────────────────────────
+              _buildSection(
+                title: 'Fake Call',
+                items: [
+                  ValueListenableBuilder<FakeCaller>(
+                    valueListenable: FakeCallSettingsService.instance.callerNotifier,
+                    builder: (context, caller, _) => _buildNavItem(
+                      icon: Icons.phone_in_talk_rounded,
+                      iconColor: AppColors.actionBlue,
+                      iconBg: const Color(0xFFDDEEFD),
+                      label: 'Default Caller',
+                      subtitle: caller.phone.isEmpty ? caller.name : '${caller.name} • ${caller.phone}',
+                      onTap: () => FakeCallCallerSheet.show(context, pickOnly: true),
+                    ),
+                  ),
+                  _buildNavItem(
+                    icon: Icons.translate_rounded,
+                    iconColor: AppColors.actionGreen,
+                    iconBg: const Color(0xFFDFF5E3),
+                    label: 'Caller Voice Language',
+                    subtitle: _fakeCallLanguage == FakeCallVoiceLanguage.bangla
+                        ? 'Bangla (default)'
+                        : 'English',
+                    onTap: _pickFakeCallLanguage,
+                  ),
+                  _buildNavItem(
+                    icon: Icons.record_voice_over_rounded,
+                    iconColor: AppColors.actionOrange,
+                    iconBg: const Color(0xFFFEEDD8),
+                    label: 'Record My Own Caller Voice',
+                    subtitle: 'One clip per caller; overrides the built-in voice',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const FakeCallVoiceScreen()),
+                    ),
                   ),
                 ],
               ),
@@ -394,6 +472,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(builder: (_) => const SosHistoryScreen()),
+                      );
+                    },
+                  ),
+                  _buildNavItem(
+                    icon: Icons.directions_car_rounded,
+                    iconColor: AppColors.actionBlue,
+                    iconBg: const Color(0xFFE3F2FD),
+                    label: 'Ride Check-in History',
+                    subtitle: 'View past vehicle check-ins, license plates & routes',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const RideHistoryScreen()),
+                      );
+                    },
+                  ),
+                  _buildNavItem(
+                    icon: Icons.verified_user_rounded,
+                    iconColor: AppColors.actionGreen,
+                    iconBg: AppColors.successBackground,
+                    label: 'Background Alerts Setup',
+                    subtitle: 'Keep timers and guardian alerts working when the app is closed',
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const BackgroundReliabilityScreen()),
                       );
                     },
                   ),
@@ -806,156 +910,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showDeviceSetupModal() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => Container(
-        padding: const EdgeInsets.all(24),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFDDEEFD),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: const Icon(Icons.bluetooth_connected_rounded,
-                      color: AppColors.actionBlue, size: 28),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('ESP32 Smart Pendant',
-                          style: GoogleFonts.poppins(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary)),
-                      Row(
-                        children: [
-                          const _StatusDot(color: AppColors.successForeground),
-                          const SizedBox(width: 6),
-                          Text('Connected via BLE • Active',
-                              style: GoogleFonts.poppins(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w500,
-                                  color: AppColors.successForeground)),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 20),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: AppColors.background,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Column(
-                children: [
-                  _buildDeviceStatRow(
-                    icon: Icons.battery_charging_full_rounded,
-                    label: 'Battery Level',
-                    value: '92% (Normal)',
-                    color: AppColors.successForeground,
-                  ),
-                  const Divider(height: 16),
-                  _buildDeviceStatRow(
-                    icon: Icons.signal_cellular_alt_rounded,
-                    label: 'BLE Signal',
-                    value: '-58 dBm (Strong)',
-                    color: AppColors.actionBlue,
-                  ),
-                  const Divider(height: 16),
-                  _buildDeviceStatRow(
-                    icon: Icons.fingerprint_rounded,
-                    label: 'Hardware Trigger',
-                    value: 'Double-click Button',
-                    color: AppColors.sosRed,
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  Esp32BleService.instance.handleHardwareSosTrigger(
-                    reason: 'Settings Test Button',
-                  );
-                },
-                icon: const Icon(Icons.touch_app_rounded, color: Colors.white),
-                label: Text('Test Hardware Trigger',
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primary,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDeviceStatRow({
-    required IconData icon,
-    required String label,
-    required String value,
-    required Color color,
-  }) {
-    return Row(
-      children: [
-        Icon(icon, color: color, size: 20),
-        const SizedBox(width: 10),
-        Text(label,
-            style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary)),
-        const Spacer(),
-        Text(value,
-            style: GoogleFonts.poppins(
-                fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
-      ],
-    );
+    Esp32ScanSheet.show(context);
   }
 
   void _showAlertHistoryModal() {
+    // Shows the cached list at once, then the account's history from Firestore.
+    ActivityService.instance.refreshFromCloud();
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (ctx) => FutureBuilder<List<ActivityItem>>(
-        future: ActivityService.instance.getActivities(),
-        builder: (context, snapshot) {
-          final activities = snapshot.data ?? ActivityService.instance.activitiesNotifier.value;
+      builder: (ctx) => ValueListenableBuilder<List<ActivityItem>>(
+        valueListenable: ActivityService.instance.activitiesNotifier,
+        builder: (context, activities, _) {
           return Container(
             height: MediaQuery.of(context).size.height * 0.7,
             padding: const EdgeInsets.all(24),
@@ -1119,8 +1086,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 10),
             _buildPrivacyBullet(
-              title: 'Secure Mutual Sync',
-              desc: 'Guardian connections require two-way email confirmation and are protected by Firestore security rules.',
+              title: 'Consent-Based Guardians',
+              desc: 'A guardian must accept your request before receiving your alerts. Alerts go one way only: from you to the guardians you added. Protected by Firestore security rules.',
             ),
           ],
         ),

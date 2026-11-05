@@ -5,3 +5,6 @@ Optional: `fake_call_voice.mp3` - a short recorded voice clip for the Fake Call 
 (played on loop after the call is accepted). Use only audio you own or that is royalty-free.
 When the file is absent, the Fake Call speaks its built-in English script with the phone's
 text-to-speech engine instead.
+
+This English voice is used when Caller Voice Language is English, or when a Bangla clip in
+`assets/fake_call/bn/` is still a placeholder. See `assets/fake_call/bn/README.md`.

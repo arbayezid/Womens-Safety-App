@@ -6,9 +6,11 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../core/app_colors.dart';
+import '../models/fake_caller.dart';
 import '../models/journey_model.dart';
 import '../models/safe_zone_model.dart';
 import '../services/emergency_service.dart';
+import '../services/fake_call_settings_service.dart';
 import '../services/journey_service.dart';
 import '../services/live_tracking_service.dart';
 import '../services/location_service.dart';
@@ -16,6 +18,7 @@ import '../services/navigation_service.dart';
 import '../services/pin_security_service.dart';
 import '../services/safe_zone_repository.dart';
 import '../services/siren_service.dart';
+import '../widgets/fake_call_caller_sheet.dart';
 import '../widgets/fake_call_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
 
@@ -53,6 +56,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
   @override
   void initState() {
     super.initState();
+    // Same caller as the Home "Fake Call" (shown in the Deterrence card).
+    FakeCallSettingsService.instance.loadCaller();
 
     _pulseController = AnimationController(
       vsync: this,
@@ -768,6 +773,58 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     );
   }
 
+  /// Who the fake call shows; shared with Home and Settings. Tap to change.
+  Widget _buildFakeCallerRow() {
+    return ValueListenableBuilder<FakeCaller>(
+      valueListenable: FakeCallSettingsService.instance.callerNotifier,
+      builder: (context, caller, _) {
+        return InkWell(
+          onTap: () => FakeCallCallerSheet.show(context, pickOnly: true),
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: AppColors.actionPurple.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 13,
+                  backgroundColor: AppColors.actionPurple,
+                  child: Text(
+                    caller.avatarLetter,
+                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Caller: ${caller.name}',
+                    overflow: TextOverflow.ellipsis,
+                    style: GoogleFonts.poppins(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                ),
+                Text(
+                  'Change',
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.actionPurple,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildDeterrenceToolsCard() {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -793,7 +850,9 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          _buildFakeCallerRow(),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(

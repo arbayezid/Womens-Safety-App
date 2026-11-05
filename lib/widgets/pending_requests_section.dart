@@ -3,7 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/contact_sync_service.dart';
 
-/// Real-time widget rendering incoming mutual consent emergency contact requests
+/// Real-time widget rendering incoming guardian requests (accepting makes the current user
+/// the sender's guardian; it does not make the sender the current user's guardian)
 /// directed to the active authenticated user.
 class PendingRequestsSection extends StatelessWidget {
   const PendingRequestsSection({super.key});
@@ -96,7 +97,7 @@ class _RequestCardState extends State<_RequestCard> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '✅ Added ${widget.request['senderName']} to your Emergency Network!',
+              '✅ You are now ${widget.request['senderName']}\'s guardian. You will receive their SOS alerts.',
               style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
             ),
             backgroundColor: AppColors.successForeground,

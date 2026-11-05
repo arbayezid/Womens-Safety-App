@@ -151,6 +151,28 @@ class AuthService {
       }
       _isFirebaseInitialized = true;
 
+      // Firestore settings must be identical in every engine and in native code, because the
+      // first one to touch Firestore fixes them for the whole process; any later call with
+      // different settings fails with "FirebaseFirestore has already been started...".
+      //
+      // Android: leave the defaults (offline persistence on, 100 MB cache). Native services
+      // (GuardianAlertService, SafetyDeadlineService) and the headless/background Dart engines
+      // use the default instance too, so all of them must agree. Setting any value here makes
+      // the plugin send different settings and breaks every Firestore call from Dart.
+      // (The plugin turns CACHE_SIZE_UNLIMITED into 100 MB on Android anyway.)
+      //
+      // iOS: no native code uses Firestore, so the unlimited offline cache is safe there.
+      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+        try {
+          FirebaseFirestore.instance.settings = const Settings(
+            persistenceEnabled: true,
+            cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,
+          );
+        } catch (e) {
+          debugPrint('[AuthService] Firestore settings notice: $e');
+        }
+      }
+
       // Subscribe to live Firebase auth state changes
       FirebaseAuth.instance.authStateChanges().listen((User? user) async {
         userNotifier.value = user;
@@ -160,9 +182,11 @@ class AuthService {
           ContactService.instance.bindUser(user.uid);
           ContactSyncService.instance.initialize();
           NotificationService.instance.startSosAlertStreamListener();
+          unawaited(ActivityService.instance.bindUser(user.uid));
         } else {
           await ContactService.instance.purgeOnSignOut();
           ContactSyncService.instance.purgeOnSignOut();
+          await ActivityService.instance.purgeOnSignOut();
         }
         await _loadProfileForUser(user);
       });
@@ -175,6 +199,7 @@ class AuthService {
         ContactService.instance.bindUser(user.uid);
         ContactSyncService.instance.initialize();
         NotificationService.instance.startSosAlertStreamListener();
+        unawaited(ActivityService.instance.bindUser(user.uid));
       }
       await _loadProfileForUser(user);
     } catch (e) {
@@ -188,6 +213,26 @@ class AuthService {
       _isGuestMode = prefs.getBool(_prefsKeyGuestMode) ?? false;
     } catch (_) {
       _isGuestMode = false;
+    }
+  }
+
+  /// Headless safety-deadline run (app closed): marks Firebase ready and loads the profile so
+  /// [displayName] is correct in SOS messages, without starting any listeners or sync.
+  Future<void> prepareForBackgroundTask() async {
+    _isFirebaseInitialized = Firebase.apps.isNotEmpty;
+    final user = currentUser;
+    if (user == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(user.uid)
+          .get()
+          .timeout(const Duration(seconds: 5));
+      profileNotifier.value = (doc.exists && doc.data() != null)
+          ? UserProfile.fromMap(doc.data()!)
+          : UserProfile.fromFirebaseUser(user);
+    } catch (_) {
+      profileNotifier.value = UserProfile.fromFirebaseUser(user);
     }
   }
 
@@ -226,9 +271,10 @@ class AuthService {
         profileNotifier.value = UserProfile.fromFirebaseUser(user);
       }
 
-      // Automatically bind contacts and requests to the active user UID
+      // Automatically bind contacts, requests and alert history to the active user UID
       ContactService.instance.bindUser(user.uid);
       ContactSyncService.instance.initialize();
+      unawaited(ActivityService.instance.bindUser(user.uid));
 
       // Register a phone number saved before the one-number-per-account rule existed
       final existingPhone = profileNotifier.value.phone.trim().isNotEmpty
@@ -427,10 +473,11 @@ class AuthService {
         PaintingBinding.instance.imageCache.clearLiveImages();
       } catch (_) {}
 
-      // 3. Purge all in-memory contacts, subscriptions, and activity history
+      // 3. Purge in-memory contacts and subscriptions. Alert history is only forgotten on this
+      // device: it stays in Firestore (users/{uid}/activity_logs) and loads again on sign-in.
       await ContactService.instance.purgeOnSignOut();
       ContactSyncService.instance.purgeOnSignOut();
-      await ActivityService.instance.clearHistory();
+      await ActivityService.instance.purgeOnSignOut();
 
       // 4. Reset in-memory session and user profile to guest defaults
       _mockUser = null;

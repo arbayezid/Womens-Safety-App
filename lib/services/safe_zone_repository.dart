@@ -43,13 +43,25 @@ class SafeZoneRepository {
 
       if (loaded.isNotEmpty) {
         _cachedSafeZones = loaded;
-        debugPrint('[SafeZoneRepo] Successfully loaded ${loaded.length} safe zones from database.');
+        debugPrint('[SafeZoneRepo] Successfully loaded ${loaded.length} safe zones from JSON database.');
       } else {
         _cachedSafeZones = SafeZone.defaultDhakaSafeZones;
       }
-    } catch (e) {
-      debugPrint('[SafeZoneRepo] Database load notice ($e). Using default catalog.');
-      _cachedSafeZones = SafeZone.defaultDhakaSafeZones;
+    } catch (jsonErr) {
+      debugPrint('[SafeZoneRepo] JSON load notice ($jsonErr). Attempting CSV load fallback...');
+      try {
+        final csvString = await rootBundle.loadString('assets/data/safe_zones.csv');
+        final loaded = _parseCsvSafeZones(csvString);
+        if (loaded.isNotEmpty) {
+          _cachedSafeZones = loaded;
+          debugPrint('[SafeZoneRepo] Successfully loaded ${loaded.length} safe zones from CSV.');
+        } else {
+          _cachedSafeZones = SafeZone.defaultDhakaSafeZones;
+        }
+      } catch (csvErr) {
+        debugPrint('[SafeZoneRepo] CSV load error ($csvErr). Using default catalog.');
+        _cachedSafeZones = SafeZone.defaultDhakaSafeZones;
+      }
     } finally {
       _isLoading = false;
     }
@@ -135,5 +147,59 @@ class SafeZoneRepository {
     _lastCalcLat = null;
     _lastCalcLng = null;
     _lastSortedZones = [];
+  }
+
+  /// Parses raw CSV content into a list of [SafeZone] objects.
+  List<SafeZone> _parseCsvSafeZones(String csvString) {
+    final lines = csvString.split(RegExp(r'\r?\n'));
+    if (lines.length <= 1) return [];
+
+    final List<SafeZone> list = [];
+    for (int i = 1; i < lines.length; i++) {
+      final line = lines[i].trim();
+      if (line.isEmpty) continue;
+
+      final cells = _parseCsvLine(line);
+      if (cells.length < 5) continue;
+
+      final lat = double.tryParse(cells[3]);
+      final lng = double.tryParse(cells[4]);
+      if (lat == null || lng == null) continue;
+
+      list.add(SafeZone.fromJson({
+        'id': cells[0],
+        'name': cells[1],
+        'type': cells[2],
+        'latitude': lat,
+        'longitude': lng,
+        'address': cells.length > 5 && cells[5].isNotEmpty ? cells[5] : null,
+        'contact_number': cells.length > 6 && cells[6].isNotEmpty ? cells[6] : null,
+        'is_verified': cells.length > 7 ? cells[7] : true,
+        'operating_hours': cells.length > 8 && cells[8].isNotEmpty ? cells[8] : '24/7',
+        'notes': cells.length > 9 && cells[9].isNotEmpty ? cells[9] : null,
+      }));
+    }
+    return list;
+  }
+
+  /// Parses a single CSV line respecting quoted values containing commas.
+  List<String> _parseCsvLine(String line) {
+    final List<String> result = [];
+    final StringBuffer current = StringBuffer();
+    bool inQuotes = false;
+
+    for (int i = 0; i < line.length; i++) {
+      final char = line[i];
+      if (char == '"') {
+        inQuotes = !inQuotes;
+      } else if (char == ',' && !inQuotes) {
+        result.add(current.toString().trim());
+        current.clear();
+      } else {
+        current.write(char);
+      }
+    }
+    result.add(current.toString().trim());
+    return result;
   }
 }

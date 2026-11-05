@@ -8,7 +8,9 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
+import '../screens/ride_details_screen.dart';
 import 'background_service.dart';
+import 'contact_sync_service.dart';
 import 'pin_security_service.dart';
 
 /// Controls the native guardian alert listener (Android GuardianAlertService), which receives SOS
@@ -29,17 +31,72 @@ class GuardianAlertService {
   bool get _isSupported => !kIsWeb && Platform.isAndroid;
 
   /// Starts/stops the native listener together with the Firebase session.
+  ///
+  /// The native service runs only while the user protects at least one person: it verifies that
+  /// itself from the server (accepted guardian requests) and stops when the list is empty. When the
+  /// app learns that the user protects someone (e.g. right after accepting a request) it tells the
+  /// service to run again.
   void initialize(GlobalKey<NavigatorState> navigatorKey) {
     _navigatorKey = navigatorKey;
     if (!_isSupported || Firebase.apps.isEmpty || _authSubscription != null) return;
+
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onRideTapped') {
+        final rideId = call.arguments?.toString() ?? '';
+        if (rideId.isNotEmpty) {
+          _openRideDetails(rideId);
+        }
+      }
+    });
+
+    _checkPendingRide();
+
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {
         _invoke('start');
         _scheduleReliabilitySetup();
       } else {
+        _protectsSomeone = false;
         _invoke('stop');
       }
     });
+    ContactSyncService.instance.protectedPeopleNotifier.addListener(_onProtectedPeopleChanged);
+    _onProtectedPeopleChanged();
+  }
+
+  Future<void> _checkPendingRide() async {
+    try {
+      final rideId = await _invoke('getPendingRideId');
+      if (rideId != null && rideId is String && rideId.isNotEmpty) {
+        _openRideDetails(rideId);
+      }
+    } catch (_) {}
+  }
+
+  void _openRideDetails(String rideId) {
+    int attempts = 0;
+    void tryPush() {
+      final context = _navigatorKey?.currentContext;
+      if (context != null && context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => RideDetailsScreen(rideId: rideId)),
+        );
+      } else if (attempts < 15) {
+        attempts++;
+        Future.delayed(const Duration(milliseconds: 300), tryPush);
+      }
+    }
+    tryPush();
+  }
+
+  bool _protectsSomeone = false;
+
+  void _onProtectedPeopleChanged() {
+    final protects = ContactSyncService.instance.protectedPeopleNotifier.value.isNotEmpty;
+    if (protects && !_protectsSomeone && FirebaseAuth.instance.currentUser != null) {
+      _invoke('setProtecting', {'value': true});
+    }
+    _protectsSomeone = protects;
   }
 
   Future<dynamic> _invoke(String method, [Map<String, dynamic>? args]) async {

@@ -1,13 +1,15 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:isolate';
 import 'dart:math' as math;
+import 'dart:ui' show Rect;
 import 'package:flutter/foundation.dart';
 import 'package:flutter_tesseract_ocr/flutter_tesseract_ocr.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:image/image.dart' as img;
 import 'package:path_provider/path_provider.dart';
 import '../constants/bd_plate_constants.dart';
+import 'gemini_plate_reader.dart';
+import 'plate_consensus.dart';
+import 'plate_image_processor.dart';
 
 /// Result envelope of the OCR extraction process
 class RideOcrResult {
@@ -23,6 +25,17 @@ class RideOcrResult {
   final bool isConfident;
   final List<String> candidatePlates;
 
+  /// Per-field agreement between OCR passes (0-1); below 0.75 the UI asks the user to check
+  final double cityConfidence;
+  final double seriesConfidence;
+  final double numberConfidence;
+
+  /// Digit positions (0-5 across class + serial) the OCR passes disagreed on
+  final List<int> uncertainDigits;
+
+  /// 'cloud' when the Gemini reader contributed, 'device' for on-device OCR only
+  final String source;
+
   const RideOcrResult({
     this.rawText,
     this.formattedPlate,
@@ -35,6 +48,11 @@ class RideOcrResult {
     this.confidence = 0.0,
     this.isConfident = false,
     this.candidatePlates = const [],
+    this.cityConfidence = 0.0,
+    this.seriesConfidence = 0.0,
+    this.numberConfidence = 0.0,
+    this.uncertainDigits = const [],
+    this.source = 'device',
   });
 
   bool get hasPlate => formattedPlate != null && formattedPlate!.isNotEmpty;
@@ -263,6 +281,22 @@ class RideOcrService {
         best = (city: aliases[name]!, end: end);
       }
     }
+    if (best != null) return best;
+
+    // Fuzzy: one wrong/missing consonant in a longer name (e.g. চট্টগ্রাম read as চট্টগাম).
+    // Short names are excluded: one edit would turn them into other words too easily.
+    for (final token in RegExp('[ঀ-৿]+').allMatches(text)) {
+      final tokenSkel = banglaSkeleton(token.group(0)!);
+      if (tokenSkel.length < 3) continue;
+      for (final name in names) {
+        final nameSkel = banglaSkeleton(name);
+        if (nameSkel.length < 4) continue;
+        if (PlateVoting.editDistance(tokenSkel, nameSkel) <= 1 &&
+            (best == null || token.end > best.end)) {
+          best = (city: aliases[name]!, end: token.end);
+        }
+      }
+    }
     return best;
   }
 
@@ -305,6 +339,47 @@ class RideOcrService {
     return normalized;
   }
 
+  /// Replaces OCR-garbled English city names with the closest known name, e.g. `DHAKA MFTRO`
+  /// or `DHAKA METR0` -> `DHAKA METRO`. Only windows with the same word count are compared,
+  /// and only small edit distances are accepted.
+  static String fixLatinCityNames(String text) {
+    final words = text.split(' ');
+    if (words.isEmpty) return text;
+    final names = cityAliases.keys.toList()..sort((a, b) => b.length.compareTo(a.length));
+
+    final out = <String>[];
+    var i = 0;
+    outer:
+    while (i < words.length) {
+      for (final name in names) {
+        final nameWords = name.split(' ');
+        if (i + nameWords.length > words.length) continue;
+        // Compare letters only, so a glued-on "-GA" suffix doesn't count against the match
+        final window = words.sublist(i, i + nameWords.length);
+        final lastWord = window.last;
+        final lastLetters = RegExp(r'^[A-Z0-9|]+').stringMatch(lastWord) ?? '';
+        if (lastLetters.isEmpty) continue;
+        final candidate = [...window.sublist(0, window.length - 1), lastLetters]
+            .join(' ')
+            .replaceAll('0', 'O')
+            .replaceAll('1', 'I')
+            .replaceAll('|', 'I');
+        final exact = candidate == name;
+        if (!exact) {
+          if (name.length < 5) continue;
+          final maxDistance = name.length >= 10 ? 2 : 1;
+          if (PlateVoting.editDistance(candidate, name) > maxDistance) continue;
+        }
+        out.add(name + lastWord.substring(lastLetters.length));
+        i += nameWords.length;
+        continue outer;
+      }
+      out.add(words[i]);
+      i++;
+    }
+    return out.join(' ');
+  }
+
   /// Parses a plate from text using a tolerant regex for Bangladesh plates.
   /// Handles formats like:
   /// - `DHAKA METRO-GA 11-2233`
@@ -312,8 +387,9 @@ class RideOcrService {
   /// - `CHATTA METRO-HA 12 3456`
   /// - `DHAKA-THA 11-2233`
   /// - `GAZIPUR-HA 11-2233`
+  /// - OCR confusions in the digits: `DHAKA METRO-GA I1-22O3` -> `11-2203`
   static RideOcrResult parsePlateFromText(String rawInput) {
-    final clean = normalizeOcrText(rawInput);
+    final clean = fixLatinCityNames(normalizeOcrText(rawInput));
     if (clean.isEmpty) {
       return const RideOcrResult();
     }
@@ -323,50 +399,60 @@ class RideOcrService {
       ..sort((a, b) => b.length.compareTo(a.length));
     final cityPattern = sortedCities.map(RegExp.escape).join('|');
 
-    // Regex allowing missing or extra spaces, hyphens, and standard structure
-    // Group 1: City
-    // Group 2: Series (1 to 3 letters)
-    // Group 3: Class (2 digits)
-    // Group 4: Serial (4 digits)
+    // Digit positions also accept letters OCR mistakes for digits (O->0, I->1, S->5, B->8 ...);
+    // they are converted after matching. Anchored on a known city, so words aren't mistaken.
+    const d = r'[0-9OQDUIL|!JZSGTB]';
+    // Group 1: City, 2: Series (1 to 4 letters, e.g. CHHA), 3: Class (2), 4: Serial (4)
     final plateRegex = RegExp(
-      '\\b($cityPattern)\\s*[-]?\\s*([A-Z]{1,3})\\s*[-]?\\s*(\\d{2})\\s*[-]?\\s*(\\d{4})\\b',
+      '\\b($cityPattern)\\s*[-]?\\s*([A-Z]{1,4})\\s*[-.]?\\s*($d{2})\\s*[-.]?\\s*($d{4})(?![0-9A-Z])',
       caseSensitive: false,
     );
 
-    final matches = plateRegex.allMatches(clean);
     final candidates = <String>[];
     String? bestFormatted;
     String? bestCity;
     String? bestSeries;
     String? bestClass;
     String? bestSerial;
+    String? partialCity;
+    String? partialClass;
+    String? partialSerial;
 
-    for (final match in matches) {
+    for (final match in plateRegex.allMatches(clean)) {
       final matchedCityRaw = match.group(1)?.trim().toUpperCase() ?? '';
-      final matchedSeriesRaw = match.group(2)?.trim().toUpperCase() ?? '';
-      final matchedClass = match.group(3)?.trim() ?? '';
-      final matchedSerial = match.group(4)?.trim() ?? '';
+      final matchedSeries = match.group(2)?.trim().toUpperCase() ?? '';
+      final matchedClass = PlateVoting.latinToDigits(match.group(3)?.trim() ?? '');
+      final matchedSerial = PlateVoting.latinToDigits(match.group(4)?.trim() ?? '');
+      if (!RegExp(r'^\d{2}$').hasMatch(matchedClass) || !RegExp(r'^\d{4}$').hasMatch(matchedSerial)) {
+        continue;
+      }
 
       final stdCity = cityAliases[matchedCityRaw] ?? matchedCityRaw;
-      final stdSeries = matchedSeriesRaw;
+      if (!_isKnownSeries(matchedSeries)) {
+        // City and number are still useful; the series is left for the user to pick
+        partialCity ??= stdCity;
+        partialClass ??= matchedClass;
+        partialSerial ??= matchedSerial;
+        continue;
+      }
 
-      final formatted = '$stdCity-$stdSeries $matchedClass-$matchedSerial';
+      final formatted = '$stdCity-$matchedSeries $matchedClass-$matchedSerial';
       candidates.add(formatted);
 
       if (bestFormatted == null) {
         bestFormatted = formatted;
         bestCity = stdCity;
-        bestSeries = stdSeries;
+        bestSeries = matchedSeries;
         bestClass = matchedClass;
         bestSerial = matchedSerial;
       }
     }
 
     // Attempt loose fallback if standard city regex didn't match:
-    // Any word followed by 1-3 letters and 2 digits and 4 digits
+    // Any word followed by 1-4 letters and 2 digits and 4 digits
     if (bestFormatted == null) {
       final looseRegex = RegExp(
-        r'\b([A-Z\s]{3,20}?)\s*[-]?\s*([A-Z]{1,3})\s*[-]?\s*(\d{2})\s*[-]?\s*(\d{4})\b',
+        r'\b([A-Z\s]{3,20}?)\s*[-]?\s*([A-Z]{1,4})\s*[-]?\s*(\d{2})\s*[-]?\s*(\d{4})\b',
       );
       final looseMatch = looseRegex.firstMatch(clean);
       if (looseMatch != null) {
@@ -377,8 +463,7 @@ class RideOcrService {
 
         // Only accept if rawCity looks somewhat like a city (at least 3 alpha chars) and the series
         // is a real BRTA series, so text like "TRIP FARE 12 3456" is not taken for a plate
-        final isKnownSeries = BdPlateConstants.seriesList.any((s) => s.english == rawSeries);
-        if (RegExp(r'^[A-Z\s]+$').hasMatch(rawCity) && rawCity.length >= 3 && isKnownSeries) {
+        if (RegExp(r'^[A-Z\s]+$').hasMatch(rawCity) && rawCity.length >= 3 && _isKnownSeries(rawSeries)) {
           final stdCity = cityAliases[rawCity] ?? rawCity;
           bestFormatted = '$stdCity-$rawSeries $rawClass-$rawSerial';
           bestCity = stdCity;
@@ -394,11 +479,21 @@ class RideOcrService {
     final driverName = extractDriverName(rawInput);
     final driverPhone = extractDriverPhone(rawInput);
 
-    // Plates are printed in Bangla on the vehicle itself: fall back to the Bangla parser
     if (bestFormatted == null) {
+      // Plates are printed in Bangla on the vehicle itself: fall back to the Bangla parser
       final bangla = parseBanglaPlate(rawInput);
       if (bangla.hasPlate || bangla.hasNumber || bangla.city != null || bangla.series != null) {
         return RideOcrResult(driverName: driverName, driverPhone: driverPhone).mergeWith(bangla);
+      }
+      if (partialCity != null) {
+        return RideOcrResult(
+          rawText: rawInput,
+          city: partialCity,
+          classNumber: partialClass,
+          serialNumber: partialSerial,
+          driverName: driverName,
+          driverPhone: driverPhone,
+        );
       }
     }
 
@@ -419,6 +514,9 @@ class RideOcrService {
       candidatePlates: candidates,
     );
   }
+
+  static bool _isKnownSeries(String series) =>
+      BdPlateConstants.seriesList.any((s) => s.english == series);
 
   /// Extracts driver name only if clearly labeled (never guess)
   static String? extractDriverName(String text) {
@@ -455,127 +553,389 @@ class RideOcrService {
     return null;
   }
 
+  // ─── Readings from OCR text (pure, unit-tested) ────────────────────────────
+
+  /// Converts a parsed result into a vote. Only fields that were actually read are included.
+  static PlateReading readingFrom(RideOcrResult r, {double weight = 1.0, String source = ''}) {
+    final number = r.classNumber != null && r.serialNumber != null
+        ? '${r.classNumber}${r.serialNumber}'
+        : null;
+    return PlateReading(
+      city: r.city,
+      series: r.series,
+      number: number,
+      weight: weight,
+      source: source,
+    );
+  }
+
+  /// Reads the class + serial from OCR of the plate's bottom line only (digits whitelisted).
+  /// Handles a lost separator and a separator misread as an extra digit.
+  static PlateReading? readingFromNumberLine(String text, {String source = 'number-line'}) {
+    final t = BdPlateConstants.normalizeDigits(text).replaceAll(RegExp(r'[—–―_~=]'), '-');
+    final m = RegExp(r'(?<!\d)(\d{2})\s*[-.:,]?\s*(\d{4})(?!\d)').firstMatch(t);
+    if (m != null) {
+      return PlateReading(number: '${m.group(1)}${m.group(2)}', source: source);
+    }
+    final digits = t.replaceAll(RegExp(r'\D'), '');
+    if (digits.length == 6) {
+      return PlateReading(number: digits, source: source);
+    }
+    // "31-9957" read as "3119957": the dash became a 1 (or 7). Weak evidence only.
+    if (digits.length == 7 && (digits[2] == '1' || digits[2] == '7')) {
+      return PlateReading(
+        number: digits.substring(0, 2) + digits.substring(3),
+        weight: 0.5,
+        source: '$source(dash)',
+      );
+    }
+    return null;
+  }
+
+  /// Reads the city + series from OCR of the plate's top line only
+  static PlateReading? readingFromCityLine(String text, {String source = 'city-line'}) {
+    final normalized = normalizeBanglaText(text);
+    final city = _findBanglaCity(normalized);
+    final series = _findBanglaSeries(city != null ? normalized.substring(city.end) : normalized);
+    if (city != null || series != null) {
+      return PlateReading(city: city?.city, series: series, source: source);
+    }
+    // English-printed plate
+    final latin = fixLatinCityNames(normalizeOcrText(text));
+    final m = RegExp(
+      '\\b(${(cityAliases.keys.toList()..sort((a, b) => b.length.compareTo(a.length))).map(RegExp.escape).join('|')})\\s*-?\\s*([A-Z]{1,4})\\b',
+    ).firstMatch(latin);
+    if (m == null) return null;
+    final latinSeries = m.group(2)!;
+    return PlateReading(
+      city: cityAliases[m.group(1)!],
+      series: _isKnownSeries(latinSeries) ? latinSeries : null,
+      source: '$source(latin)',
+    );
+  }
+
+  /// Builds the final result from the votes
+  static RideOcrResult resultFromConsensus(
+    PlateConsensus c, {
+    String rawText = '',
+    String? driverName,
+    String? driverPhone,
+    String source = 'device',
+  }) {
+    final formatted = c.isComplete
+        ? '${c.city}-${c.series} ${c.classNumber}-${c.serialNumber}'
+        : null;
+    final confidence = c.isComplete
+        ? math.min(c.cityConfidence, math.min(c.seriesConfidence, c.numberConfidence))
+        : 0.0;
+    return RideOcrResult(
+      rawText: rawText,
+      formattedPlate: formatted,
+      city: c.city,
+      series: c.series,
+      classNumber: c.classNumber,
+      serialNumber: c.serialNumber,
+      driverName: driverName,
+      driverPhone: driverPhone,
+      confidence: confidence,
+      isConfident: c.isConfident,
+      candidatePlates: formatted != null ? [formatted] : const [],
+      cityConfidence: c.cityConfidence,
+      seriesConfidence: c.seriesConfidence,
+      numberConfidence: c.numberConfidence,
+      uncertainDigits: c.uncertainDigits,
+      source: source,
+    );
+  }
+
+  // ─── Photo preparation for the crop screen ─────────────────────────────────
+
+  /// Bakes orientation, caps the size and suggests where the plate is (fractions 0-1 of the
+  /// image as [left, top, right, bottom]) so the crop box starts close to it.
+  Future<PreparedPlatePhoto?> preparePhoto(File photo) async {
+    final tempDir = await getTemporaryDirectory();
+    final out = '${tempDir.path}/plate_photo_${DateTime.now().microsecondsSinceEpoch}.jpg';
+    final normalized = await PlateImageProcessor.normalizePhoto(photo.path, out);
+    if (normalized == null) return null;
+
+    List<double>? suggestion;
+    try {
+      final latin = await _recognizeLatin(File(normalized.path));
+      final area = latin.plateArea;
+      if (area != null) {
+        final w = normalized.width.toDouble(), h = normalized.height.toDouble();
+        final bw = (area[2] - area[0]).toDouble(), bh = (area[3] - area[1]).toDouble();
+        suggestion = [
+          ((area[0] - bw * 0.1) / w).clamp(0.0, 1.0),
+          ((area[1] - bh * 0.4) / h).clamp(0.0, 1.0),
+          ((area[2] + bw * 0.1) / w).clamp(0.0, 1.0),
+          ((area[3] + bh * 0.4) / h).clamp(0.0, 1.0),
+        ];
+      }
+    } catch (e) {
+      debugPrint('[RideOcrService] plate area suggestion failed: $e');
+    }
+
+    return PreparedPlatePhoto(
+      file: File(normalized.path),
+      width: normalized.width,
+      height: normalized.height,
+      suggestedRegion: suggestion,
+    );
+  }
+
+  /// Cuts the plate out of a prepared photo; [region] is [left, top, right, bottom] in 0-1
+  Future<File?> cropPlate(File photo, List<double> region) async {
+    final tempDir = await getTemporaryDirectory();
+    final out = '${tempDir.path}/plate_crop_${DateTime.now().microsecondsSinceEpoch}.jpg';
+    final path = await PlateImageProcessor.cropToFile(photo.path, out, region);
+    return path == null ? null : File(path);
+  }
+
+  // ─── Recognition pipeline ──────────────────────────────────────────────────
+
   /// Serializes Tesseract calls: the plugin shares one native engine across calls
   Future<void> _tesseractQueue = Future.value();
 
-  /// Reads a plate from the given image file.
+  /// Reads a plate from [imageFile].
   ///
-  /// 1. ML Kit Latin OCR: fast, handles English plates and ride-app screenshots.
-  /// 2. If no full plate was found, Tesseract Bangla OCR (ML Kit has no Bengali model), first on the
-  ///    whole photo, then cropped to the text area ML Kit located, since a tight crop reads best.
-  Future<RideOcrResult> recognizePlate(File imageFile) async {
+  /// [isPlateCrop] says the image is already cropped to the plate (from the crop screen).
+  /// Every pass produces a vote; the result carries a per-field confidence and is only
+  /// "confident" when independent passes agree.
+  ///
+  /// 1. ML Kit Latin: English plates and ride-app screenshots (clean digital text).
+  /// 2. Gemini (when configured and online): strongest reader for Bangla plates.
+  /// 3. Tesseract Bangla on pre-processed variants: the plate split into its two lines, the
+  ///    number line read with a digits-only whitelist, each line binarized and in grayscale.
+  Future<RideOcrResult> recognizePlate(
+    File imageFile, {
+    bool isPlateCrop = false,
+    void Function(String message)? onProgress,
+  }) async {
+    final readings = <PlateReading>[];
+    final rawTexts = <String>[];
+
+    // 1. ML Kit Latin
+    onProgress?.call('Reading text…');
     final latin = await _recognizeLatin(imageFile);
-    var result = latin.result;
-    if (result.hasPlate) return result;
+    final latinResult = latin.result;
+    if (latinResult.rawText?.isNotEmpty == true) rawTexts.add(latinResult.rawText!);
+    final driverName = latinResult.driverName;
+    final driverPhone = latinResult.driverPhone;
 
-    final tempDir = await getTemporaryDirectory();
-    final stamp = DateTime.now().microsecondsSinceEpoch;
-    final passes = <({String name, List<int>? crop, String psm})>[
-      (name: 'full', crop: null, psm: '11'), // sparse text: finds the plate anywhere in the photo
-      if (latin.textArea != null) (name: 'crop', crop: latin.textArea, psm: '6'), // uniform block
-    ];
+    final latinReading = readingFrom(
+      latinResult,
+      // A screenshot's printed text is reliable; a camera photo of a plate is not
+      weight: isPlateCrop ? 1.0 : 2.0,
+      source: 'mlkit',
+    );
+    if (!latinReading.isEmpty) readings.add(latinReading);
 
-    for (final pass in passes) {
-      final outPath = '${tempDir.path}/plate_ocr_${stamp}_${pass.name}.png';
-      try {
-        final prepared = await _prepareForTesseract(imageFile.path, outPath, pass.crop);
-        if (prepared == null) continue;
+    RideOcrResult current() => resultFromConsensus(
+          PlateVoting.decide(readings),
+          rawText: rawTexts.join('\n'),
+          driverName: driverName,
+          driverPhone: driverPhone,
+          source: readings.any((r) => r.source == 'gemini') ? 'cloud' : 'device',
+        );
 
-        final text = await _runTesseract(prepared, pass.psm);
-        debugPrint('[RideOcrService] 🔍 Bangla OCR (${pass.name}) text: ${text.replaceAll('\n', ' | ')}');
-        result = result.mergeWith(parsePlateFromText(text));
-        if (result.hasPlate) break;
-      } catch (e) {
-        debugPrint('[RideOcrService] ❌ Bangla OCR (${pass.name}) error: $e');
-      } finally {
-        try {
-          await File(outPath).delete();
-        } catch (_) {}
+    if (!isPlateCrop && latinResult.hasPlate) {
+      debugPrint('[RideOcrService] ✅ plate from screenshot text: ${latinResult.formattedPlate}');
+      return current();
+    }
+
+    // 2. Cloud reader
+    final gemini = GeminiPlateReader.instance;
+    if (gemini.isConfigured) {
+      onProgress?.call('Reading plate with AI…');
+      final cloud = await gemini.read(imageFile);
+      if (cloud != null) {
+        readings.add(cloud.reading);
+        if (cloud.rawText.isNotEmpty) rawTexts.add(cloud.rawText);
+        final result = current();
+        if (result.isConfident) {
+          debugPrint('[RideOcrService] ✅ plate from cloud: ${result.formattedPlate}');
+          return result;
+        }
       }
     }
+
+    // 3. On-device Bangla OCR
+    onProgress?.call('Reading Bangla plate on device…');
+    final deviceReadings = await _readOnDevice(
+      imageFile,
+      isPlateCrop: isPlateCrop,
+      textArea: isPlateCrop ? null : latin.plateArea,
+      rawTexts: rawTexts,
+    );
+    readings.addAll(deviceReadings);
+
+    final result = current();
+    debugPrint('[RideOcrService] 🗳 ${readings.length} readings -> ${result.formattedPlate ?? '(partial)'} '
+        'conf city=${result.cityConfidence.toStringAsFixed(2)} '
+        'series=${result.seriesConfidence.toStringAsFixed(2)} '
+        'number=${result.numberConfidence.toStringAsFixed(2)} uncertain=${result.uncertainDigits}');
     return result;
   }
 
-  /// ML Kit Latin pass. Besides the parsed result it returns the bounding box of all detected text
-  /// as [left, top, right, bottom]: ML Kit still locates Bangla text even though it can't read it.
-  Future<({RideOcrResult result, List<int>? textArea})> _recognizeLatin(File imageFile) async {
+  Future<List<PlateReading>> _readOnDevice(
+    File imageFile, {
+    required bool isPlateCrop,
+    required List<int>? textArea,
+    required List<String> rawTexts,
+  }) async {
+    final readings = <PlateReading>[];
+    final tempDir = await getTemporaryDirectory();
+    final prefix = '${tempDir.path}/plate_ocr_${DateTime.now().microsecondsSinceEpoch}';
+
+    // Without a crop and without any text located, read the whole photo sparsely
+    final useCrop = isPlateCrop || textArea != null;
+    PlateVariantPaths? variants;
+    try {
+      variants = await PlateImageProcessor.buildVariants(
+        imageFile.path,
+        prefix,
+        crop: isPlateCrop ? null : textArea,
+        plateMode: isPlateCrop,
+      );
+      if (variants == null) return readings;
+
+      Future<String> ocr(String path, String psm, {String whitelist = ''}) async {
+        try {
+          final text = await _runTesseract(path, psm, whitelist: whitelist);
+          rawTexts.add(text);
+          debugPrint('[RideOcrService] 🔍 ${path.split('_').skip(2).join('_')} psm$psm: '
+              '${text.replaceAll('\n', ' | ')}');
+          return text;
+        } catch (e) {
+          debugPrint('[RideOcrService] ❌ Tesseract error: $e');
+          return '';
+        }
+      }
+
+      bool agreed(List<PlateReading> list, String? Function(PlateReading) key) {
+        final counts = <String, int>{};
+        for (final r in list) {
+          final k = key(r);
+          if (k != null) counts[k] = (counts[k] ?? 0) + 1;
+        }
+        return counts.values.any((c) => c >= 2);
+      }
+
+      if (variants.isSplit) {
+        // Number line: digits only, single text line. Stop once two passes agree.
+        const digitWhitelist = '০১২৩৪৫৬৭৮৯0123456789-';
+        final numberReads = <PlateReading>[];
+        for (final path in [variants.bottomBinary!, variants.bottomGray!, variants.bottomBold!]) {
+          final r = readingFromNumberLine(await ocr(path, '7', whitelist: digitWhitelist));
+          if (r != null) numberReads.add(r);
+          if (agreed(numberReads, (r) => r.number)) break;
+        }
+        readings.addAll(numberReads);
+
+        // City line
+        final cityReads = <PlateReading>[];
+        for (final path in [variants.topBinary!, variants.topGray!]) {
+          final r = readingFromCityLine(await ocr(path, '7'));
+          if (r != null) cityReads.add(r);
+          if (agreed(cityReads, (r) => r.city) && agreed(cityReads, (r) => r.series)) break;
+        }
+        readings.addAll(cityReads);
+      }
+
+      // Whole plate as a block: a cross-check when split, the main read when not
+      final wholePasses = variants.isSplit
+          ? [(variants.fullGray, '6')]
+          : useCrop
+              ? [(variants.fullBinary, '6'), (variants.fullGray, '6'), (variants.fullGray, '11')]
+              : [(variants.fullGray, '11'), (variants.fullBinary, '11')];
+      for (final (path, psm) in wholePasses) {
+        final reading = readingFrom(parsePlateFromText(await ocr(path, psm)), source: 'tess-full');
+        if (!reading.isEmpty) readings.add(reading);
+      }
+    } catch (e) {
+      debugPrint('[RideOcrService] ❌ on-device OCR error: $e');
+    } finally {
+      for (final path in variants?.all ?? const <String>[]) {
+        try {
+          await File(path).delete();
+        } catch (_) {}
+      }
+    }
+    return readings;
+  }
+
+  /// ML Kit Latin pass. Besides the parsed result it returns where the plate probably is
+  /// ([left, top, right, bottom] in pixels): ML Kit locates Bangla text even though it can't
+  /// read it.
+  Future<({RideOcrResult result, List<int>? plateArea})> _recognizeLatin(File imageFile) async {
     final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     try {
       final inputImage = InputImage.fromFile(imageFile);
       final RecognizedText recognizedText = await recognizer.processImage(inputImage);
       final raw = recognizedText.text;
-      debugPrint('[RideOcrService] 🔍 OCR Extracted text length: ${raw.length}');
-
-      List<int>? area;
-      for (final block in recognizedText.blocks) {
-        final r = block.boundingBox;
-        area = area == null
-            ? [r.left.floor(), r.top.floor(), r.right.ceil(), r.bottom.ceil()]
-            : [
-                math.min(area[0], r.left.floor()),
-                math.min(area[1], r.top.floor()),
-                math.max(area[2], r.right.ceil()),
-                math.max(area[3], r.bottom.ceil()),
-              ];
-      }
-      return (result: parsePlateFromText(raw), textArea: area);
+      debugPrint('[RideOcrService] 🔍 ML Kit text length: ${raw.length}');
+      return (
+        result: parsePlateFromText(raw),
+        plateArea: _plateAreaFrom(recognizedText.blocks.map((b) => b.boundingBox).toList()),
+      );
     } catch (e) {
       debugPrint('[RideOcrService] ❌ OCR error: $e');
-      return (result: const RideOcrResult(rawText: ''), textArea: null);
+      return (result: const RideOcrResult(rawText: ''), plateArea: null);
     } finally {
       await recognizer.close();
     }
   }
 
-  Future<String> _runTesseract(String imagePath, String psm) {
+  /// Union of the text blocks, unless that covers most of the photo (background signs, stickers):
+  /// then the largest wide block, which on a vehicle photo is usually the plate.
+  static List<int>? _plateAreaFrom(List<Rect> boxes) {
+    if (boxes.isEmpty) return null;
+    var union = boxes.first;
+    for (final b in boxes.skip(1)) {
+      union = union.expandToInclude(b);
+    }
+    var area = union;
+    if (boxes.length > 1) {
+      final largest = boxes.reduce((a, b) => a.width * a.height >= b.width * b.height ? a : b);
+      if (union.width * union.height > 4 * largest.width * largest.height) area = largest;
+    }
+    return [area.left.floor(), area.top.floor(), area.right.ceil(), area.bottom.ceil()];
+  }
+
+  /// [whitelist] is always sent (empty clears it): the plugin keeps one Tesseract engine and
+  /// variables persist across calls, so a digits-only whitelist would otherwise leak into the
+  /// next city-line read.
+  Future<String> _runTesseract(String imagePath, String psm, {String whitelist = ''}) {
     final run = _tesseractQueue.then(
       (_) => FlutterTesseractOcr.extractText(
         imagePath,
         language: 'ben',
-        args: {'psm': psm, 'preserve_interword_spaces': '1'},
+        args: {
+          'psm': psm,
+          'preserve_interword_spaces': '1',
+          'tessedit_char_whitelist': whitelist,
+        },
       ).timeout(const Duration(seconds: 25)),
     );
     _tesseractQueue = run.then((_) {}, onError: (_) {});
     return run;
   }
+}
 
-  /// Grayscale + contrast-stretched copy of the photo, optionally cropped to [crop]
-  /// ([left, top, right, bottom], padded generously because ML Kit may only box part of the plate)
-  /// and scaled to a size Tesseract handles well. Runs off the UI isolate.
-  static Future<String?> _prepareForTesseract(String srcPath, String outPath, List<int>? crop) {
-    return Isolate.run(() {
-      var image = img.decodeImage(File(srcPath).readAsBytesSync());
-      if (image == null) return null;
-      image = img.bakeOrientation(image);
+/// A photo ready for the crop screen: orientation baked in, size capped
+class PreparedPlatePhoto {
+  final File file;
+  final int width;
+  final int height;
 
-      if (crop != null) {
-        final w = crop[2] - crop[0];
-        final h = crop[3] - crop[1];
-        final left = math.max(0, crop[0] - (w * 0.15).round());
-        final top = math.max(0, crop[1] - (h * 0.6).round());
-        final right = math.min(image.width, crop[2] + (w * 0.15).round());
-        final bottom = math.min(image.height, crop[3] + (h * 0.6).round());
-        if (right - left < 20 || bottom - top < 20) return null;
-        image = img.copyCrop(image, x: left, y: top, width: right - left, height: bottom - top);
-      }
+  /// Where the plate probably is, [left, top, right, bottom] as fractions 0-1; null if unknown
+  final List<double>? suggestedRegion;
 
-      final longest = math.max(image.width, image.height);
-      const minSide = 1000, maxSide = 1600;
-      if (longest > maxSide || longest < minSide) {
-        final scale = (longest > maxSide ? maxSide : minSide) / longest;
-        image = img.copyResize(
-          image,
-          width: (image.width * scale).round(),
-          height: (image.height * scale).round(),
-          interpolation: img.Interpolation.cubic,
-        );
-      }
-
-      image = img.grayscale(image);
-      image = img.normalize(image, min: 0, max: 255);
-
-      File(outPath).writeAsBytesSync(img.encodePng(image));
-      return outPath;
-    });
-  }
+  const PreparedPlatePhoto({
+    required this.file,
+    required this.width,
+    required this.height,
+    this.suggestedRegion,
+  });
 }

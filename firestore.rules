@@ -10,6 +10,34 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // ── One-way guardian links ──────────────────────────────────────────────
+    // A link "B guards A" exists when connection_requests/{A}_{B} (or {A}_{B's email key})
+    // was sent by A and accepted by B. A's users/{A}/contacts is the source of truth for who
+    // receives A's alerts; B sees the link only through the accepted request.
+
+    // Same key the app builds: lowercase email, every non [a-z0-9] character -> '_'.
+    function authEmailKey() {
+      return string(request.auth.token.get('email', '')).lower().replace('[^a-z0-9]', '_');
+    }
+
+    function requestPath(requestId) {
+      return /databases/$(database)/documents/connection_requests/$(requestId);
+    }
+
+    function isAcceptedRequestToMe(requestId) {
+      return exists(requestPath(requestId)) && (
+        get(requestPath(requestId)).data.get('status', '') == 'accepted' &&
+        (get(requestPath(requestId)).data.get('receiverId', '') == request.auth.uid ||
+         get(requestPath(requestId)).data.get('receiver_uid', '') == request.auth.uid)
+      );
+    }
+
+    // True when the signed-in user accepted a guardian request sent by protectedUid.
+    function acceptedGuardianOf(protectedUid) {
+      return isAcceptedRequestToMe(protectedUid + '_' + request.auth.uid) ||
+        (authEmailKey() != '' && isAcceptedRequestToMe(protectedUid + '_' + authEmailKey()));
+    }
+
     // Users Collection
     match /users/{userId} {
       // Authenticated users can query and read user profiles to search contacts by phone number
@@ -18,15 +46,35 @@ service cloud.firestore {
       allow update: if isOwner(userId);
       allow delete: if false;
 
-      // Emergency Contacts Subcollection
-      match /contacts/{contactId} {
+      // Active sender-side safety deadlines (journey / ride / SOS escalation timers), mirrored
+      // from the device so they can be re-armed after a reinstall. Private to the owner.
+      match /safety_deadlines/{deadlineId} {
+        allow read, write: if isOwner(userId);
+      }
+
+      // Safety & alert history of this account (survives logout, reinstall, new phone).
+      // Only the owner can read it. Entries are immutable; routine entries may be cleared by
+      // the owner, SOS entries never (evidence).
+      match /activity_logs/{activityId} {
         allow read: if isOwner(userId);
-        // Can be written by the user themselves or mutual contact sync or cleanup of pending placeholders
-        allow write: if isAuthenticated() && (
-          isOwner(userId) || 
+        allow create: if isOwner(userId) && request.resource.data.id == activityId;
+        allow update: if false;
+        allow delete: if isOwner(userId) && resource.data.get('type', '') != 'sos';
+      }
+
+      // Emergency Contacts Subcollection = this user's guardians (one-way links).
+      match /contacts/{contactId} {
+        // Only the owner can read their own guardians.
+        allow read: if isOwner(userId);
+        // The owner manages their own list. The guardian (accepter) may add/update their own
+        // entry only after accepting a request sent by the owner.
+        allow create, update: if isOwner(userId) ||
+          (isOwner(contactId) && acceptedGuardianOf(userId));
+        // The owner, the guardian themselves (removing the link), or the accepter clearing the
+        // owner's email placeholder for them ("pending_<accepter email key>").
+        allow delete: if isOwner(userId) ||
           isOwner(contactId) ||
-          contactId.matches('pending_.*')
-        );
+          (isAuthenticated() && authEmailKey() != '' && contactId == 'pending_' + authEmailKey());
       }
     }
 
@@ -87,9 +135,24 @@ service cloud.firestore {
         && (request.resource.data.senderId == request.auth.uid || request.resource.data.sender_uid == request.auth.uid)
         && request.resource.data.status == 'pending';
 
+      // Who sent the request (= who is protected) can never be rewritten.
+      function senderUnchanged() {
+        return request.resource.data.get('senderId', null) == resource.data.get('senderId', null) &&
+          request.resource.data.get('sender_uid', null) == resource.data.get('sender_uid', null);
+      }
+
+      // The receiver may only record themselves as the receiver (no forwarding the link).
+      function receiverIsSelf() {
+        return (request.resource.data.get('receiverId', '') == resource.data.get('receiverId', '') ||
+                request.resource.data.receiverId == request.auth.uid) &&
+          (request.resource.data.get('receiver_uid', '') == resource.data.get('receiver_uid', '') ||
+           request.resource.data.receiver_uid == request.auth.uid);
+      }
+
       // Sender can cancel or re-invite, receiver can accept or reject
-      allow update: if (isReceiver() && request.resource.data.status in ['accepted', 'rejected'])
-        || (isSender() && request.resource.data.status in ['cancelled', 'pending']);
+      allow update: if senderUnchanged() && (
+        (isReceiver() && request.resource.data.status in ['accepted', 'rejected'] && receiverIsSelf())
+        || (isSender() && request.resource.data.status in ['cancelled', 'pending']));
 
       // Sender or receiver can permanently delete connection requests
       allow delete: if isSender() || isReceiver();
@@ -143,7 +206,10 @@ service cloud.firestore {
           'recipientEmails',
           'escalationLevel',
           'escalationLog',
-          'recentTrail'
+          'recentTrail',
+          // Sender marks a resolved alert as a false alarm from the history screen
+          'falseAlarm',
+          'falseAlarmAt'
         ]))
         ||
         (isRecipient() &&

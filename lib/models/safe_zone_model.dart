@@ -45,6 +45,9 @@ class SafeZone {
   final Color bgColor;
   final String? address;
   final bool isVerifiedCheckpoint;
+  final String? contactNumber;
+  final String? operatingHours;
+  final String? notes;
 
   const SafeZone({
     required this.id,
@@ -57,6 +60,9 @@ class SafeZone {
     required this.bgColor,
     this.address,
     this.isVerifiedCheckpoint = true,
+    this.contactNumber,
+    this.operatingHours,
+    this.notes,
   });
 
   /// Creates a [SafeZone] from a database or JSON map representation.
@@ -131,6 +137,9 @@ class SafeZone {
       bgColor: bgColor,
       address: json['address'] as String?,
       isVerifiedCheckpoint: isVerified,
+      contactNumber: json['contact_number'] as String?,
+      operatingHours: json['operating_hours'] as String?,
+      notes: json['notes'] as String?,
     );
   }
 

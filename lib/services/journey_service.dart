@@ -16,6 +16,8 @@ import 'emergency_service.dart';
 import 'live_tracking_service.dart';
 import 'notification_service.dart';
 import 'motion_detection_service.dart';
+import 'ride_checkin_service.dart';
+import 'safety_deadline_service.dart';
 
 /// Categories of safety triggers evaluated by the Safe Journey monitor loop
 enum JourneySafetyTriggerType {
@@ -93,6 +95,9 @@ class JourneyService {
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _journeyDocSub;
 
   final Map<JourneySafetyTriggerType, DateTime> _triggerCooldowns = {};
+
+  /// Journey whose check-in deadline is armed with the native exact-alarm backstop.
+  String? _deadlineJourneyId;
   final List<double> _recentDistancesToDest = [];
   final List<Map<String, dynamic>> _recentLocationTrail = [];
 
@@ -323,6 +328,9 @@ class JourneyService {
       } else if (_monitorTimer == null || !_monitorTimer!.isActive) {
         _startMonitorLoop();
       }
+      if (model.isActive && activeSafetyCheckNotifier.value == null) {
+        _armJourneyDeadline(model);
+      }
     }, onError: (err) {
       debugPrint('[JourneyService] Error listening to journey doc: $err');
     });
@@ -439,6 +447,7 @@ class JourneyService {
     // 5. Start monitor loop
     await _attachToJourneyDoc(journeyId);
     _startMonitorLoop();
+    _armJourneyDeadline(journey);
 
     // 6. Log activity
     ActivityService.instance.logActivity(
@@ -550,6 +559,7 @@ class JourneyService {
 
     await _attachToJourneyDoc(journeyId);
     _startMonitorLoop();
+    _armJourneyDeadline(journey);
 
     ActivityService.instance.logActivity(
       ActivityItem(
@@ -747,6 +757,15 @@ class JourneyService {
       reason: trigger.reason,
     );
 
+    // Native backstop: escalates even if the app is killed during the countdown
+    final journeyId = activeJourney?.id;
+    if (journeyId != null) {
+      unawaited(SafetyDeadlineService.instance.prompt(
+        journeyDeadlineId(journeyId),
+        DateTime.now().add(const Duration(seconds: 60)),
+      ));
+    }
+
     // Start 1-second interval countdown
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -782,7 +801,11 @@ class JourneyService {
           'lastUpdatedAt': FieldValue.serverTimestamp(),
         });
       } catch (_) {}
+      // Cancel the running check's backstop and arm the next check-in
+      _armJourneyDeadline(journey, lastSafetyCheckAt: DateTime.now(), replace: true);
     }
+    // A ride-overdue check shares this dialog
+    await RideCheckinService.instance.onSafetyCheckConfirmed();
 
     ActivityService.instance.logActivity(
       ActivityItem(
@@ -808,6 +831,8 @@ class JourneyService {
 
     _triggerCooldowns.remove(JourneySafetyTriggerType.delay);
     await confirmSafe();
+    _armJourneyDeadline(journey,
+        expectedArrivalAt: newExpected, lastSafetyCheckAt: DateTime.now(), replace: true);
 
     ActivityService.instance.logActivity(
       ActivityItem(
@@ -825,6 +850,95 @@ class JourneyService {
     final journey = activeJourney;
     if (journey == null) return;
 
+    // The native backstop (or a manual "Send SOS now") may already have escalated this check
+    if (!await SafetyDeadlineService.instance.claim(journeyDeadlineId(journey.id))) {
+      debugPrint('[JourneyService] Safety check already escalated; skipping duplicate SOS');
+      await NotificationService.instance.cancelSafetyCheckNotification();
+      return;
+    }
+    await _escalateJourney(journey);
+  }
+
+  /// Native deadline fired while the check-in was unanswered (app closed, killed or frozen).
+  /// Runs the same escalation as the in-app countdown. Returns 'escalated' or 'skipped'.
+  Future<String> escalateFromDeadline(String journeyId) async {
+    JourneyModel? journey = activeJourney?.id == journeyId ? activeJourney : null;
+    if (journey == null) {
+      try {
+        final snap = await FirebaseFirestore.instance
+            .collection('journeys')
+            .doc(journeyId)
+            .get()
+            .timeout(const Duration(seconds: 8));
+        if (snap.exists && snap.data() != null) journey = JourneyModel.fromMap(snap.data()!, snap.id);
+      } catch (e) {
+        debugPrint('[JourneyService] Could not load journey $journeyId for deadline: $e');
+      }
+    }
+    if (journey == null || !journey.isActive) {
+      await SafetyDeadlineService.instance.clear(journeyDeadlineId(journeyId));
+      return 'skipped';
+    }
+    if (!await SafetyDeadlineService.instance.claim(journeyDeadlineId(journeyId))) return 'skipped';
+
+    // In the live app a countdown may still be on screen: it must not fire a second SOS
+    _countdownTimer?.cancel();
+    activeSafetyCheckNotifier.value = null;
+    await _escalateJourney(journey);
+    return 'escalated';
+  }
+
+  /// Native deadline reached while the app is alive: show the normal in-app check.
+  /// Returns false when the journey is not loaded here (native then shows its own prompt).
+  Future<bool> promptFromDeadline(String journeyId) async {
+    final journey = activeJourney;
+    if (journey == null || journey.id != journeyId || !journey.isActive) return false;
+    if (activeSafetyCheckNotifier.value != null) return true;
+    _triggerSafetyCheck(journey.isFollowedMode
+        ? const JourneySafetyTrigger(
+            type: JourneySafetyTriggerType.followedCheck,
+            title: 'Followed Mode Check-In',
+            reason: '10 minutes elapsed in Followed Mode. Please tap to confirm you are safe.',
+          )
+        : JourneySafetyTrigger(
+            type: JourneySafetyTriggerType.delay,
+            title: 'Arrival Delay Detected',
+            reason:
+                'You are ${DateTime.now().difference(journey.expectedArrivalAt).inMinutes} minutes past your estimated arrival time. Please confirm you are safe.',
+          ));
+    return true;
+  }
+
+  void _armJourneyDeadline(
+    JourneyModel journey, {
+    DateTime? lastSafetyCheckAt,
+    DateTime? expectedArrivalAt,
+    bool replace = false,
+  }) {
+    _deadlineJourneyId = journey.id;
+    final followed = journey.isFollowedMode;
+    unawaited(SafetyDeadlineService.instance.arm(
+      SafetyDeadline(
+        id: journeyDeadlineId(journey.id),
+        kind: SafetyDeadlineKind.journey,
+        refId: journey.id,
+        uid: FirebaseAuth.instance.currentUser?.uid ?? journey.ownerId,
+        fireAt: nextJourneyCheckAt(
+          followed: followed,
+          startedAt: journey.startedAt,
+          expectedArrivalAt: expectedArrivalAt ?? journey.expectedArrivalAt,
+          lastSafetyCheckAt: lastSafetyCheckAt ?? journey.lastSafetyCheckAt,
+        ),
+        title: followed ? '⚠️ Followed Mode check-in' : '⚠️ Safe Journey check: are you OK?',
+        body: followed
+            ? 'It has been 10 minutes since your last check-in.'
+            : 'You have not arrived at ${journey.destinationLabel} yet.',
+      ),
+      replace: replace,
+    ));
+  }
+
+  Future<void> _escalateJourney(JourneyModel journey) async {
     debugPrint('[JourneyService] 🚨 DEAD-MAN\'S SWITCH EXPIRED! Escalating to Emergency SOS...');
     await NotificationService.instance.cancelSafetyCheckNotification();
 
@@ -931,6 +1045,11 @@ class JourneyService {
     _countdownTimer?.cancel();
     _journeyDocSub?.cancel();
     activeSafetyCheckNotifier.value = null;
+    final deadlineJourneyId = _deadlineJourneyId;
+    if (deadlineJourneyId != null) {
+      _deadlineJourneyId = null;
+      unawaited(SafetyDeadlineService.instance.clear(journeyDeadlineId(deadlineJourneyId)));
+    }
   }
 
   void _clearLocalSession() async {
