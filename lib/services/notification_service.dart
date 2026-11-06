@@ -375,6 +375,7 @@ class NotificationService {
           if (rideId.isNotEmpty) {
             final context = _navigatorKey?.currentContext;
             if (context != null) {
+              if (!context.mounted) return;
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => RideDetailsScreen(rideId: rideId)),
               );
