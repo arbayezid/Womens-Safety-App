@@ -198,7 +198,7 @@ class ShakeSosService {
         timer.cancel();
         _countdownTimer = null;
         activeCountdownNotifier.value = null;
-        unawaited(_sendSos());
+        unawaited(_sendSos(origin: SosOrigin.automatic));
       }
     });
   }
@@ -230,10 +230,12 @@ class ShakeSosService {
     await _sendSos();
   }
 
-  Future<void> _sendSos() async {
+  /// [origin] is automatic when the countdown expired unanswered, manual for "Send SOS now".
+  Future<void> _sendSos({SosOrigin origin = SosOrigin.manual}) async {
     try {
       await EmergencyService.instance.triggerEmergency(
         source: 'SHAKE_SOS',
+        origin: origin,
         customMessage: 'EMERGENCY: SOS triggered by shaking the phone.',
       );
     } catch (e) {

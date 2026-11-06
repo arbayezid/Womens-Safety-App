@@ -170,6 +170,11 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
           behavior: SnackBarBehavior.floating,
         ),
       );
+    } else if (_bleService.lastConnectWasUnsupported) {
+      setState(() {
+        _errorMessage =
+            '${device.platformName.isNotEmpty ? device.platformName : "This device"} is not a supported Woman Guard pendant (unsupported firmware). Nothing was saved.';
+      });
     } else {
       setState(() {
         _errorMessage =
@@ -513,13 +518,22 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
           ),
           const SizedBox(height: 18),
 
-          // Test SOS Trigger button
+          // Test SOS Trigger button: a dry run of the packet parser, never a real SOS
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
               onPressed: () {
-                _bleService.handleHardwareSosTrigger(
-                  reason: 'Manual Test Trigger from Setup Modal',
+                final recognised = _bleService.runHardwareTestDryRun();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      recognised
+                          ? 'Pendant SOS received (test only, no alert sent)'
+                          : 'Pendant SOS packet not recognised',
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
+                    ),
+                    behavior: SnackBarBehavior.floating,
+                  ),
                 );
               },
               icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),

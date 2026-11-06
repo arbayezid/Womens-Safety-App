@@ -480,6 +480,12 @@ class RideCheckinService {
     final ride = activeRide;
     if (ride == null || !ride.isActive || ride.expectedMinutes == null) return;
 
+    // A ride that was never ended must not escalate hours later
+    if (JourneyService.isStaleSession(ride.createdAt, DateTime.now())) {
+      await _expireStaleRide(ride);
+      return;
+    }
+
     final now = DateTime.now();
     final graceDeadline =
         ride.createdAt.add(Duration(minutes: ride.expectedMinutes! + 10));
@@ -611,6 +617,10 @@ class RideCheckinService {
       await SafetyDeadlineService.instance.clear(rideDeadlineId(rideId));
       return 'skipped';
     }
+    if (JourneyService.isStaleSession(ride.createdAt, DateTime.now())) {
+      await _expireStaleRide(ride);
+      return 'skipped';
+    }
     if (!await SafetyDeadlineService.instance.claim(rideDeadlineId(rideId))) return 'skipped';
 
     final check = JourneyService.instance.activeSafetyCheckNotifier.value;
@@ -627,6 +637,7 @@ class RideCheckinService {
 
     await EmergencyService.instance.triggerEmergency(
       source: 'RIDE_OVERDUE_SOS',
+      origin: SosOrigin.automatic,
       customMessage:
           'AUTOMATIC EMERGENCY ALERT: ${ride.userName}\'s ${ride.rideType} ride (${ride.plateFormatted}) is overdue and the safety check was not answered. Immediate assistance needed!',
       playSiren: playSiren,
@@ -638,6 +649,48 @@ class RideCheckinService {
       body: 'Your guardians were alerted automatically because the ride safety check was unanswered.',
     );
     return 'escalated';
+  }
+
+  /// Ends a ride older than [JourneyService.staleSessionLimit] as expired (no SOS, no arrival SMS)
+  /// and clears its deadline.
+  Future<void> _expireStaleRide(RideCheckinModel ride) async {
+    debugPrint('[RideCheckinService] Ride ${ride.id} started over '
+        '${JourneyService.staleSessionLimit.inHours} h ago; ending it as expired instead of escalating.');
+    try {
+      await _firestore.collection('ride_checkins').doc(ride.id).update({
+        'status': RideStatus.arrived.name,
+        'endReason': 'expired',
+        'endedAt': FieldValue.serverTimestamp(),
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+      }).timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('[RideCheckinService] Could not mark stale ride ${ride.id} expired: $e');
+    }
+    await SafetyDeadlineService.instance.clear(rideDeadlineId(ride.id));
+
+    final check = JourneyService.instance.activeSafetyCheckNotifier.value;
+    if (check != null && check.trigger.title == 'Ride Overdue Check-In') {
+      JourneyService.instance.activeSafetyCheckNotifier.value = null;
+      await NotificationService.instance.cancelSafetyCheckNotification();
+    }
+
+    if (activeRide?.id == ride.id) {
+      _overdueMonitorTimer?.cancel();
+      _overdueMonitorTimer = null;
+      _activeRideDocSub?.cancel();
+      _activeRideDocSub = null;
+      activeRideNotifier.value = null;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove(prefKeyActiveRideId);
+      } catch (_) {}
+      if (LiveTrackingService.instance.activeDocumentId == ride.id) {
+        await LiveTrackingService.instance.stopTrackingSession();
+        try {
+          await BackgroundServiceManager.instance.stopService();
+        } catch (_) {}
+      }
+    }
   }
 
   /// "I'm safe" in the shared safety-check dialog: stop a running ride-overdue backstop.

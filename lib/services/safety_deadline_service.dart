@@ -321,6 +321,19 @@ class SafetyDeadlineService {
     final kind = args['kind']?.toString() ?? '';
     final refId = args['refId']?.toString() ?? '';
     debugPrint('[SafetyDeadline] Deadline fired: $kind $refId');
+
+    // Late alarm (phone off, reboot, frozen process): never escalate on yesterday's deadline.
+    final now = DateTime.now();
+    if (isLateDeadline(args, now)) {
+      debugPrint('[SafetyDeadline] $kind $refId fired more than ${lateAlarmLimit.inMinutes} min late; not escalating');
+      try {
+        await _handleLateDeadline(args, kind, refId, now);
+      } catch (e) {
+        debugPrint('[SafetyDeadline] Late deadline handler error: $e');
+      }
+      return 'skipped';
+    }
+
     try {
       switch (kind) {
         case SafetyDeadlineKind.journey:
@@ -336,6 +349,53 @@ class SafetyDeadlineService {
       debugPrint('[SafetyDeadline] Escalation handler error: $e');
     }
     return 'skipped';
+  }
+
+  /// A deadline whose due time is further in the past than this is not escalated.
+  static const Duration lateAlarmLimit = Duration(minutes: 30);
+
+  /// Delay before a late journey/ride check is shown again. Longer than the headless run's
+  /// settle time, so native does not drop the alarm while this run is still finishing.
+  static const Duration _reprompt = Duration(seconds: 30);
+
+  /// True when a fired deadline's due time (escalateAt while prompting, otherwise fireAt) is more
+  /// than [lateAlarmLimit] before [now].
+  @visibleForTesting
+  static bool isLateDeadline(Map<String, dynamic> args, DateTime now) {
+    final prompting = args['state']?.toString() == 'prompting';
+    final dueMs = ((prompting ? args['escalateAt'] : args['fireAt']) as num?)?.toInt() ?? 0;
+    if (dueMs <= 0) return false;
+    return now.difference(DateTime.fromMillisecondsSinceEpoch(dueMs)) > lateAlarmLimit;
+  }
+
+  /// SOS stages: clear them. Journey / ride: re-arm the deadline shortly so the normal flow
+  /// validates it is still running and shows the "are you safe?" prompt with a fresh countdown.
+  Future<void> _handleLateDeadline(Map<String, dynamic> args, String kind, String refId, DateTime now) async {
+    switch (kind) {
+      case SafetyDeadlineKind.sosStage1:
+      case SafetyDeadlineKind.sosStage2:
+        await clearSosStages(refId);
+        return;
+      case SafetyDeadlineKind.journey:
+      case SafetyDeadlineKind.ride:
+        final id = args['id']?.toString() ?? '';
+        if (id.isEmpty) return;
+        await arm(
+          SafetyDeadline(
+            id: id,
+            kind: kind,
+            refId: refId,
+            uid: args['uid']?.toString() ?? FirebaseAuth.instance.currentUser?.uid ?? '',
+            fireAt: now.add(_reprompt),
+            promptSeconds: (args['promptSeconds'] as num?)?.toInt() ?? 60,
+            title: args['title']?.toString() ?? '',
+            body: args['body']?.toString() ?? '',
+            endOnSafe: args['endOnSafe'] == true,
+          ),
+          replace: true,
+        );
+        return;
+    }
   }
 
   // ── Headless run (app closed) ──────────────────────────────────────────────

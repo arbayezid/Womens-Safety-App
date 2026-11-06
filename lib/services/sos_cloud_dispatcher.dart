@@ -24,6 +24,7 @@ class SosCloudDispatcher {
     Position? position,
     String? customNote,
     String source = 'SOS Button',
+    String origin = 'manual',
     List<String>? recipientEmails,
     List<String>? recipientUids,
     bool isDuress = false,
@@ -294,6 +295,15 @@ class SosCloudDispatcher {
       return null;
     }
   }
+
+  /// Deliberate re-alert: a manual press while [alertId] is live bumps the ring sequence, so
+  /// every receiver, including those who dismissed, gets exactly one new ring.
+  Future<void> reRing(String alertId) => _firestore.collection('sos_alerts').doc(alertId).update({
+        'ringSeq': FieldValue.increment(1),
+        'dismissedBy': <String>[],
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(DateTime.now().add(const Duration(hours: 2))),
+      });
 
   /// Marks an active SOS emergency alert as resolved.
   Future<void> resolveSosAlert(String alertId) async {

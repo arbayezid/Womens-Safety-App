@@ -8,7 +8,6 @@ import '../models/activity_model.dart';
 import 'activity_service.dart';
 import 'background_service.dart';
 import 'emergency_service.dart';
-import 'journey_service.dart';
 
 /// Physical configuration thresholds and timing windows for the 3-stage fall detection algorithm.
 class FallDetectionConfig {
@@ -243,14 +242,11 @@ class MotionDetectionService {
     await checkAndSyncMonitoringState();
   }
 
-  /// Evaluates whether accelerometer sensor monitoring should be running:
-  /// - User enabled Fall Detection toggle in Settings
-  /// - Safe Journey is actively running
-  /// - "I'm Being Followed" mode is active
+  /// Evaluates whether accelerometer sensor monitoring should be running: only when the user
+  /// enabled the Fall Detection toggle in Settings. An active journey or followed mode no longer
+  /// switches fall detection on behind the user's back.
   Future<void> checkAndSyncMonitoringState({bool isFollowedModeActive = false}) async {
-    final shouldMonitor = isEnabledNotifier.value ||
-        JourneyService.instance.isJourneyActive ||
-        isFollowedModeActive;
+    final shouldMonitor = isEnabledNotifier.value;
 
     if (shouldMonitor && !isMonitoring) {
       await _startMonitoring();
@@ -402,6 +398,7 @@ class MotionDetectionService {
     try {
       await EmergencyService.instance.triggerEmergency(
         source: 'FALL_SOS',
+        origin: SosOrigin.automatic,
         isDuress: false,
         playSiren: sirenOnAutoSos,
         customMessage:

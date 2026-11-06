@@ -54,6 +54,61 @@ class EmergencyResult {
   }
 }
 
+/// Whether an SOS came from a deliberate press (button, pendant, duress PIN) or from an
+/// automatic check that went unanswered (journey, ride, fall, shake countdown).
+enum SosOrigin { manual, automatic }
+
+/// The single door for SOS creation: concurrent triggers share one run, and while an alert is
+/// live no second document is created. A manual press on a live alert re-rings it and re-sends
+/// the SMS round; an automatic trigger on a live alert does nothing.
+@visibleForTesting
+class SosGate {
+  SosGate({required this.liveAlertId, required this.reRing});
+
+  /// Returns the ID of the sender's live alert, or null when none is live.
+  final Future<String?> Function(SosOrigin origin) liveAlertId;
+
+  /// Bumps the ring sequence of a live alert so every guardian rings once more.
+  final Future<void> Function(String alertId) reRing;
+
+  Future<EmergencyResult>? _inFlight;
+
+  /// Runs [pipeline] through the gate. [pipeline] receives the live alert ID when the SMS round
+  /// is re-sent for an existing alert, or null when a new alert must be created.
+  Future<EmergencyResult> run(
+    SosOrigin origin,
+    Future<EmergencyResult> Function(String? existingAlertId) pipeline,
+  ) {
+    final running = _inFlight;
+    if (running != null) return running;
+    final future = _guardedTrigger(origin, pipeline);
+    _inFlight = future;
+    return future.whenComplete(() => _inFlight = null);
+  }
+
+  Future<EmergencyResult> _guardedTrigger(
+    SosOrigin origin,
+    Future<EmergencyResult> Function(String? existingAlertId) pipeline,
+  ) async {
+    final existing = await liveAlertId(origin);
+    if (existing != null) {
+      if (origin == SosOrigin.manual) {
+        try {
+          // Bounded: an offline write never completes, and must not hold up the SMS round.
+          await reRing(existing).timeout(const Duration(seconds: 3));
+        } catch (e) {
+          debugPrint('[EmergencyService] Re-ring of $existing failed: $e');
+        }
+        // A manual press also re-sends the SMS round, as before.
+        return pipeline(existing);
+      }
+      debugPrint('[EmergencyService] Automatic SOS skipped: alert $existing is already active');
+      return EmergencyResult(isSuccess: true, message: 'SOS already active');
+    }
+    return pipeline(null);
+  }
+}
+
 class _SmsDispatchResult {
   final int sentCount;
   final List<String> failedList;
@@ -104,6 +159,14 @@ class EmergencyService {
   String? get activeAlertId => activeAlertIdNotifier.value;
 
   Future<void> _postDispatchWork = Future<void>.value();
+
+  /// The cloud document of the last trigger while it is still being created.
+  Future<String?>? _pendingCloudAlertId;
+
+  late final SosGate _gate = SosGate(
+    liveAlertId: _liveActiveAlertId,
+    reRing: SosCloudDispatcher.instance.reRing,
+  );
 
   /// Completes when the follow-up work of the last SOS (live tracking, background service,
   /// escalation arming) has finished. A background deadline run waits for it before exiting.
@@ -217,8 +280,89 @@ class EmergencyService {
   /// 4. Dispatches direct background SMS and Cloud SOS concurrently
   ///
   /// [source] indicates where the trigger originated (e.g. "SOS Button", "ESP32 Hardware", "Shake", "Voice").
+  /// [origin] says whether a person pressed something or an unanswered automatic check fired.
+  ///
+  /// This is the only entry point that creates an `sos_alerts` document. Concurrent calls share
+  /// one run, and while an alert is live no second document is created (see [SosGate]).
   Future<EmergencyResult> triggerEmergency({
     required String source,
+    SosOrigin origin = SosOrigin.manual,
+    BuildContext? context,
+    String? customMessage,
+    bool isDuress = false,
+    bool playSiren = false,
+    String? linkedJourneyId,
+  }) {
+    return _gate.run(
+      origin,
+      (existingAlertId) => _triggerEmergencyImpl(
+        source: source,
+        origin: origin,
+        existingAlertId: existingAlertId,
+        context: context,
+        customMessage: customMessage,
+        isDuress: isDuress,
+        playSiren: playSiren,
+        linkedJourneyId: linkedJourneyId,
+      ),
+    );
+  }
+
+  /// The locally stored alert ID only counts if Firestore still says it is live.
+  Future<String?> _liveActiveAlertId(SosOrigin origin) async {
+    String? id = activeAlertId;
+    if (id == null) {
+      // The document of an earlier trigger may still be on its way to Firestore.
+      final pending = _pendingCloudAlertId;
+      if (pending != null) id = await pending;
+    }
+    if (id == null) return null;
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('sos_alerts')
+          .doc(id)
+          .get()
+          .timeout(const Duration(seconds: 3));
+      final d = snap.data();
+      final expiresAt = (d?['expiresAt'] as Timestamp?)?.toDate();
+      final live = d != null &&
+          d['status'] == 'active' &&
+          (expiresAt == null || expiresAt.isAfter(DateTime.now()));
+      if (live) return id;
+    } catch (_) {
+      // Offline: an automatic trigger trusts local state; a manual press never gets blocked.
+      return origin == SosOrigin.automatic ? id : null;
+    }
+    await _clearActiveAlertLocally(id);
+    return null;
+  }
+
+  /// Forgets an alert that is no longer live: removes the stored active alert ID and stops
+  /// its live tracking and escalation.
+  Future<void> _clearActiveAlertLocally(String alertId) async {
+    debugPrint('[EmergencyService] Clearing stale local SOS state for $alertId');
+    if (activeAlertId == alertId) activeAlertIdNotifier.value = null;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getString('active_sos_alert_id') == alertId) {
+        await prefs.remove('active_sos_alert_id');
+      }
+    } catch (_) {}
+    SosEscalationService.instance.stopEscalation();
+    unawaited(SafetyDeadlineService.instance.clearSosStages(alertId));
+    final tracking = LiveTrackingService.instance;
+    if (tracking.activeSessionType == 'sos' && tracking.activeDocumentId == alertId) {
+      await tracking.stopTrackingSession();
+      await BackgroundServiceManager.instance.stopService();
+    }
+  }
+
+  /// The SOS pipeline behind [triggerEmergency]. With [existingAlertId] it re-sends the SMS round
+  /// for that live alert and creates no new cloud document.
+  Future<EmergencyResult> _triggerEmergencyImpl({
+    required String source,
+    required SosOrigin origin,
+    String? existingAlertId,
     BuildContext? context,
     String? customMessage,
     bool isDuress = false,
@@ -398,48 +542,59 @@ class EmergencyService {
 
     // Step 4: NON-BLOCKING DUAL DISPATCH (Cloud SOS + Offline Direct SMS)
     // 1. Fire Cloud SOS asynchronously so network latency/offline state never blocks SMS.
-    final cloudFuture = SosCloudDispatcher.instance.triggerCloudSos(
-      position: position,
-      source: source,
-      customNote: customMessage,
-      recipientEmails: routedCloudEmails,
-      recipientUids: routedCloudUids,
-      isDuress: isDuress,
-    ).catchError((err) {
-      debugPrint('[EmergencyService] ❌ Cloud SOS dispatch error: $err');
-      return null;
-    });
+    // A re-sent round for a live alert reuses that alert's document and creates no new one.
+    final Future<String?> cloudFuture = existingAlertId != null
+        ? Future<String?>.value(existingAlertId)
+        : SosCloudDispatcher.instance.triggerCloudSos(
+            position: position,
+            source: source,
+            origin: origin.name,
+            customNote: customMessage,
+            recipientEmails: routedCloudEmails,
+            recipientUids: routedCloudUids,
+            isDuress: isDuress,
+          ).catchError((err) {
+            debugPrint('[EmergencyService] ❌ Cloud SOS dispatch error: $err');
+            return null;
+          });
 
-    // Hook live tracking and active alert state as soon as Cloud SOS document is created
-    _postDispatchWork = cloudFuture.then((alertId) async {
-      if (alertId != null && alertId.isNotEmpty) {
-        activeAlertIdNotifier.value = alertId;
-        try {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('active_sos_alert_id', alertId);
-        } catch (_) {}
+    if (existingAlertId == null) {
+      // Hook live tracking and active alert state as soon as Cloud SOS document is created
+      _pendingCloudAlertId = cloudFuture;
+      _postDispatchWork = cloudFuture.then((alertId) async {
+        if (alertId != null && alertId.isNotEmpty) {
+          activeAlertIdNotifier.value = alertId;
+          try {
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setString('active_sos_alert_id', alertId);
+          } catch (_) {}
 
-        // Start throttled live tracking for active SOS
-        await LiveTrackingService.instance.startTrackingSession(
-          sessionType: 'sos',
-          documentId: alertId,
-          initialPosition: position,
-        );
+          // Start throttled live tracking for active SOS
+          await LiveTrackingService.instance.startTrackingSession(
+            sessionType: 'sos',
+            documentId: alertId,
+            initialPosition: position,
+          );
 
-        // Start foreground background service
-        await BackgroundServiceManager.instance.startService(
-          title: '🚨 Emergency SOS Live Tracking Active',
-          content: 'Broadcasting live coordinates to your guardians',
-        );
+          // Start foreground background service
+          await BackgroundServiceManager.instance.startService(
+            title: '🚨 Emergency SOS Live Tracking Active',
+            content: 'Broadcasting live coordinates to your guardians',
+          );
 
-        // Start smart SOS escalation engine
-        await SosEscalationService.instance.startEscalation(
-          alertId: alertId,
-          senderName: AuthService.instance.displayName,
-          mapsUrl: mapUrl,
-        );
-      }
-    }).catchError((_) {});
+          // Start smart SOS escalation engine
+          await SosEscalationService.instance.startEscalation(
+            alertId: alertId,
+            senderName: AuthService.instance.displayName,
+            mapsUrl: mapUrl,
+          );
+        }
+      }).catchError((_) {});
+      // Registered after the hook above, so the active alert ID is set before this clears.
+      unawaited(cloudFuture.whenComplete(() {
+        if (identical(_pendingCloudAlertId, cloudFuture)) _pendingCloudAlertId = null;
+      }));
+    }
 
     // 2. Primary offline channel: Dispatch SMS immediately without waiting for Cloud SOS
     final _SmsDispatchResult smsResult;

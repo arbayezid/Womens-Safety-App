@@ -55,6 +55,64 @@ class Esp32DeviceState {
   }
 }
 
+/// Outcome of checking a connected device's GATT table.
+enum _PendantCheck { supported, notPendant, unsupportedFirmware, discoveryFailed }
+
+/// Strict filter for packets on the pendant's SOS characteristic.
+///
+/// Accepts only the exact packet `SOS` or `SOS:<sequence>`. Ignores packets in the first
+/// [connectSettle] after connecting, a repeated sequence number, and anything within
+/// [hwCooldown] of the last accepted trigger.
+@visibleForTesting
+class SosPacketFilter {
+  static final RegExp _sosPacket = RegExp(r'^SOS(?::(\d+))?$');
+  static const Duration hwCooldown = Duration(seconds: 30);
+  static const Duration connectSettle = Duration(seconds: 3);
+  static const int maxPacketLength = 32;
+
+  DateTime? _connectedAt; // set at the end of service discovery; null on disconnect
+  DateTime? _lastHwTriggerAt;
+  int? _lastHwSeq; // reset to null on every connect
+
+  /// Called at the end of service discovery.
+  void onConnected(DateTime at) {
+    _connectedAt = at;
+    _lastHwSeq = null;
+  }
+
+  void onDisconnected() {
+    _connectedAt = null;
+  }
+
+  /// Parses [data] without any timing state: true only for `SOS` or `SOS:<n>`.
+  static bool isSosPacket(List<int> data) => _match(data) != null;
+
+  static RegExpMatch? _match(List<int> data) {
+    if (data.isEmpty || data.length > maxPacketLength) return null;
+    final text = utf8.decode(data, allowMalformed: true).trim().toUpperCase();
+    return _sosPacket.firstMatch(text);
+  }
+
+  /// Returns true when [data] received at [now] is a hardware SOS press.
+  bool accept(List<int> data, DateTime now) {
+    if (data.isEmpty || data.length > maxPacketLength) return false;
+    final connectedAt = _connectedAt;
+    if (connectedAt == null || now.difference(connectedAt) < connectSettle) return false;
+    final match = _match(data);
+    if (match == null) {
+      debugPrint(
+          '[Esp32BleService] Ignored non-SOS packet: "${utf8.decode(data, allowMalformed: true).trim()}"');
+      return false;
+    }
+    final seq = int.tryParse(match.group(1) ?? '');
+    if (seq != null && seq == _lastHwSeq) return false;
+    if (_lastHwTriggerAt != null && now.difference(_lastHwTriggerAt!) < hwCooldown) return false;
+    _lastHwSeq = seq;
+    _lastHwTriggerAt = now;
+    return true;
+  }
+}
+
 /// Central Service managing real Bluetooth Low Energy communication,
 /// adapter monitoring, device discovery, GATT characteristic listeners,
 /// and hardware SOS triggers from the ESP32 Women's Safety Smart Pendant.
@@ -76,6 +134,30 @@ class Esp32BleService {
   // Nordic UART Service (NUS) TX characteristic (ESP32 -> app). Firmware that
   // uses NUS instead of the custom service above sends its SOS packet here.
   static const String nusTxCharacteristicUuid = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+  static const String nusServiceUuid = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
+
+  /// True when a device's advertised or discovered service UUIDs include the safety service.
+  /// Only such a device may be paired as the pendant.
+  @visibleForTesting
+  static bool exposesSafetyService(Iterable<String> serviceUuids) {
+    final target = serviceUuid.toLowerCase();
+    return serviceUuids.any((u) => u.toLowerCase() == target);
+  }
+
+  /// Dry run for the setup sheet's test button: runs a synthetic `SOS` packet through the
+  /// parser and never calls [EmergencyService.triggerEmergency].
+  bool runHardwareTestDryRun() {
+    final recognised = SosPacketFilter.isSosPacket(utf8.encode('SOS'));
+    debugPrint('[Esp32BleService] Test trigger dry run: parser recognised SOS = $recognised');
+    return recognised;
+  }
+
+  final SosPacketFilter _packetFilter = SosPacketFilter();
+
+  /// True when the last connect attempt was refused because the device is not a pendant
+  /// (no safety service) or its firmware exposes no supported SOS characteristic.
+  bool _lastConnectUnsupported = false;
+  bool get lastConnectWasUnsupported => _lastConnectUnsupported;
 
   /// Reactive connection state notifier
   final ValueNotifier<Esp32ConnectionStatus> connectionStateNotifier =
@@ -291,6 +373,7 @@ class Esp32BleService {
         await FlutterBluePlus.stopScan();
       }
 
+      _lastConnectUnsupported = false;
       _updateStateOnMainThread(Esp32ConnectionStatus.connecting);
       debugPrint('[Esp32BleService] Connecting to device ${device.remoteId} (${device.platformName})...');
 
@@ -302,7 +385,23 @@ class Esp32BleService {
 
       _connectedDevice = device;
 
-      // 5. Save device ID for seamless auto-reconnect
+      // 5. Discover GATT services and attach characteristic hooks. Only a device that exposes
+      // the safety service (and a supported SOS characteristic) is kept and saved.
+      final check = await _discoverAndSubscribeServices(device);
+      if (check != _PendantCheck.supported) {
+        debugPrint('[Esp32BleService] Device ${device.remoteId} refused as pendant: $check');
+        final isSaved = device.remoteId.str == _savedDeviceId;
+        if (check == _PendantCheck.notPendant && isSaved) {
+          await forgetDevice();
+        } else {
+          await disconnect();
+        }
+        _lastConnectUnsupported = check == _PendantCheck.notPendant ||
+            check == _PendantCheck.unsupportedFirmware;
+        return false;
+      }
+
+      // Save device ID for seamless auto-reconnect
       final name = device.platformName.isNotEmpty ? device.platformName : 'ESP32 Smart Device';
       await _savePairedDevice(device.remoteId.str, name);
 
@@ -315,10 +414,7 @@ class Esp32BleService {
         }
       });
 
-      // 7. Discover GATT services and attach characteristic hooks
-      await _discoverAndSubscribeServices(device);
-
-      // 8. Update state and start background telemetry polling
+      // 7. Update state and start background telemetry polling
       _updateStateOnMainThread(Esp32ConnectionStatus.connected);
       _startTelemetryMonitor();
 
@@ -336,28 +432,38 @@ class Esp32BleService {
   }
 
   /// Discovers GATT services and subscribes to SOS triggers and Battery telemetry.
-  Future<void> _discoverAndSubscribeServices(BluetoothDevice device) async {
+  ///
+  /// Subscribes only to [sosCharacteristicUuid] inside [serviceUuid], or to the NUS TX
+  /// characteristic inside the NUS service. Any other characteristic is never treated as SOS.
+  Future<_PendantCheck> _discoverAndSubscribeServices(BluetoothDevice device) async {
     try {
       debugPrint('[Esp32BleService] Discovering GATT services...');
       final services = await device.discoverServices();
 
+      final serviceIds = services.map((s) => s.uuid.str128.toLowerCase()).toList();
+      if (!exposesSafetyService(serviceIds)) {
+        debugPrint('[Esp32BleService] ⚠️ Device does not expose the safety service ($serviceUuid). Not a pendant.');
+        return _PendantCheck.notPendant;
+      }
+
       BluetoothCharacteristic? sosChar;
+      BluetoothCharacteristic? nusTxChar;
       BluetoothCharacteristic? batteryChar;
 
       for (final service in services) {
+        final svcUuid = service.uuid.str128.toLowerCase();
         // Check characteristics in discovered service
         for (final characteristic in service.characteristics) {
-          final charUuid = characteristic.uuid.toString().toLowerCase();
+          final charUuid = characteristic.uuid.str128.toLowerCase();
 
-          // Match SOS characteristic
-          if (charUuid == sosCharacteristicUuid.toLowerCase() ||
-              charUuid.contains('beb5483e')) {
+          // Match SOS characteristic, only inside the safety service
+          if (svcUuid == serviceUuid && charUuid == sosCharacteristicUuid) {
             sosChar = characteristic;
           }
 
-          // Match Nordic UART TX characteristic (only if the custom one is absent)
-          if (sosChar == null && charUuid == nusTxCharacteristicUuid) {
-            sosChar = characteristic;
+          // Match Nordic UART TX characteristic, only inside the NUS service
+          if (svcUuid == nusServiceUuid && charUuid == nusTxCharacteristicUuid) {
+            nusTxChar = characteristic;
           }
 
           // Match Battery characteristic (Standard 0x2A19 or within custom service)
@@ -369,34 +475,18 @@ class Esp32BleService {
       }
 
       // Subscribe to SOS characteristic notifications
-      if (sosChar != null) {
-        debugPrint('[Esp32BleService] Found SOS characteristic: ${sosChar.uuid}');
-        await sosChar.setNotifyValue(true);
-        _sosCharSubscription?.cancel();
-        _sosCharSubscription = sosChar.onValueReceived.listen((data) {
-          _processIncomingSosPacket(data);
-        });
-      } else {
-        debugPrint('[Esp32BleService] ⚠️ SOS characteristic ($sosCharacteristicUuid) not found. Checking all characteristics...');
-        // Fallback: subscribe to the first notify-capable characteristic found,
-        // skipping the standard GATT Service Changed (0x2A05) and battery chars.
-        outer:
-        for (final service in services) {
-          for (final char in service.characteristics) {
-            final u = char.uuid.toString().toLowerCase();
-            if (u.contains('2a05') || u.contains('2a19')) continue;
-            if (char.properties.notify || char.properties.indicate) {
-              debugPrint('[Esp32BleService] Subscribing to fallback notify characteristic: ${char.uuid}');
-              await char.setNotifyValue(true);
-              _sosCharSubscription?.cancel();
-              _sosCharSubscription = char.onValueReceived.listen((data) {
-                _processIncomingSosPacket(data);
-              });
-              break outer;
-            }
-          }
-        }
+      final notifyChar = sosChar ?? nusTxChar;
+      if (notifyChar == null) {
+        debugPrint('[Esp32BleService] ⚠️ Unsupported pendant firmware: no SOS characteristic '
+            '($sosCharacteristicUuid) or NUS TX characteristic. Subscribing to nothing.');
+        return _PendantCheck.unsupportedFirmware;
       }
+      debugPrint('[Esp32BleService] Found SOS characteristic: ${notifyChar.uuid}');
+      await notifyChar.setNotifyValue(true);
+      _sosCharSubscription?.cancel();
+      _sosCharSubscription = notifyChar.onValueReceived.listen((data) {
+        _processIncomingSosPacket(data);
+      });
 
       // Read initial battery level if available
       if (batteryChar != null) {
@@ -439,40 +529,27 @@ class Esp32BleService {
           lastSeen: DateTime.now(),
         );
       });
+
+      // Discovery finished: packets are accepted after the connect settle time from here on.
+      _packetFilter.onConnected(DateTime.now());
+      return _PendantCheck.supported;
     } catch (e) {
       debugPrint('[Esp32BleService] Error during service discovery: $e');
+      return _PendantCheck.discoveryFailed;
     }
   }
 
   /// Processes raw byte payloads from the ESP32 hardware characteristic.
+  /// Only an exact `SOS` / `SOS:<n>` packet passing [SosPacketFilter] triggers SOS.
   void _processIncomingSosPacket(List<int> data) {
-    if (data.isEmpty) return;
-
-    try {
-      // Decode as UTF-8 string or inspect raw bytes
-      final rawString = utf8.decode(data, allowMalformed: true).trim();
-      debugPrint('[Esp32BleService] 📥 Received hardware BLE packet: "$rawString" (bytes: $data)');
-
-      // Triggers if: byte is 1 / 0x01, or text contains "SOS", "HELP", "1", "ALERT", "TRIGGER"
-      final isSosTrigger = data.contains(1) ||
-          data.first == 0x01 ||
-          rawString.toUpperCase().contains('SOS') ||
-          rawString.toUpperCase().contains('HELP') ||
-          rawString.contains('1');
-
-      if (isSosTrigger) {
-        handleHardwareSosTrigger(reason: 'ESP32 Hardware Button ($rawString)');
-      }
-    } catch (e) {
-      debugPrint('[Esp32BleService] Packet decode error: $e. Checking raw bytes...');
-      if (data.isNotEmpty && (data.first == 1 || data.first == 0x01)) {
-        handleHardwareSosTrigger(reason: 'ESP32 Hardware Button (Raw 0x01)');
-      }
+    if (_packetFilter.accept(data, DateTime.now())) {
+      handleHardwareSosTrigger(reason: 'ESP32 Hardware Button');
     }
   }
 
   /// Disconnects from the current ESP32 device cleanly.
   Future<void> disconnect() async {
+    _packetFilter.onDisconnected();
     try {
       _telemetryTimer?.cancel();
       _telemetryTimer = null;
@@ -509,6 +586,7 @@ class Esp32BleService {
 
   /// Internal handler when physical link drops unexpectedly.
   void _handleDeviceDisconnected() {
+    _packetFilter.onDisconnected();
     _telemetryTimer?.cancel();
     _telemetryTimer = null;
     _sosCharSubscription?.cancel();
@@ -539,24 +617,18 @@ class Esp32BleService {
     }
   }
 
-  /// Simulates or processes an incoming hardware button press from the ESP32 Smart Pendant.
-  /// Dispatches the emergency pipeline strictly on the UI thread.
+  /// Processes an incoming hardware button press from the ESP32 Smart Pendant.
+  /// Fires immediately: BLE callbacks already arrive on the Dart main isolate, and deferring to
+  /// a post-frame callback would queue triggers until the app is next drawn.
   void handleHardwareSosTrigger({String reason = 'ESP32 Hardware Button'}) {
-    debugPrint('[Esp32BleService] ⚡ HARDWARE SOS TRIGGER RECEIVED: $reason');
-
-    _runOnMainThread(() async {
-      try {
-        HapticFeedback.heavyImpact();
-
-        // Trigger the app's central Emergency SOS pipeline
-        await EmergencyService.instance.triggerEmergency(
-          source: 'ESP32 Hardware',
-          playSiren: true,
-        );
-      } catch (e) {
-        debugPrint('[Esp32BleService] Error executing hardware SOS pipeline: $e');
-      }
-    });
+    debugPrint('[Esp32BleService] HARDWARE SOS: $reason');
+    HapticFeedback.heavyImpact();
+    unawaited(EmergencyService.instance
+        .triggerEmergency(source: 'ESP32 Hardware', origin: SosOrigin.manual, playSiren: true)
+        .catchError((Object e) {
+      debugPrint('[Esp32BleService] Hardware SOS failed: $e');
+      return EmergencyResult(isSuccess: false, message: '$e');
+    }));
   }
 
   /// Periodic background heartbeat & telemetry reader (RSSI & Battery).

@@ -80,6 +80,13 @@ class JourneyService {
   static const String prefKeySirenOnAutoSos = 'pref_siren_on_auto_sos';
   static const double earthRadiusMeters = 6371000.0;
 
+  /// A journey older than this is ended as expired instead of escalating to SOS.
+  static const Duration staleSessionLimit = Duration(hours: 6);
+
+  /// True when a session that started at [startedAt] is too old to escalate at [now].
+  static bool isStaleSession(DateTime startedAt, DateTime now) =>
+      now.difference(startedAt) > staleSessionLimit;
+
   final Telephony _telephony = Telephony.instance;
 
   /// Reactive notifier holding the current active journey model (or null)
@@ -726,6 +733,12 @@ class JourneyService {
     final journey = activeJourney;
     if (journey == null || !journey.isActive) return;
 
+    // A journey that was never ended must not escalate hours later
+    if (isStaleSession(journey.startedAt, DateTime.now())) {
+      await _expireStaleJourney(journey);
+      return;
+    }
+
     // Fetch current position
     Position? position = await Geolocator.getLastKnownPosition();
     try {
@@ -1023,6 +1036,10 @@ class JourneyService {
       await SafetyDeadlineService.instance.clear(journeyDeadlineId(journeyId));
       return 'skipped';
     }
+    if (isStaleSession(journey.startedAt, DateTime.now())) {
+      await _expireStaleJourney(journey);
+      return 'skipped';
+    }
     if (!await SafetyDeadlineService.instance.claim(journeyDeadlineId(journeyId))) return 'skipped';
 
     // In the live app a countdown may still be on screen: it must not fire a second SOS
@@ -1097,6 +1114,7 @@ class JourneyService {
     // Trigger full SOS pipeline
     await EmergencyService.instance.triggerEmergency(
       source: isFollowed ? 'FOLLOWED_SOS' : 'JOURNEY_SOS',
+      origin: SosOrigin.automatic,
       customMessage: isFollowed
           ? 'AUTOMATIC EMERGENCY ALERT: ${journey.ownerName} activated "I\'m Being Followed" mode and did not respond to the safety check. Immediate assistance needed!'
           : 'AUTOMATIC EMERGENCY ALERT: ${journey.ownerName} did not respond to safety check during journey to ${journey.destinationLabel}. Immediate help requested.',
@@ -1117,6 +1135,35 @@ class JourneyService {
       title: '🚨 Emergency SOS Dispatched',
       body: 'Your guardians were alerted automatically because the safety check was unanswered.',
     );
+  }
+
+  /// Ends a journey older than [staleSessionLimit] as expired (no SOS) and clears its deadline.
+  Future<void> _expireStaleJourney(JourneyModel journey) async {
+    debugPrint('[JourneyService] Journey ${journey.id} started over ${staleSessionLimit.inHours} h ago; '
+        'ending it as expired instead of escalating.');
+    _endingLocally = true;
+    try {
+      await FirebaseFirestore.instance.collection('journeys').doc(journey.id).update({
+        'status': JourneyStatus.cancelled.name,
+        'endReason': 'expired',
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+      }).timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('[JourneyService] Could not mark stale journey ${journey.id} expired: $e');
+    } finally {
+      _endingLocally = false;
+    }
+    await SafetyDeadlineService.instance.clear(journeyDeadlineId(journey.id));
+
+    if (activeJourney?.id == journey.id) {
+      _cleanupMonitor();
+      _clearLocalSession();
+      await NotificationService.instance.cancelSafetyCheckNotification();
+      if (LiveTrackingService.instance.activeDocumentId == journey.id) {
+        await LiveTrackingService.instance.stopTrackingSession();
+        await BackgroundServiceManager.instance.stopService();
+      }
+    }
   }
 
   /// Marks the journey as arrived and informs contacts if start SMS was sent
