@@ -73,6 +73,10 @@ class Esp32BleService {
   static const String sosCharacteristicUuid = 'beb5483e-36e1-4688-b7f5-ea07361b26a8';
   static const String batteryCharacteristicUuid = '00002a19-0000-1000-8000-00805f9b34fb';
 
+  // Nordic UART Service (NUS) TX characteristic (ESP32 -> app). Firmware that
+  // uses NUS instead of the custom service above sends its SOS packet here.
+  static const String nusTxCharacteristicUuid = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
+
   /// Reactive connection state notifier
   final ValueNotifier<Esp32ConnectionStatus> connectionStateNotifier =
       ValueNotifier<Esp32ConnectionStatus>(Esp32ConnectionStatus.disconnected);
@@ -351,6 +355,11 @@ class Esp32BleService {
             sosChar = characteristic;
           }
 
+          // Match Nordic UART TX characteristic (only if the custom one is absent)
+          if (sosChar == null && charUuid == nusTxCharacteristicUuid) {
+            sosChar = characteristic;
+          }
+
           // Match Battery characteristic (Standard 0x2A19 or within custom service)
           if (charUuid == batteryCharacteristicUuid.toLowerCase() ||
               charUuid.contains('2a19')) {
@@ -369,9 +378,13 @@ class Esp32BleService {
         });
       } else {
         debugPrint('[Esp32BleService] ⚠️ SOS characteristic ($sosCharacteristicUuid) not found. Checking all characteristics...');
-        // Fallback: subscribe to the first notify-capable characteristic found
+        // Fallback: subscribe to the first notify-capable characteristic found,
+        // skipping the standard GATT Service Changed (0x2A05) and battery chars.
+        outer:
         for (final service in services) {
           for (final char in service.characteristics) {
+            final u = char.uuid.toString().toLowerCase();
+            if (u.contains('2a05') || u.contains('2a19')) continue;
             if (char.properties.notify || char.properties.indicate) {
               debugPrint('[Esp32BleService] Subscribing to fallback notify characteristic: ${char.uuid}');
               await char.setNotifyValue(true);
@@ -379,7 +392,7 @@ class Esp32BleService {
               _sosCharSubscription = char.onValueReceived.listen((data) {
                 _processIncomingSosPacket(data);
               });
-              break;
+              break outer;
             }
           }
         }
