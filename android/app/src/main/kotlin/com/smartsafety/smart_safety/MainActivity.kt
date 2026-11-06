@@ -33,6 +33,10 @@ class MainActivity : FlutterActivity() {
         @Volatile
         var pendingRideId: String? = null
 
+        /** Alert opened from its notification before the Flutter engine was ready. */
+        @Volatile
+        var pendingAlertId: String? = null
+
         /** The visible activity, or null when the app is in the background. */
         fun foregroundActivity(): Activity? = resumedActivity?.get()
     }
@@ -143,6 +147,11 @@ class MainActivity : FlutterActivity() {
                 pendingRideId = null
                 result.success(id)
             }
+            "getPendingAlertId" -> {
+                val id = pendingAlertId
+                pendingAlertId = null
+                result.success(id)
+            }
             else -> result.notImplemented()
         }
     }
@@ -184,6 +193,14 @@ class MainActivity : FlutterActivity() {
         if (intent.getStringExtra(EXTRA_ALERT_SOURCE) == SOURCE_TAP) {
             Log.i(TAG, "Alert $alertId opened from notification; stopping siren")
             AlertSirenPlayer.stop(this)
+        }
+        // Let Dart open the alert silently (no siren from the dialog). Before the engine is ready
+        // the ID waits for GuardianAlertService (Dart) to ask for it.
+        val messenger = DeadlineDartRunner.mainMessenger
+        if (messenger != null) {
+            MethodChannel(messenger, GUARDIAN_CHANNEL).invokeMethod("onAlertOpened", alertId)
+        } else {
+            pendingAlertId = alertId
         }
         // Consume the extra so a configuration change or later resume does not replay it.
         intent.removeExtra(EXTRA_ALERT_ID)

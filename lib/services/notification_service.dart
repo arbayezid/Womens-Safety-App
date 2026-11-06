@@ -93,9 +93,86 @@ class NotificationService {
   StreamSubscription<QuerySnapshot>? _sosAlertsSubEmail;
   Timer? _heartbeatTimer;
   final Map<String, Map<String, dynamic>> _liveActiveAlerts = {};
-  final Set<String> _shownAlertIds = {};
-  final Set<String> _dismissedAlertIds = {};
+
+  /// Ring keys (`alertId#ringSeq`) this listener already processed (rang or handed to native).
+  final Set<String> _shownRingKeys = {};
+
+  /// Ring keys the user dismissed or acknowledged on this device (persisted).
+  final Set<String> _dismissedRingKeys = {};
+
+  /// Ring keys whose dialog was already opened automatically on this device (persisted). The
+  /// dialog opens on its own at most once per ring key; afterwards only on a user request.
+  final Set<String> _presentedRingKeys = {};
+  static const int _maxPresentedRingKeys = 300;
   bool _isSosDialogShowing = false;
+
+  /// Ring key of an alert: its ID plus its ring sequence. The same alert rings again only when
+  /// the sender deliberately presses SOS again (ringSeq + 1).
+  static String sosRingKey(String alertId, Object? ringSeq) => '$alertId#${ringSeqOf(ringSeq)}';
+
+  /// Reads a ring sequence from Firestore / FCM data; missing or invalid counts as 0.
+  static int ringSeqOf(Object? raw) {
+    if (raw is num) return raw.toInt();
+    return int.tryParse(raw?.toString() ?? '') ?? 0;
+  }
+
+  /// Type-tolerant time parsing (Timestamp, DateTime, epoch ms, ISO or ms string).
+  static DateTime? _parseAlertTime(dynamic raw) {
+    if (raw is Timestamp) return raw.toDate();
+    if (raw is DateTime) return raw;
+    if (raw is int) return DateTime.fromMillisecondsSinceEpoch(raw);
+    if (raw is String) {
+      final parsed = DateTime.tryParse(raw);
+      if (parsed != null) return parsed;
+      final ms = int.tryParse(raw);
+      if (ms != null) return DateTime.fromMillisecondsSinceEpoch(ms);
+    }
+    return null;
+  }
+
+  /// Eligibility rules shared with the native GuardianAlertService. Returns the alert's trigger
+  /// time when [data] should alert this device, or null when it must be skipped: not active, sent
+  /// by me, dismissed or acknowledged by me (in the cloud or locally for this ring key), expired,
+  /// without a trigger time, older than 3 hours, or not addressed to me.
+  @visibleForTesting
+  static DateTime? sosAlertTimeIfEligible({
+    required String alertId,
+    required Map<String, dynamic> data,
+    required String myUid,
+    required String myEmail,
+    required Set<String> dismissedRingKeys,
+    required DateTime now,
+  }) {
+    final status = (data['status'] ?? '').toString().toLowerCase();
+    if (status != 'active') return null;
+
+    final senderId = (data['senderId'] ?? data['sender_uid'])?.toString();
+    if (senderId == myUid) return null; // Do not alert the sender on their own device
+
+    if (dismissedRingKeys.contains(sosRingKey(alertId, data['ringSeq']))) return null;
+
+    List<String> uids(Object? raw) => ((raw as List<dynamic>?) ?? const []).map((e) => e.toString()).toList();
+    if (uids(data['dismissedBy']).contains(myUid)) return null;
+    if (uids(data['acknowledgedBy']).contains(myUid)) return null;
+
+    final expiresAt = _parseAlertTime(data['expiresAt']);
+    if (expiresAt != null && expiresAt.isBefore(now)) return null;
+
+    final alertDate = _parseAlertTime(data['triggeredAt'] ?? data['timestamp']);
+    if (alertDate == null) return null;
+
+    // Ignore stale alerts older than 3 hours
+    if (now.difference(alertDate).inHours.abs() > 3) return null;
+
+    // Check if current user is an intended recipient
+    final recEmails = ((data['recipientEmails'] as List<dynamic>?) ?? const [])
+        .map((e) => e.toString().toLowerCase().trim());
+    final bool matchesEmail = myEmail.isNotEmpty && recEmails.contains(myEmail);
+    final bool matchesUid = uids(data['recipientUids']).contains(myUid);
+    if (!matchesEmail && !matchesUid) return null;
+
+    return alertDate;
+  }
 
   /// Observable reactive notifier emitting the latest active incoming SOS alert payload (or null when none active).
   /// Listened by [HomeScreen] and [IntrusiveSosDialog] for immediate real-time UI reaction without reload.
@@ -137,6 +214,9 @@ class NotificationService {
     if (_isInitialized) return;
     _navigatorKey = navigatorKey;
     await _loadDismissedAlertIds();
+    await _loadPresentedRingKeys();
+    // A tap on the native guardian alert notification opens the alert here, silently.
+    GuardianAlertService.instance.setAlertOpenedHandler(_openAlertFromNotification);
 
     try {
       // 1. Initialize local notifications plugin (purely local & offline)
@@ -332,11 +412,16 @@ class NotificationService {
         final type = message.data['type'];
 
         if (type == 'SOS_ALERT') {
+          // No siren here: only _ringIfUnclaimed rings, after claiming the ring key.
           final alertId = message.data['alertId']?.toString() ?? '';
-          if (alertId.isEmpty || !_shownAlertIds.contains(alertId)) {
-            if (alertId.isNotEmpty) _shownAlertIds.add(alertId);
-            SirenService.instance.startSiren();
+          if (alertId.isEmpty) {
             _showIntrusiveSosDialog(message.data);
+          } else {
+            final ringKey = sosRingKey(alertId, message.data['ringSeq']);
+            if (!_shownRingKeys.contains(ringKey)) {
+              _shownRingKeys.add(ringKey);
+              _autoPresentSosDialog({...message.data, 'ringKey': ringKey});
+            }
           }
         } else if (type == 'RIDE_CHECKIN') {
           final rideId = message.data['rideId']?.toString() ?? '';
@@ -368,7 +453,9 @@ class NotificationService {
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
         debugPrint('[FCM App Opened] Message clicked: ${message.data}');
         if (message.data['type'] == 'SOS_ALERT') {
-          SirenService.instance.startSiren();
+          // The user tapped the notification: open the alert silently.
+          final alertId = message.data['alertId']?.toString() ?? '';
+          if (alertId.isNotEmpty) _markPresented(sosRingKey(alertId, message.data['ringSeq']));
           _showIntrusiveSosDialog(message.data);
         } else if (message.data['type'] == 'RIDE_CHECKIN') {
           final rideId = message.data['rideId']?.toString() ?? '';
@@ -447,18 +534,63 @@ class NotificationService {
       final key = uid != null ? 'dismissed_sos_alerts_$uid' : 'dismissed_sos_alerts_default';
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getStringList(key) ?? [];
-      _dismissedAlertIds.addAll(saved);
-      _shownAlertIds.addAll(saved);
+      // Entries saved before ring keys existed are bare alert IDs: they mean ring 0.
+      final keys = saved.map((k) => k.contains('#') ? k : sosRingKey(k, 0));
+      _dismissedRingKeys.addAll(keys);
+      _shownRingKeys.addAll(keys);
     } catch (e) {
       debugPrint('[NotificationService] Error loading dismissed alerts: $e');
     }
   }
 
+  String _presentedPrefsKey() {
+    final String? uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
+    return 'presented_sos_ring_keys_${uid ?? 'default'}';
+  }
+
+  /// Loads the ring keys whose dialog already opened automatically on this device.
+  Future<void> _loadPresentedRingKeys() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _presentedRingKeys.addAll(prefs.getStringList(_presentedPrefsKey()) ?? const []);
+    } catch (e) {
+      debugPrint('[NotificationService] Error loading presented ring keys: $e');
+    }
+  }
+
+  /// Remembers (in memory and SharedPreferences, capped at 300) that [ringKey]'s dialog was shown.
+  void _markPresented(String ringKey) {
+    if (ringKey.isEmpty || !_presentedRingKeys.add(ringKey)) return;
+    final prefsKey = _presentedPrefsKey();
+    unawaited(() async {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final list = prefs.getStringList(prefsKey) ?? <String>[];
+        if (list.contains(ringKey)) return;
+        list.add(ringKey);
+        if (list.length > _maxPresentedRingKeys) {
+          list.removeRange(0, list.length - _maxPresentedRingKeys);
+        }
+        await prefs.setStringList(prefsKey, list);
+      } catch (e) {
+        debugPrint('[NotificationService] Error saving presented ring key: $e');
+      }
+    }());
+  }
+
+  /// Ring sequence of [alertId] as currently shown, or 0.
+  int _currentRingSeqFor(String alertId) {
+    final alert = activeIncomingSosNotifier.value;
+    return alert != null && alert['alertId'] == alertId ? ringSeqOf(alert['ringSeq']) : 0;
+  }
+
   /// Persistently marks an active SOS alert as dismissed/responded to by the current user.
-  /// Prevents this alert from ever popping up again on this device or across app restarts.
-  Future<void> dismissAlert(String alertId) async {
-    _shownAlertIds.add(alertId);
-    _dismissedAlertIds.add(alertId);
+  /// Prevents this ring of the alert from popping up again on this device or across app
+  /// restarts; only a deliberate re-alert by the sender (a new ring sequence) rings again.
+  Future<void> dismissAlert(String alertId, {Object? ringSeq}) async {
+    final ringKey = sosRingKey(alertId, ringSeq ?? _currentRingSeqFor(alertId));
+    _shownRingKeys.add(ringKey);
+    _dismissedRingKeys.add(ringKey);
     SirenService.instance.stopSiren();
 
     if (activeIncomingSosNotifier.value?['alertId'] == alertId) {
@@ -471,8 +603,8 @@ class NotificationService {
       final key = uid != null ? 'dismissed_sos_alerts_$uid' : 'dismissed_sos_alerts_default';
       final prefs = await SharedPreferences.getInstance();
       final list = prefs.getStringList(key) ?? [];
-      if (!list.contains(alertId)) {
-        list.add(alertId);
+      if (!list.contains(ringKey)) {
+        list.add(ringKey);
         if (list.length > 200) {
           list.removeRange(0, list.length - 200);
         }
@@ -499,9 +631,10 @@ class NotificationService {
 
   /// Explicitly marks an active SOS alert as acknowledged by the current guardian user ("I'm Responding").
   /// Writes acknowledgedBy and timestamped acknowledgedAt, halting the Smart SOS Escalation sequence.
-  Future<void> acknowledgeAlert(String alertId) async {
-    _shownAlertIds.add(alertId);
-    _dismissedAlertIds.add(alertId);
+  Future<void> acknowledgeAlert(String alertId, {Object? ringSeq}) async {
+    final ringKey = sosRingKey(alertId, ringSeq ?? _currentRingSeqFor(alertId));
+    _shownRingKeys.add(ringKey);
+    _dismissedRingKeys.add(ringKey);
     SirenService.instance.stopSiren();
 
     // 1. Persist locally to SharedPreferences
@@ -510,8 +643,8 @@ class NotificationService {
       final key = uid != null ? 'dismissed_sos_alerts_$uid' : 'dismissed_sos_alerts_default';
       final prefs = await SharedPreferences.getInstance();
       final list = prefs.getStringList(key) ?? [];
-      if (!list.contains(alertId)) {
-        list.add(alertId);
+      if (!list.contains(ringKey)) {
+        list.add(ringKey);
         if (list.length > 200) {
           list.removeRange(0, list.length - 200);
         }
@@ -588,6 +721,7 @@ class NotificationService {
     final String myUid = user.uid;
 
     _loadDismissedAlertIds();
+    _loadPresentedRingKeys();
     _cancelSosAlertsSubscriptions();
     _liveActiveAlerts.clear();
 
@@ -648,72 +782,22 @@ class NotificationService {
 
   void _processIncomingSosAlerts(String myUid, String myEmail) {
     final List<Map<String, dynamic>> eligibleAlerts = [];
+    final now = DateTime.now();
 
     for (final entry in _liveActiveAlerts.entries) {
       final alertId = entry.key;
       final data = entry.value['data'] as Map<String, dynamic>;
       final doc = entry.value['doc'];
 
-      // Only process actively running alerts
-      final status = (data['status'] ?? '').toString().toLowerCase();
-      if (status != 'active') {
-        continue;
-      }
-
-      final senderId = (data['senderId'] ?? data['sender_uid'])?.toString();
-      if (senderId == myUid) {
-        // Do not alert the sender on their own device
-        continue;
-      }
-
-      // Check if already dismissed locally
-      if (_dismissedAlertIds.contains(alertId)) {
-        continue;
-      }
-
-      // Check if dismissed in cloud by my UID
-      final List<dynamic> dismissedBy = (data['dismissedBy'] as List<dynamic>?) ?? [];
-      if (dismissedBy.map((e) => e.toString()).contains(myUid)) {
-        _dismissedAlertIds.add(alertId);
-        continue;
-      }
-
-      // Robust timestamp parsing (Timestamp, DateTime, int, or String)
-      final dynamic rawTime = data['triggeredAt'] ?? data['timestamp'];
-      DateTime alertDate = DateTime.now();
-      if (rawTime is Timestamp) {
-        alertDate = rawTime.toDate();
-      } else if (rawTime is DateTime) {
-        alertDate = rawTime;
-      } else if (rawTime is int) {
-        alertDate = DateTime.fromMillisecondsSinceEpoch(rawTime);
-      } else if (rawTime is String) {
-        final parsed = DateTime.tryParse(rawTime);
-        if (parsed != null) {
-          alertDate = parsed;
-        } else {
-          final ms = int.tryParse(rawTime);
-          if (ms != null) {
-            alertDate = DateTime.fromMillisecondsSinceEpoch(ms);
-          }
-        }
-      }
-
-      // Ignore stale alerts older than 3 hours
-      if (DateTime.now().difference(alertDate).inHours.abs() > 3) {
-        continue;
-      }
-
-      // Check if current user is an intended recipient
-      final List<dynamic> recEmails = (data['recipientEmails'] as List<dynamic>?) ?? [];
-      final List<dynamic> recUids = (data['recipientUids'] as List<dynamic>?) ?? [];
-
-      final bool matchesEmail = myEmail.isNotEmpty &&
-          recEmails.map((e) => e.toString().toLowerCase().trim()).contains(myEmail);
-      final bool matchesUid = recUids.map((u) => u.toString()).contains(myUid);
-      final bool isRecipient = matchesEmail || matchesUid;
-
-      if (!isRecipient) continue;
+      final alertDate = sosAlertTimeIfEligible(
+        alertId: alertId,
+        data: data,
+        myUid: myUid,
+        myEmail: myEmail,
+        dismissedRingKeys: _dismissedRingKeys,
+        now: now,
+      );
+      if (alertDate == null) continue;
 
       eligibleAlerts.add({
         'alertId': alertId,
@@ -747,6 +831,8 @@ class NotificationService {
     final latestAlertId = latest['alertId'] as String;
     final latestData = latest['data'] as Map<String, dynamic>;
     final latestDate = latest['alertDate'] as DateTime;
+    final latestRingSeq = ringSeqOf(latestData['ringSeq']);
+    final latestRingKey = sosRingKey(latestAlertId, latestRingSeq);
 
     // Count total active presses from this sender
     final senderId = (latestData['senderId'] ?? latestData['sender_uid'])?.toString();
@@ -780,44 +866,49 @@ class NotificationService {
       'status': 'active',
       'batteryLevel': (latestData['batteryLevel'] as num?)?.toInt(),
       'liveLocation': latestData['liveLocation'],
+      'ringSeq': latestRingSeq,
+      'ringKey': latestRingKey,
     };
 
-    // Update active incoming alert notifier for homepage & reactive UI
+    // Update active incoming alert notifier for homepage & reactive UI. The heartbeat refreshes
+    // it for live data; it can no longer reopen the dialog or re-ring (see below).
     activeIncomingSosNotifier.value = alertPayload;
 
-    // Only present notification / modal once per unique active alert
-    if (!_shownAlertIds.contains(latestAlertId)) {
+    // Present and ring at most once per ring key
+    if (!_shownRingKeys.contains(latestRingKey)) {
       // Mark all older alerts from this sender as processed so they don't trigger subsequently
       for (final a in eligibleAlerts) {
-        _shownAlertIds.add(a['alertId'] as String);
+        _shownRingKeys.add(sosRingKey(a['alertId'] as String, (a['data'] as Map<String, dynamic>)['ringSeq']));
       }
 
       debugPrint('[NotificationService] 🚨 In-App SOS alert (latest of $totalPresses) detected for $myEmail from ${latestData['senderName']}!');
 
-      // 1. Pop up intrusive fullscreen dialog
-      _showIntrusiveSosDialog(alertPayload);
+      // 1. Pop up intrusive fullscreen dialog (once per ring key, never with a siren of its own)
+      _autoPresentSosDialog(alertPayload);
 
-      // 2. Siren + heads-up banner, unless the native guardian service already rang for this alert
-      unawaited(_ringIfUnclaimed(latestAlertId, latestData, alertPayload));
+      // 2. Siren + heads-up banner, unless the native guardian service already rang for this ring
+      unawaited(_ringIfUnclaimed(latestAlertId, latestRingKey, latestData, alertPayload));
     }
   }
 
-  /// Plays the siren and posts the banner only if this listener is the first to claim the alert.
+  /// Plays the siren and posts the banner only if this listener is the first to claim [ringKey].
   /// While the app is not visible the native GuardianAlertService owns alerting (alarm-stream
   /// siren, full-screen notification), so the UI isolate stays quiet to avoid a double siren.
+  /// This is the only Dart code that starts the siren for an incoming alert.
   Future<void> _ringIfUnclaimed(
     String alertId,
+    String ringKey,
     Map<String, dynamic> latestData,
     Map<String, dynamic> alertPayload,
   ) async {
     final bool appVisible =
         WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
     if (!appVisible && await GuardianAlertService.instance.isServiceRunning()) {
-      debugPrint('[NotificationService] App in background; native guardian service handles alert $alertId');
+      debugPrint('[NotificationService] App in background; native guardian service handles alert $ringKey');
       return;
     }
-    if (!await GuardianAlertService.instance.claimAlert(alertId)) {
-      debugPrint('[NotificationService] Alert $alertId already ringing via native guardian service');
+    if (!await GuardianAlertService.instance.claimAlert(ringKey)) {
+      debugPrint('[NotificationService] Alert $ringKey already rang via native guardian service');
       return;
     }
 
@@ -1006,12 +1097,45 @@ class NotificationService {
 
   /// Displays the full-featured Intrusive SOS Dialog overlay if there is an active incoming alert
   /// that has not been dismissed. Can be called when [HomeScreen] mounts or returns to foreground.
-  void showActiveSosDialogIfAvailable(BuildContext context) {
+  ///
+  /// Without [userRequested] the dialog opens at most once per ring key on this device; the
+  /// "View Details" button and a tap on the alert notification pass [userRequested] = true.
+  void showActiveSosDialogIfAvailable(BuildContext context, {bool userRequested = false}) {
     final alert = activeIncomingSosNotifier.value;
     if (alert == null || _isSosDialogShowing) return;
-    final alertId = alert['alertId']?.toString() ?? '';
-    if (alertId.isNotEmpty && _dismissedAlertIds.contains(alertId)) return;
+    final ringKey = alert['ringKey'] as String? ?? '';
+    if (_dismissedRingKeys.contains(ringKey)) return;
+    if (!userRequested && _presentedRingKeys.contains(ringKey)) return;
+    _markPresented(ringKey);
     _displayDialog(context, alert);
+  }
+
+  /// Opens the dialog for [data] on its own, unless this ring key was already presented or
+  /// dismissed on this device.
+  void _autoPresentSosDialog(Map<String, dynamic> data) {
+    final ringKey = data['ringKey'] as String? ?? '';
+    if (_dismissedRingKeys.contains(ringKey) || _presentedRingKeys.contains(ringKey)) return;
+    _markPresented(ringKey);
+    _showIntrusiveSosDialog(data);
+  }
+
+  /// The guardian tapped (or a full-screen launch opened) the native alert notification for
+  /// [alertId]: show the alert dialog silently once the alert and a navigator are available.
+  void _openAlertFromNotification(String alertId) {
+    int attempts = 0;
+    void tryOpen() {
+      final context = _navigatorKey?.currentContext;
+      final alert = activeIncomingSosNotifier.value;
+      if (context != null && context.mounted && alert != null && alert['alertId'] == alertId) {
+        showActiveSosDialogIfAvailable(context, userRequested: true);
+      } else if (attempts < 20) {
+        attempts++;
+        Future.delayed(const Duration(milliseconds: 500), tryOpen);
+      } else {
+        debugPrint('[NotificationService] Opened alert $alertId is no longer active here');
+      }
+    }
+    tryOpen();
   }
 
   void _displayDialog(BuildContext context, Map<String, dynamic> data) {

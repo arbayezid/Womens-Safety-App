@@ -46,10 +46,14 @@ class GuardianAlertService {
         if (rideId.isNotEmpty) {
           _openRideDetails(rideId);
         }
+      } else if (call.method == 'onAlertOpened') {
+        final alertId = call.arguments?.toString() ?? '';
+        if (alertId.isNotEmpty) _alertOpened(alertId);
       }
     });
 
     _checkPendingRide();
+    _checkPendingAlert();
 
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user != null) {
@@ -70,6 +74,35 @@ class GuardianAlertService {
       if (rideId != null && rideId is String && rideId.isNotEmpty) {
         _openRideDetails(rideId);
       }
+    } catch (_) {}
+  }
+
+  void Function(String alertId)? _alertOpenedHandler;
+  String? _pendingOpenedAlertId;
+
+  /// Registers who opens an SOS alert when its native notification is tapped (NotificationService).
+  /// An alert opened before the handler exists is delivered as soon as it is registered.
+  void setAlertOpenedHandler(void Function(String alertId) handler) {
+    _alertOpenedHandler = handler;
+    final pending = _pendingOpenedAlertId;
+    _pendingOpenedAlertId = null;
+    if (pending != null) handler(pending);
+  }
+
+  void _alertOpened(String alertId) {
+    final handler = _alertOpenedHandler;
+    if (handler == null) {
+      _pendingOpenedAlertId = alertId;
+    } else {
+      handler(alertId);
+    }
+  }
+
+  /// The app was launched from a guardian alert notification before Dart was running.
+  Future<void> _checkPendingAlert() async {
+    try {
+      final alertId = await _invoke('getPendingAlertId');
+      if (alertId is String && alertId.isNotEmpty) _alertOpened(alertId);
     } catch (_) {}
   }
 

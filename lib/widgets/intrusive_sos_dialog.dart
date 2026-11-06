@@ -40,8 +40,8 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
   @override
   void initState() {
     super.initState();
-    // Play loud siren emergency audio to immediately alert the receiver
-    SirenService.instance.startSiren();
+    // No siren here: the incoming alert already rang once (NotificationService._ringIfUnclaimed
+    // or the native guardian service). Re-opening the dialog must never re-ring.
 
     _animController = AnimationController(
       vsync: this,
@@ -512,13 +512,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     valueListenable: SirenService.instance.isPlayingNotifier,
                     builder: (context, isPlaying, _) {
                       return InkWell(
-                        onTap: () {
-                          if (isPlaying) {
-                            SirenService.instance.stopSiren();
-                          } else {
-                            SirenService.instance.startSiren();
-                          }
-                        },
+                        onTap: () => SirenService.instance.toggleSiren(),
                         borderRadius: BorderRadius.circular(16),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -925,7 +919,8 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       final alertId = widget.data['alertId']?.toString() ?? '';
                       SirenService.instance.stopSiren();
                       if (alertId.isNotEmpty) {
-                        await NotificationService.instance.acknowledgeAlert(alertId);
+                        await NotificationService.instance
+                            .acknowledgeAlert(alertId, ringSeq: widget.data['ringSeq']);
                       }
                       if (widget.onDismissed != null) {
                         widget.onDismissed!();
@@ -1020,7 +1015,8 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     SirenService.instance.stopSiren();
                     final alertId = widget.data['alertId']?.toString() ?? '';
                     if (alertId.isNotEmpty) {
-                      await NotificationService.instance.dismissAlert(alertId);
+                      await NotificationService.instance
+                          .dismissAlert(alertId, ringSeq: widget.data['ringSeq']);
                     }
                     if (widget.onDismissed != null) {
                       widget.onDismissed!();
@@ -1046,7 +1042,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 onTap: () {
                   final alertId = widget.data['alertId']?.toString() ?? '';
                   if (alertId.isNotEmpty) {
-                    NotificationService.instance.dismissAlert(alertId);
+                    NotificationService.instance.dismissAlert(alertId, ringSeq: widget.data['ringSeq']);
                   }
                   if (widget.onDismissed != null) {
                     widget.onDismissed!();

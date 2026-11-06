@@ -1328,7 +1328,8 @@ class _ActiveIncomingGuardianSosBannerState
                   height: 42,
                   child: OutlinedButton.icon(
                     onPressed: () {
-                      NotificationService.instance.showActiveSosDialogIfAvailable(context);
+                      NotificationService.instance
+                          .showActiveSosDialogIfAvailable(context, userRequested: true);
                     },
                     icon: const Icon(Icons.visibility_rounded, size: 16, color: AppColors.sosRed),
                     label: Text(

@@ -394,26 +394,46 @@ class GuardianAlertService : Service() {
         // Cached data may be stale (e.g. right after boot, offline); only ring on server data.
         if (fromCache) return
 
-        val fresh = eligible.filter { !AlertRegistry.isClaimed(this, it.id) }
+        // One ring per ring key (alertId#ringSeq): the same alert rings again only when the sender
+        // deliberately presses SOS again.
+        val fresh = eligible.filter { !AlertRegistry.isClaimed(this, ringKey(it)) }
         if (fresh.isEmpty()) return
         val latest = fresh.maxByOrNull { alertTimeMillis(it) ?: now } ?: return
-        val claimedLatest = AlertRegistry.tryClaim(this, latest.id)
+        val claimedLatest = AlertRegistry.tryClaim(this, ringKey(latest))
         // Older alerts from the same burst must not ring later on their own.
-        fresh.filter { it.id != latest.id }.forEach { AlertRegistry.tryClaim(this, it.id) }
+        fresh.filter { it.id != latest.id }.forEach { AlertRegistry.tryClaim(this, ringKey(it)) }
         if (!claimedLatest) {
-            Log.i(TAG, "Alert ${latest.id} already handled by the app UI")
+            Log.i(TAG, "Alert ${ringKey(latest)} already handled by the app UI")
             return
         }
         presentAlert(latest)
     }
 
+    /** Ring key shared with the Dart listener: alert ID plus ring sequence (missing = 0). */
+    private fun ringKey(doc: DocumentSnapshot): String {
+        val seq = when (val raw = doc.get("ringSeq")) {
+            is Number -> raw.toLong()
+            is String -> raw.toLongOrNull() ?: 0L
+            else -> 0L
+        }
+        return "${doc.id}#$seq"
+    }
+
+    /** Same rules as NotificationService.sosAlertTimeIfEligible on the Dart side. */
     private fun isEligible(doc: DocumentSnapshot, uid: String, now: Long): Boolean {
         if (str(doc, "status")?.lowercase() != "active") return false
         val senderId = str(doc, "senderId") ?: str(doc, "sender_uid")
         if (senderId == uid) return false
         if (stringList(doc.get("dismissedBy")).contains(uid)) return false
         if (stringList(doc.get("acknowledgedBy")).contains(uid)) return false
-        val time = alertTimeMillis(doc) ?: now
+        val expiresAt = when (val raw = doc.get("expiresAt")) {
+            is Timestamp -> raw.toDate().time
+            is Date -> raw.time
+            is Number -> raw.toLong()
+            else -> null
+        }
+        if (expiresAt != null && expiresAt < now) return false
+        val time = alertTimeMillis(doc) ?: return false
         return kotlin.math.abs(now - time) <= STALE_ALERT_MS
     }
 
@@ -476,6 +496,7 @@ class GuardianAlertService : Service() {
             .setFullScreenIntent(alertActivityIntent(alertId, MainActivity.SOURCE_FULL_SCREEN, 2), true)
             .setDeleteIntent(stopSirenIntent(3))
             .addAction(0, "Stop siren", stopSirenIntent(4))
+            .addAction(0, "Dismiss", dismissIntent(alertId, 6))
         if (mapsUrl != null) {
             val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse(mapsUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             builder.addAction(
@@ -516,6 +537,16 @@ class GuardianAlertService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
     }
+
+    /** "Dismiss": silences, removes the notification and records dismissedBy, even with the app closed. */
+    private fun dismissIntent(alertId: String, slot: Int): PendingIntent = PendingIntent.getBroadcast(
+        this,
+        ALERT_NOTIFICATION_ID * 10 + slot,
+        Intent(this, AlertActionReceiver::class.java)
+            .setAction(AlertActionReceiver.ACTION_DISMISS)
+            .putExtra(AlertActionReceiver.EXTRA_ALERT_ID, alertId),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private fun stopSirenIntent(slot: Int): PendingIntent = PendingIntent.getBroadcast(
         this,

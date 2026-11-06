@@ -13,13 +13,13 @@ object AlertRegistry {
     private const val KEY_CLAIMED = "claimed_alert_ids"
     private const val MAX_ENTRIES = 300
 
-    /** Returns true exactly once per alert ID. */
+    /** Returns true exactly once per ring key (`alertId#ringSeq`). */
     @Synchronized
     fun tryClaim(context: Context, alertId: String): Boolean {
         if (alertId.isBlank()) return false
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val ids = load(context)
-        if (alertId in ids) return false
+        if (claimedIn(ids, alertId)) return false
         ids += alertId
         while (ids.size > MAX_ENTRIES) ids.removeAt(0)
         prefs.edit().putString(KEY_CLAIMED, ids.joinToString("\n")).commit()
@@ -27,7 +27,11 @@ object AlertRegistry {
     }
 
     @Synchronized
-    fun isClaimed(context: Context, alertId: String): Boolean = alertId in load(context)
+    fun isClaimed(context: Context, alertId: String): Boolean = claimedIn(load(context), alertId)
+
+    /** Entries claimed before ring keys existed are bare alert IDs; they stand for ring 0. */
+    private fun claimedIn(ids: List<String>, key: String): Boolean =
+        key in ids || (key.endsWith("#0") && key.removeSuffix("#0") in ids)
 
     private fun load(context: Context): MutableList<String> =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
