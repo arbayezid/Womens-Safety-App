@@ -24,7 +24,7 @@ void main() {
       await ContactService.instance.clearContacts();
       EmergencyService.instance.updateContacts([]);
 
-      final result = await EmergencyService.instance.triggerEmergency(source: 'Test SOS');
+      final result = await EmergencyService.instance.triggerEmergency(source: 'Test SOS', origin: SosOrigin.manual);
       expect(result.isSuccess, isFalse);
       expect(
         result.message,
@@ -47,7 +47,7 @@ void main() {
       );
       EmergencyService.instance.updateContacts([]);
 
-      final result = await EmergencyService.instance.triggerEmergency(source: 'Test SOS');
+      final result = await EmergencyService.instance.triggerEmergency(source: 'Test SOS', origin: SosOrigin.manual);
       expect(result.hasNoRecipients, isFalse);
       expect(
         result.message,

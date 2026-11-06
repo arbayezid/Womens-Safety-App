@@ -106,6 +106,13 @@ class NotificationService {
   static const int _maxPresentedRingKeys = 300;
   bool _isSosDialogShowing = false;
 
+  /// Label shown to guardians for an alert sent by an unanswered automatic check, so they can
+  /// tell it from a button press.
+  static String automaticAlertLabel(Object? source) {
+    final s = source?.toString().trim() ?? '';
+    return 'Automatic alert: no response to a safety check${s.isNotEmpty ? ' ($s)' : ''}';
+  }
+
   /// Ring key of an alert: its ID plus its ring sequence. The same alert rings again only when
   /// the sender deliberately presses SOS again (ringSeq + 1).
   static String sosRingKey(String alertId, Object? ringSeq) => '$alertId#${ringSeqOf(ringSeq)}';
@@ -868,6 +875,8 @@ class NotificationService {
       'liveLocation': latestData['liveLocation'],
       'ringSeq': latestRingSeq,
       'ringKey': latestRingKey,
+      'origin': latestData['origin']?.toString() ?? '',
+      'source': latestData['source']?.toString() ?? '',
     };
 
     // Update active incoming alert notifier for homepage & reactive UI. The heartbeat refreshes
@@ -912,11 +921,17 @@ class NotificationService {
       return;
     }
 
+    debugPrint('[NotificationService] 🔔 Ringing alert $alertId (source: ${latestData['source']}, '
+        'origin: ${latestData['origin']}, ringSeq: ${ringSeqOf(latestData['ringSeq'])})');
+    final bool isAutomatic = latestData['origin'] == 'automatic';
+
     SirenService.instance.startSiren();
     _bannerAlertIds.add(alertId);
     _showLocalSosAlertBanner(
       title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
-      body: '${latestData['senderName']} needs immediate help! Tap to view live location & incident command.',
+      body: isAutomatic
+          ? '${automaticAlertLabel(latestData['source'])}. Tap to view live location & incident command.'
+          : '${latestData['senderName']} needs immediate help! Tap to view live location & incident command.',
       payload: alertPayload,
       notificationId: _bannerIdFor(alertId),
     );

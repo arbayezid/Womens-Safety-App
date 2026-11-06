@@ -8,6 +8,10 @@ import 'auth_service.dart';
 import 'contact_service.dart';
 import 'ride_checkin_service.dart';
 
+/// How long an SOS alert stays live without a sign of life from the sender: set on create,
+/// on a deliberate re-alert, and on each live-location update.
+const Duration sosAlertLifetime = Duration(hours: 2);
+
 /// Service responsible for publishing real-time SOS alerts to Cloud Firestore,
 /// triggering automated server-side FCM push notification broadcasts.
 class SosCloudDispatcher {
@@ -229,6 +233,13 @@ class SosCloudDispatcher {
         'recipientEmails': resolvedEmails,
         'recipientUids': resolvedUids,
         'source': source,
+        // manual (a person pressed something) or automatic (an unanswered safety check)
+        'origin': origin,
+        // Part of the receivers' ring key; only a deliberate re-alert (reRing) increases it
+        'ringSeq': 0,
+        // Receivers ignore the alert after this, even if the sender never taps "I'm safe".
+        // Live tracking pushes it forward while the sender's phone is still reporting.
+        'expiresAt': Timestamp.fromDate(DateTime.now().add(sosAlertLifetime)),
         'isDuress': isDuress,
         'note': message,
         'message': message,
@@ -288,7 +299,8 @@ class SosCloudDispatcher {
         debugPrint('[SosCloud] Event subcollection notice: $eventErr');
       }
 
-      debugPrint('[SosCloud] 🚨 Cloud SOS Alert logged in Firestore: $alertId');
+      debugPrint('[SosCloud] 🚨 Cloud SOS Alert logged in Firestore: $alertId '
+          '(source: $source, origin: $origin, ringSeq: 0)');
       return alertId;
     } catch (e) {
       debugPrint('[SosCloud] ❌ Failed to dispatch cloud SOS: $e');
@@ -298,12 +310,15 @@ class SosCloudDispatcher {
 
   /// Deliberate re-alert: a manual press while [alertId] is live bumps the ring sequence, so
   /// every receiver, including those who dismissed, gets exactly one new ring.
-  Future<void> reRing(String alertId) => _firestore.collection('sos_alerts').doc(alertId).update({
-        'ringSeq': FieldValue.increment(1),
-        'dismissedBy': <String>[],
-        'lastUpdatedAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(DateTime.now().add(const Duration(hours: 2))),
-      });
+  Future<void> reRing(String alertId) {
+    debugPrint('[SosCloud] 🔁 Re-ringing live alert $alertId (origin: manual, ringSeq: +1)');
+    return _firestore.collection('sos_alerts').doc(alertId).update({
+      'ringSeq': FieldValue.increment(1),
+      'dismissedBy': <String>[],
+      'lastUpdatedAt': FieldValue.serverTimestamp(),
+      'expiresAt': Timestamp.fromDate(DateTime.now().add(sosAlertLifetime)),
+    });
+  }
 
   /// Marks an active SOS emergency alert as resolved.
   Future<void> resolveSosAlert(String alertId) async {

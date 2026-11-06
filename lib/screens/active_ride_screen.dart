@@ -176,7 +176,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
         backgroundColor: AppColors.sosRed,
       ),
     );
-    await EmergencyService.instance.triggerEmergency(source: 'Active Ride SOS');
+    await EmergencyService.instance.triggerEmergency(source: 'Active Ride SOS', origin: SosOrigin.manual);
   }
 
   @override

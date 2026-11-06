@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
 import 'safety_report_service.dart';
+import 'sos_cloud_dispatcher.dart';
 
 /// Reusable singleton service managing live GPS location tracking and throttled
 /// Firestore synchronization for active SOS emergencies and Safe Journeys.
@@ -232,6 +233,14 @@ class LiveTrackingService {
             }
           ]),
         }).timeout(const Duration(seconds: 4));
+        // While the sender's phone keeps reporting, the alert stays live; if it dies, the alert
+        // expires [sosAlertLifetime] after the last update. Written separately so a rejection
+        // (e.g. before the new security rules are deployed) never blocks the location update.
+        unawaited(_firestore.collection('sos_alerts').doc(docId).update({
+          'expiresAt': Timestamp.fromDate(DateTime.now().add(sosAlertLifetime)),
+        }).timeout(const Duration(seconds: 4)).catchError((Object e) {
+          debugPrint('[LiveTracking] Notice extending SOS expiry: $e');
+        }));
       } else if (type == 'journey') {
         await _firestore.collection('journeys').doc(docId).update({
           'currentLocation': locationMap,
@@ -309,7 +318,16 @@ class LiveTrackingService {
           .get()
           .timeout(const Duration(seconds: 3));
 
-      if (activeSosSnap.docs.isNotEmpty) {
+      // An expired alert is over: resuming it would push its expiry forward again.
+      final expiresAt = activeSosSnap.docs.isEmpty
+          ? null
+          : (activeSosSnap.docs.first.data()['expiresAt'] as Timestamp?)?.toDate();
+      final sosExpired = expiresAt != null && expiresAt.isBefore(DateTime.now());
+      if (sosExpired) {
+        debugPrint('[LiveTracking] Active SOS ${activeSosSnap.docs.first.id} has expired; not resuming tracking');
+      }
+
+      if (activeSosSnap.docs.isNotEmpty && !sosExpired) {
         final alertDoc = activeSosSnap.docs.first;
         final alertId = alertDoc.id;
         debugPrint('[LiveTracking] 🔄 Auto-resuming active SOS tracking for $alertId');

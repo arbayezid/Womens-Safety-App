@@ -244,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     try {
       final EmergencyResult result =
-          await EmergencyService.instance.triggerEmergency(source: 'SOS Button');
+          await EmergencyService.instance.triggerEmergency(source: 'SOS Button', origin: SosOrigin.manual);
 
       if (!mounted) return;
 

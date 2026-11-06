@@ -295,6 +295,7 @@ class PinSecurityService {
     try {
       await EmergencyService.instance.triggerEmergency(
         source: 'DURESS_PIN',
+        origin: SosOrigin.manual,
         isDuress: true,
         playSiren: false,
         customMessage: silentMessage,

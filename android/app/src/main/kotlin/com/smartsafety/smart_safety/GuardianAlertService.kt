@@ -462,8 +462,15 @@ class GuardianAlertService : Service() {
         val location = doc.get("location") as? Map<*, *>
         val senderName = (str(doc, "senderName") ?: str(doc, "sender_name"))
             ?.takeIf { it.isNotBlank() } ?: "Emergency Contact"
-        val message = (doc.get("message") ?: doc.get("note"))?.toString()
+        val source = str(doc, "source")?.takeIf { it.isNotBlank() }
+        val origin = str(doc, "origin")
+        // Lets guardians tell an unanswered automatic check from a button press
+        val automaticLabel = if (origin == "automatic") {
+            "Automatic alert: no response to a safety check" + (source?.let { " ($it)" } ?: "")
+        } else null
+        val baseMessage = (doc.get("message") ?: doc.get("note"))?.toString()
             ?.takeIf { it.isNotBlank() } ?: "Emergency SOS Alert triggered!"
+        val message = if (automaticLabel != null) "$automaticLabel\n$baseMessage" else baseMessage
         val latitude = number(doc.get("latitude")) ?: number(doc.get("lat")) ?: number(location?.get("latitude"))
         val longitude = number(doc.get("longitude")) ?: number(doc.get("lng")) ?: number(location?.get("longitude"))
         val mapsUrl = (str(doc, "google_maps_url") ?: location?.get("googleMapsUrl")?.toString())
@@ -471,7 +478,7 @@ class GuardianAlertService : Service() {
             ?: if (latitude != null && longitude != null) "https://maps.google.com/?q=$latitude,$longitude" else null
         val address = (location?.get("address") ?: doc.get("address"))?.toString()?.takeIf { it.isNotBlank() }
 
-        Log.i(TAG, "🚨 Incoming SOS $alertId from $senderName")
+        Log.i(TAG, "🚨 Incoming SOS ${ringKey(doc)} from $senderName (source: $source, origin: $origin)")
         AlertSirenPlayer.start(this, alertId)
         presentedAlertId = alertId
 
@@ -484,7 +491,7 @@ class GuardianAlertService : Service() {
         val builder = NotificationCompat.Builder(this, NotificationChannels.GUARDIAN_ALERTS)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("🚨 SOS ALERT: $senderName needs help!")
-            .setContentText(message)
+            .setContentText(automaticLabel ?: message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(details))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)

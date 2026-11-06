@@ -130,7 +130,7 @@ void main() {
       ]);
       await ContactService.instance.setPrimaryContact('b');
 
-      final result = await EmergencyService.instance.triggerEmergency(source: 'Test SOS');
+      final result = await EmergencyService.instance.triggerEmergency(source: 'Test SOS', origin: SosOrigin.manual);
       final phones = result.recipientPhones;
       expect(phones.length, 3, reason: 'backup contacts stay out of the first wave, as before');
       expect(phones.first, EmergencyService.instance.formatRecipientPhone('01711000002'));

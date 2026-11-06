@@ -46,3 +46,6 @@ app.*.map.json
 
 # Local API keys passed with --dart-define-from-file (never commit)
 secrets.json
+
+# Firebase Admin credentials for scripts/cleanup_sos.js (never commit)
+service-account.json

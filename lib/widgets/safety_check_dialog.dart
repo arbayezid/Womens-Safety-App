@@ -255,7 +255,8 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                           onPressed: () async {
                             // The running check must not send a second, automatic SOS afterwards
                             await SafetyDeadlineService.instance.claimRunningChecks();
-                            await EmergencyService.instance.triggerEmergency(source: 'MANUAL_ESCALATION');
+                            await EmergencyService.instance
+                                .triggerEmergency(source: 'MANUAL_ESCALATION', origin: SosOrigin.manual);
                             if (context.mounted && Navigator.of(context).canPop()) {
                               Navigator.of(context).pop();
                             }

@@ -253,6 +253,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
       final activeJourney = JourneyService.instance.activeJourney;
       await EmergencyService.instance.triggerEmergency(
         source: 'FOLLOWED_SOS',
+        origin: SosOrigin.manual,
         customMessage: 'EMERGENCY: User activated Followed Mode and pressed Emergency SOS! Immediate response needed.',
         linkedJourneyId: activeJourney?.id,
       );

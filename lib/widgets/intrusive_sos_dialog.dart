@@ -401,6 +401,8 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
         (widget.data['isTrackingActive'] as bool? ?? false);
     final batteryLevel = (liveDoc?['batteryLevel'] as num?)?.toInt() ??
         (widget.data['batteryLevel'] as num?)?.toInt();
+    final isAutomatic = (liveDoc?['origin'] ?? widget.data['origin']) == 'automatic';
+    final source = liveDoc?['source'] ?? widget.data['source'];
 
     // Determine address and maps link (prioritizing live updates)
     String address = widget.data['address']?.toString() ?? 'Live GPS Coordinates Available';
@@ -617,6 +619,19 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   fontWeight: FontWeight.w600,
                 ),
               ),
+              // Lets guardians tell an unanswered automatic check from a button press
+              if (isAutomatic && !isResolved) ...[
+                const SizedBox(height: 4),
+                Text(
+                  NotificationService.automaticAlertLabel(source),
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11.5,
+                    color: AppColors.actionOrange,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
               if (senderEmail.isNotEmpty) ...[
                 const SizedBox(height: 2),
                 Text(

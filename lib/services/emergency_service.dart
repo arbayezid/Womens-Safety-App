@@ -172,16 +172,47 @@ class EmergencyService {
   /// escalation arming) has finished. A background deadline run waits for it before exiting.
   Future<void> get postDispatchWork => _postDispatchWork;
 
-  /// Restores active alert ID from SharedPreferences on app launch
+  /// Restores active alert ID from SharedPreferences on app launch, but only while Firestore still
+  /// says the alert is live. An ended or expired alert is cleared instead, and its tracking and
+  /// escalation are not resumed. Offline, the stored ID is kept as before.
   Future<void> restoreActiveAlertId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final savedId = prefs.getString('active_sos_alert_id');
       if (savedId != null && savedId.isNotEmpty) {
+        final live = await _isAlertLiveInCloud(savedId);
+        if (live == false) {
+          debugPrint('[EmergencyService] Stored SOS alert $savedId is no longer live; not restoring');
+          await _clearActiveAlertLocally(savedId);
+          return;
+        }
         activeAlertIdNotifier.value = savedId;
         debugPrint('[EmergencyService] 🔄 Restored active SOS alert ID: $savedId');
       }
     } catch (_) {}
+  }
+
+  /// True while an alert document is active and not past its `expiresAt`.
+  @visibleForTesting
+  static bool isAlertDocLive(Map<String, dynamic>? data, DateTime now) {
+    if (data == null || data['status'] != 'active') return false;
+    final expiresAt = (data['expiresAt'] as Timestamp?)?.toDate();
+    return expiresAt == null || expiresAt.isAfter(now);
+  }
+
+  /// Reads [alertId] from Firestore: true = live, false = ended / expired / missing,
+  /// null = could not be checked (offline or Firebase unavailable).
+  Future<bool?> _isAlertLiveInCloud(String alertId) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('sos_alerts')
+          .doc(alertId)
+          .get()
+          .timeout(const Duration(seconds: 3));
+      return isAlertDocLive(snap.data(), DateTime.now());
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Resolves the currently active SOS alert, stops tracking and siren,
@@ -286,7 +317,7 @@ class EmergencyService {
   /// one run, and while an alert is live no second document is created (see [SosGate]).
   Future<EmergencyResult> triggerEmergency({
     required String source,
-    SosOrigin origin = SosOrigin.manual,
+    required SosOrigin origin,
     BuildContext? context,
     String? customMessage,
     bool isDuress = false,
@@ -317,22 +348,12 @@ class EmergencyService {
       if (pending != null) id = await pending;
     }
     if (id == null) return null;
-    try {
-      final snap = await FirebaseFirestore.instance
-          .collection('sos_alerts')
-          .doc(id)
-          .get()
-          .timeout(const Duration(seconds: 3));
-      final d = snap.data();
-      final expiresAt = (d?['expiresAt'] as Timestamp?)?.toDate();
-      final live = d != null &&
-          d['status'] == 'active' &&
-          (expiresAt == null || expiresAt.isAfter(DateTime.now()));
-      if (live) return id;
-    } catch (_) {
+    final live = await _isAlertLiveInCloud(id);
+    if (live == null) {
       // Offline: an automatic trigger trusts local state; a manual press never gets blocked.
       return origin == SosOrigin.automatic ? id : null;
     }
+    if (live) return id;
     await _clearActiveAlertLocally(id);
     return null;
   }
@@ -849,23 +870,27 @@ class EmergencyService {
   /// Convenience alias for [triggerEmergency]
   Future<EmergencyResult> triggerEmergencySOS({
     required String source,
+    required SosOrigin origin,
     BuildContext? context,
     String? customMessage,
   }) =>
       triggerEmergency(
         source: source,
+        origin: origin,
         context: context,
         customMessage: customMessage,
       );
 
   /// Dispatches SMS directly with optional custom text message to active contacts
   Future<EmergencyResult> sendEmergencySMS({
+    required SosOrigin origin,
     String? customMessage,
     BuildContext? context,
     String source = 'Direct SOS SMS',
   }) async {
     return triggerEmergency(
       source: source,
+      origin: origin,
       context: context,
       customMessage: customMessage,
     );

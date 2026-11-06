@@ -372,6 +372,7 @@ class MotionDetectionService {
 
     await EmergencyService.instance.triggerEmergency(
       source: 'FALL_SOS',
+      origin: SosOrigin.manual,
       isDuress: false,
       playSiren: sirenOnAutoSos,
       customMessage: 'EMERGENCY: User detected a fall and requested immediate assistance.',
