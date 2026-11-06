@@ -29,6 +29,9 @@ object NotificationChannels {
     /** Incoming ride check-in alerts from protected contacts. */
     const val RIDE_ALERTS = "ride_safety_alerts_channel_v2"
 
+    /** Safe Journey started / arrived / alert updates from protected contacts. */
+    const val JOURNEY_ALERTS = "journey_guardian_alerts_channel"
+
     fun ensureCreated(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
@@ -82,6 +85,17 @@ object NotificationChannels {
                 vibrationPattern = longArrayOf(0, 400, 200, 400)
                 enableLights(true)
                 lightColor = Color.BLUE
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(JOURNEY_ALERTS, "Safe Journey Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "When people you protect start, finish or need help on a Safe Journey."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 400, 200, 400)
+                enableLights(true)
+                lightColor = Color.MAGENTA
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )

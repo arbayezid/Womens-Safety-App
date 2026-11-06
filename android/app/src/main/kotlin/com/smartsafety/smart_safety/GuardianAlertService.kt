@@ -205,6 +205,14 @@ class GuardianAlertService : Service() {
                 .addSnapshotListener { snap, err -> onRideSnapshot("email", snap, err) }
         }
 
+        val journeys = FirebaseFirestore.getInstance().collection("journeys")
+        rideRegistrations += journeys.whereArrayContains("guardianUids", user.uid)
+            .addSnapshotListener { snap, err -> onJourneySnapshot("uid", snap, err) }
+        if (listeningEmail.isNotEmpty()) {
+            rideRegistrations += journeys.whereArrayContains("guardianEmails", listeningEmail)
+                .addSnapshotListener { snap, err -> onJourneySnapshot("email", snap, err) }
+        }
+
         // Accepted guardian requests addressed to this user = the people they protect. Accepting
         // always records the receiver's uid, so one query covers email-addressed requests too.
         requestsRegistration = FirebaseFirestore.getInstance().collection("connection_requests")
@@ -337,6 +345,116 @@ class GuardianAlertService : Service() {
             NotificationManagerCompat.from(this).notify(notifId, notification)
         } catch (e: SecurityException) {
             Log.w(TAG, "Notification permission not granted for ride alert", e)
+        }
+    }
+
+    /**
+     * Safe Journey updates from people this user protects. Same rules as journeyGuardianEvent in
+     * lib/services/journey_guardian_alerts.dart; keep the two in step. Each update is claimed in
+     * AlertRegistry, which the in-app Dart listener shares, so it is shown once per device, also
+     * across restarts.
+     */
+    private fun onJourneySnapshot(source: String, snapshot: QuerySnapshot?, error: Exception?) {
+        if (error != null) {
+            Log.w(TAG, "Journey listener ($source) error", error)
+            return
+        }
+        if (snapshot == null || snapshot.metadata.isFromCache) return
+        val uid = listeningUid ?: return
+        val now = System.currentTimeMillis()
+        for (doc in snapshot.documents) {
+            try {
+                val event = journeyEvent(doc, uid, now) ?: continue
+                if (!AlertRegistry.tryClaim(this, event.first)) continue
+                presentJourneyNotification(doc.id, event.second, event.third)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error processing Safe Journey notification", e)
+            }
+        }
+    }
+
+    private fun millis(value: Any?): Long? = when (value) {
+        is Timestamp -> value.toDate().time
+        is Date -> value.time
+        is Number -> value.toLong()
+        else -> null
+    }
+
+    /** (claim key, title, body) for this journey, or null when there is nothing to tell. */
+    private fun journeyEvent(doc: DocumentSnapshot, uid: String, now: Long): Triple<String, String, String>? {
+        val ownerId = str(doc, "ownerId") ?: str(doc, "owner_uid") ?: return null
+        if (ownerId == uid) return null
+        val status = str(doc, "status")?.lowercase().orEmpty()
+        val name = str(doc, "ownerName")?.trim()?.takeIf { it.isNotEmpty() } ?: "Your contact"
+        val destination = doc.get("destination") as? Map<*, *>
+        val destLabel = destination?.get("label")?.toString()?.trim()?.takeIf { it.isNotEmpty() } ?: "their destination"
+        val followed = str(doc, "mode") == "followed"
+        val startedAt = millis(doc.get("startedAt"))
+        val updatedAt = millis(doc.get("lastUpdatedAt")) ?: startedAt
+        fun within(t: Long?, windowMs: Long) = t != null && kotlin.math.abs(now - t) <= windowMs
+
+        val key = "journey:${doc.id}_$status"
+        return when (status) {
+            "active" -> {
+                if (!within(startedAt, 6 * 60 * 60 * 1000L)) return null
+                if (followed) {
+                    Triple(key, "⚠️ $name thinks they are being followed",
+                        "They are sharing their live location with you. Tap to track them now.")
+                } else {
+                    val eta = millis(doc.get("expectedArrivalAt"))?.let {
+                        " · ETA " + java.text.SimpleDateFormat("H:mm", java.util.Locale.getDefault()).format(Date(it))
+                    }.orEmpty()
+                    Triple(key, "🚶 $name started a Safe Journey",
+                        "Heading to $destLabel$eta. Tap to follow their live location.")
+                }
+            }
+            "arrived" -> {
+                if (!within(updatedAt, 20 * 60 * 1000L)) return null
+                Triple(key, "✅ $name arrived safely",
+                    if (followed) "Followed Mode has ended safely." else "They reached $destLabel.")
+            }
+            "alert" -> {
+                if (!within(updatedAt, 3 * 60 * 60 * 1000L)) return null
+                Triple(key, "🚨 $name's Safe Journey raised an alert",
+                    "A safety check went unanswered. Tap to see their live location.")
+            }
+            "cancelled" -> {
+                if (str(doc, "endReason") == "expired") return null
+                if (!within(updatedAt, 20 * 60 * 1000L)) return null
+                Triple(key, "$name ended their Safe Journey",
+                    if (followed) "Followed Mode was turned off." else "Ended before reaching $destLabel.")
+            }
+            else -> null
+        }
+    }
+
+    private fun presentJourneyNotification(journeyId: String, title: String, body: String) {
+        // One notification per journey: "arrived" replaces "started".
+        val notifId = 200000 + (journeyId.hashCode() and 0xFFFF)
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(MainActivity.EXTRA_JOURNEY_ID, journeyId)
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            notifId,
+            intent,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val notification = NotificationCompat.Builder(this, NotificationChannels.JOURNEY_ALERTS)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setDefaults(NotificationCompat.DEFAULT_SOUND or NotificationCompat.DEFAULT_VIBRATE or NotificationCompat.DEFAULT_LIGHTS)
+            .build()
+        try {
+            NotificationManagerCompat.from(this).notify(notifId, notification)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Notification permission not granted for Safe Journey alert", e)
         }
     }
 

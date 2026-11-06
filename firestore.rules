@@ -270,10 +270,12 @@ service cloud.firestore {
       }
 
       function isJourneyGuardian() {
+        // Phone-only accounts have no email claim, so read it with a default instead of erroring
+        let email = request.auth.token.get('email', null);
         return isAuthenticated() && (
           ('guardianUids' in resource.data && request.auth.uid in resource.data.guardianUids) ||
-          (request.auth.token.email != null && 'guardianEmails' in resource.data &&
-           request.auth.token.email.lower() in resource.data.guardianEmails)
+          (email != null && 'guardianEmails' in resource.data &&
+           email.lower() in resource.data.guardianEmails)
         );
       }
 

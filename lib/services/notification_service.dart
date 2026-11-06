@@ -19,6 +19,7 @@ import '../widgets/intrusive_sos_dialog.dart';
 import 'activity_service.dart';
 import 'contact_sync_service.dart';
 import 'guardian_alert_service.dart';
+import 'journey_guardian_alerts.dart';
 import 'navigation_service.dart';
 import 'siren_service.dart';
 
@@ -195,6 +196,10 @@ class NotificationService {
   StreamSubscription? _rideCheckinSubEmail;
   final Set<String> _notifiedRideKeys = {};
 
+  StreamSubscription? _journeySubUid;
+  StreamSubscription? _journeySubEmail;
+  final Set<String> _notifiedJourneyKeys = {};
+
   /// Active rides currently underway by contacts this user protects
   final ValueNotifier<List<RideCheckinModel>> incomingActiveRidesNotifier =
       ValueNotifier<List<RideCheckinModel>>([]);
@@ -305,6 +310,14 @@ class NotificationService {
 
             final context = _navigatorKey?.currentContext;
             if (context != null) {
+              if (parsedPayload != null && parsedPayload['type'] == 'journey') {
+                final journeyId = parsedPayload['journeyId']?.toString() ?? '';
+                if (journeyId.isNotEmpty) {
+                  GuardianAlertService.instance.openJourney(journeyId);
+                  return;
+                }
+              }
+
               if (parsedPayload != null && parsedPayload['type'] == 'ride_checkin') {
                 final rideId = parsedPayload['rideId']?.toString() ?? '';
                 if (rideId.isNotEmpty) {
@@ -501,6 +514,7 @@ class NotificationService {
       startSosAlertStreamListener();
       startGuardianRequestListener();
       startGuardianRideCheckinListener();
+      startGuardianJourneyListener();
 
       // Listen for auth state changes to dynamically re-attach listeners and sync token
       FirebaseAuth.instance.authStateChanges().listen((user) async {
@@ -508,6 +522,7 @@ class NotificationService {
           startSosAlertStreamListener();
           startGuardianRequestListener();
           startGuardianRideCheckinListener();
+          startGuardianJourneyListener();
           try {
             final token = await _fcm.getToken().timeout(
               const Duration(seconds: 4),
@@ -522,6 +537,8 @@ class NotificationService {
           _requestsSubscription?.cancel();
           _rideCheckinSubUid?.cancel();
           _rideCheckinSubEmail?.cancel();
+          _journeySubUid?.cancel();
+          _journeySubEmail?.cancel();
           activeIncomingSosNotifier.value = null;
           SirenService.instance.stopSiren();
         }
@@ -1289,6 +1306,81 @@ class NotificationService {
     final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
     final notifId = (title.hashCode.abs() % 100000) + 8000;
     await _localNotifications.show(notifId, title, body, details, payload: payload);
+  }
+
+  /// Listens to Safe Journeys (and Followed Mode sessions) that list this user as a guardian.
+  ///
+  /// On Android the native GuardianAlertService watches the same journeys while the app is
+  /// closed; both claim each update through [GuardianAlertService.claimAlert], so it is shown once.
+  void startGuardianJourneyListener() {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final myUid = user.uid;
+    final myEmail = (user.email ?? '').toLowerCase().trim();
+    final journeys = FirebaseFirestore.instance.collection('journeys');
+
+    _journeySubUid?.cancel();
+    _journeySubUid = journeys.where('guardianUids', arrayContains: myUid).snapshots().listen(
+          (snap) => _processGuardianJourneys(snap, myUid),
+          onError: (err) => debugPrint('[NotificationService] Journey UID stream error: $err'),
+        );
+
+    _journeySubEmail?.cancel();
+    _journeySubEmail = null;
+    if (myEmail.isNotEmpty) {
+      _journeySubEmail = journeys.where('guardianEmails', arrayContains: myEmail).snapshots().listen(
+            (snap) => _processGuardianJourneys(snap, myUid),
+            onError: (err) => debugPrint('[NotificationService] Journey email stream error: $err'),
+          );
+    }
+  }
+
+  Future<void> _processGuardianJourneys(
+    QuerySnapshot<Map<String, dynamic>> snap,
+    String myUid,
+  ) async {
+    // Cached results may be stale (cold start, offline); only notify on server data.
+    if (snap.metadata.isFromCache) return;
+    final now = DateTime.now();
+    for (final doc in snap.docs) {
+      final event = journeyGuardianEvent(journeyId: doc.id, data: doc.data(), myUid: myUid, now: now);
+      if (event == null || !_notifiedJourneyKeys.add(event.key)) continue;
+      if (!await GuardianAlertService.instance.claimAlert(event.key)) continue;
+      await _showJourneyNotification(doc.id, event);
+    }
+  }
+
+  Future<void> _showJourneyNotification(String journeyId, JourneyGuardianEvent event) async {
+    final androidDetails = AndroidNotificationDetails(
+      'journey_guardian_alerts_channel',
+      'Safe Journey Alerts',
+      channelDescription: 'When people you protect start, finish or need help on a Safe Journey.',
+      importance: Importance.high,
+      priority: Priority.high,
+      playSound: true,
+      enableVibration: true,
+      vibrationPattern: Int64List.fromList([0, 400, 200, 400]),
+      icon: '@mipmap/ic_launcher',
+      color: const Color(0xFF5A4FCF),
+      styleInformation: BigTextStyleInformation(event.body),
+    );
+    const iosDetails = DarwinNotificationDetails(
+      presentAlert: true,
+      presentBadge: true,
+      presentSound: true,
+    );
+    try {
+      await _localNotifications.show(
+        // One notification per journey: "arrived" replaces "started".
+        300000 + (journeyId.hashCode & 0xFFFF),
+        event.title,
+        event.body,
+        NotificationDetails(android: androidDetails, iOS: iosDetails),
+        payload: jsonEncode({'type': 'journey', 'journeyId': journeyId}),
+      );
+    } catch (e) {
+      debugPrint('[NotificationService] Could not show Safe Journey notification: $e');
+    }
   }
 
   /// Listens to ride_checkins collection where current user is a trusted guardian

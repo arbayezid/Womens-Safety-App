@@ -23,6 +23,7 @@ class MainActivity : FlutterActivity() {
         const val EXTRA_ALERT_SOURCE = "guardian_alert_source"
         const val SOURCE_TAP = "tap"
         const val SOURCE_FULL_SCREEN = "full_screen"
+        const val EXTRA_JOURNEY_ID = "journey_id"
 
         private const val GUARDIAN_CHANNEL = "com.smartsafety.smart_safety/guardian"
         private const val FAKE_CALL_CHANNEL = "com.smartsafety.smart_safety/fake_call"
@@ -32,6 +33,10 @@ class MainActivity : FlutterActivity() {
 
         @Volatile
         var pendingRideId: String? = null
+
+        /** Safe Journey opened from its notification before the Flutter engine was ready. */
+        @Volatile
+        var pendingJourneyId: String? = null
 
         /** Alert opened from its notification before the Flutter engine was ready. */
         @Volatile
@@ -46,6 +51,7 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         handleAlertIntent(intent)
         handleRideIntent(intent)
+        handleJourneyIntent(intent)
         super.onCreate(savedInstanceState)
     }
 
@@ -53,6 +59,7 @@ class MainActivity : FlutterActivity() {
         super.onNewIntent(intent)
         handleAlertIntent(intent)
         handleRideIntent(intent)
+        handleJourneyIntent(intent)
     }
 
     override fun onResume() {
@@ -147,6 +154,11 @@ class MainActivity : FlutterActivity() {
                 pendingRideId = null
                 result.success(id)
             }
+            "getPendingJourneyId" -> {
+                val id = pendingJourneyId
+                pendingJourneyId = null
+                result.success(id)
+            }
             "getPendingAlertId" -> {
                 val id = pendingAlertId
                 pendingAlertId = null
@@ -163,6 +175,15 @@ class MainActivity : FlutterActivity() {
             MethodChannel(it, GUARDIAN_CHANNEL).invokeMethod("onRideTapped", rideId)
         }
         intent.removeExtra("ride_id")
+    }
+
+    private fun handleJourneyIntent(intent: Intent?) {
+        val journeyId = intent?.getStringExtra(EXTRA_JOURNEY_ID) ?: return
+        pendingJourneyId = journeyId
+        DeadlineDartRunner.mainMessenger?.let {
+            MethodChannel(it, GUARDIAN_CHANNEL).invokeMethod("onJourneyTapped", journeyId)
+        }
+        intent.removeExtra(EXTRA_JOURNEY_ID)
     }
 
     private fun canUseFullScreenIntent(): Boolean {

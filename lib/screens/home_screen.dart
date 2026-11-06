@@ -102,6 +102,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Initialize real-time incoming guardian emergency alerts
     NotificationService.instance.startSosAlertStreamListener();
     NotificationService.instance.startGuardianRideCheckinListener();
+    NotificationService.instance.startGuardianJourneyListener();
     NotificationService.instance.activeIncomingSosNotifier.addListener(_handleIncomingSosChange);
 
     // App open PIN check and incoming emergency modal verification

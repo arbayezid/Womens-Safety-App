@@ -671,8 +671,8 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
   };
 
   static bool _hasSafetyServiceUuid(ScanResult result) {
-    final target = Esp32BleService.serviceUuid.toLowerCase();
-    return result.advertisementData.serviceUuids.any((g) => g.str128.toLowerCase() == target);
+    return Esp32BleService.exposesSafetyService(
+        result.advertisementData.serviceUuids.map((g) => g.str128));
   }
 
   /// The name the device itself broadcasts (or the OS has cached), or null.

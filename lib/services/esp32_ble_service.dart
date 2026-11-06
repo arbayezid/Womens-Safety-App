@@ -136,12 +136,13 @@ class Esp32BleService {
   static const String nusTxCharacteristicUuid = '6e400003-b5a3-f393-e0a9-e50e24dcca9e';
   static const String nusServiceUuid = '6e400001-b5a3-f393-e0a9-e50e24dcca9e';
 
-  /// True when a device's advertised or discovered service UUIDs include the safety service.
-  /// Only such a device may be paired as the pendant.
-  @visibleForTesting
+  /// True when a device's advertised or discovered service UUIDs include the custom safety
+  /// service or the Nordic UART Service (the pendant firmware sends `SOS` over NUS TX).
+  /// Only such a device may be paired as the pendant; the strict packet parser still guards
+  /// against anything that is not an exact `SOS` packet.
   static bool exposesSafetyService(Iterable<String> serviceUuids) {
-    final target = serviceUuid.toLowerCase();
-    return serviceUuids.any((u) => u.toLowerCase() == target);
+    final targets = {serviceUuid.toLowerCase(), nusServiceUuid.toLowerCase()};
+    return serviceUuids.any((u) => targets.contains(u.toLowerCase()));
   }
 
   /// Dry run for the setup sheet's test button: runs a synthetic `SOS` packet through the
@@ -442,7 +443,8 @@ class Esp32BleService {
 
       final serviceIds = services.map((s) => s.uuid.str128.toLowerCase()).toList();
       if (!exposesSafetyService(serviceIds)) {
-        debugPrint('[Esp32BleService] ⚠️ Device does not expose the safety service ($serviceUuid). Not a pendant.');
+        debugPrint('[Esp32BleService] ⚠️ Device exposes neither the safety service ($serviceUuid) '
+            'nor the Nordic UART Service ($nusServiceUuid). Not a pendant.');
         return _PendantCheck.notPendant;
       }
 

@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
+import '../screens/journey_tracking_screen.dart';
 import '../screens/ride_details_screen.dart';
 import 'background_service.dart';
 import 'contact_sync_service.dart';
@@ -46,6 +47,9 @@ class GuardianAlertService {
         if (rideId.isNotEmpty) {
           _openRideDetails(rideId);
         }
+      } else if (call.method == 'onJourneyTapped') {
+        final journeyId = call.arguments?.toString() ?? '';
+        if (journeyId.isNotEmpty) openJourney(journeyId);
       } else if (call.method == 'onAlertOpened') {
         final alertId = call.arguments?.toString() ?? '';
         if (alertId.isNotEmpty) _alertOpened(alertId);
@@ -53,6 +57,7 @@ class GuardianAlertService {
     });
 
     _checkPendingRide();
+    _checkPendingJourney();
     _checkPendingAlert();
 
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
@@ -75,6 +80,30 @@ class GuardianAlertService {
         _openRideDetails(rideId);
       }
     } catch (_) {}
+  }
+
+  Future<void> _checkPendingJourney() async {
+    try {
+      final journeyId = await _invoke('getPendingJourneyId');
+      if (journeyId is String && journeyId.isNotEmpty) openJourney(journeyId);
+    } catch (_) {}
+  }
+
+  /// Opens the live tracking screen of a protected contact's Safe Journey.
+  void openJourney(String journeyId) {
+    int attempts = 0;
+    void tryPush() {
+      final context = _navigatorKey?.currentContext;
+      if (context != null && context.mounted) {
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => JourneyTrackingScreen(journeyId: journeyId)),
+        );
+      } else if (attempts < 15) {
+        attempts++;
+        Future.delayed(const Duration(milliseconds: 300), tryPush);
+      }
+    }
+    tryPush();
   }
 
   void Function(String alertId)? _alertOpenedHandler;
