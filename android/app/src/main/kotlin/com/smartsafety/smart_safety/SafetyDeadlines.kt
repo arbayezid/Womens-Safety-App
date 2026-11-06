@@ -63,17 +63,21 @@ object SafetyDeadlines {
         val body: String,
         val attempts: Int,
         val updatedAt: Long,
+        /** "I'm safe" ends the journey instead of arming the next check (Safe Journey arrival check). */
+        val endOnSafe: Boolean = false,
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("id", id).put("kind", kind).put("refId", refId).put("uid", uid)
             .put("fireAt", fireAt).put("state", state).put("escalateAt", escalateAt)
             .put("promptSeconds", promptSeconds).put("direct", direct)
             .put("title", title).put("body", body).put("attempts", attempts).put("updatedAt", updatedAt)
+            .put("endOnSafe", endOnSafe)
 
         fun toArgs(): Map<String, Any?> = mapOf(
             "id" to id, "kind" to kind, "refId" to refId, "uid" to uid, "fireAt" to fireAt,
             "state" to state, "escalateAt" to escalateAt, "promptSeconds" to promptSeconds,
             "direct" to direct, "title" to title, "body" to body, "attempts" to attempts,
+            "endOnSafe" to endOnSafe,
         )
 
         val isJourneyCheck get() = kind == "journey"
@@ -93,6 +97,7 @@ object SafetyDeadlines {
                 body = o.optString("body"),
                 attempts = o.optInt("attempts", 0),
                 updatedAt = o.optLong("updatedAt"),
+                endOnSafe = o.optBoolean("endOnSafe", false),
             )
 
             fun fromArgs(a: Map<*, *>) = Deadline(
@@ -109,6 +114,7 @@ object SafetyDeadlines {
                 body = a["body"]?.toString().orEmpty(),
                 attempts = 0,
                 updatedAt = System.currentTimeMillis(),
+                endOnSafe = a["endOnSafe"] == true,
             )
         }
     }
@@ -204,7 +210,20 @@ object SafetyDeadlines {
         val d = get(context, id)
         cancelPromptNotification(context, id)
         if (d == null || d.state == STATE_FIRED) return
-        if (d.isJourneyCheck) {
+        if (d.isJourneyCheck && d.endOnSafe) {
+            // Past the ETA and the user says they are safe: end the journey (as JourneyService does).
+            // Re-arming a check here repeated every 10 minutes all night until one was missed during sleep.
+            clear(context, id)
+            runCatching {
+                FirebaseFirestore.getInstance().collection("journeys").document(d.refId).update(
+                    mapOf(
+                        "status" to "arrived",
+                        "lastSafetyCheckAt" to FieldValue.serverTimestamp(),
+                        "lastUpdatedAt" to FieldValue.serverTimestamp(),
+                    )
+                )
+            }.onFailure { Log.w(TAG, "Could not end journey ${d.refId} after safety confirmation", it) }
+        } else if (d.isJourneyCheck) {
             val now = System.currentTimeMillis()
             put(context, d.copy(state = STATE_ARMED, fireAt = now + NEXT_CHECK_AFTER_SAFE_MS + NEXT_CHECK_BACKSTOP_MS, escalateAt = 0L, attempts = 0))
             schedule(context, id, now + NEXT_CHECK_AFTER_SAFE_MS + NEXT_CHECK_BACKSTOP_MS)
@@ -325,7 +344,7 @@ object SafetyDeadlines {
             .setTimeoutAfter((d.promptSeconds + 30) * 1000L)
             .setContentIntent(open)
             .setFullScreenIntent(open, true)
-            .addAction(0, "I'm safe", safe)
+            .addAction(0, if (d.endOnSafe) "I'm safe, end journey" else "I'm safe", safe)
             .build()
         val canPost = Build.VERSION.SDK_INT < 33 ||
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED

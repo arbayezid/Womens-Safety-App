@@ -36,6 +36,7 @@ import '../widgets/esp32_scan_sheet.dart';
 import 'ride_checkin_screen.dart';
 import 'active_ride_screen.dart';
 import 'ride_details_screen.dart';
+import '../utils/duration_format.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -2244,7 +2245,7 @@ class _ActiveRideCard extends StatelessWidget {
     final badgeColor = isOverdue ? Colors.deepOrange : const Color(0xFF1565C0);
 
     final durationText = ride.expectedMinutes != null
-        ? '${ride.expectedMinutes}m trip'
+        ? '${formatMinutes(ride.expectedMinutes!, suffix: 'm')} trip'
         : 'Active trip';
 
     return GestureDetector(

@@ -10,6 +10,7 @@ import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/notification_service.dart';
 import '../services/siren_service.dart';
+import '../utils/duration_format.dart';
 
 /// Fullscreen-style intrusive dialog displayed when an incoming high-priority
 /// SOS Alert push notification is received while the app is active.
@@ -441,7 +442,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
         if (diff.inSeconds < 60) {
           liveUpdatedText = '${diff.inSeconds}s ago';
         } else {
-          liveUpdatedText = '${diff.inMinutes}m ago';
+          liveUpdatedText = '${formatMinutes(diff.inMinutes, suffix: 'm')} ago';
         }
       }
     }
@@ -480,7 +481,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
       final minute = alertDate.minute.toString().padLeft(2, '0');
       final period = alertDate.hour >= 12 ? 'PM' : 'AM';
       final diff = DateTime.now().difference(alertDate);
-      final relative = diff.inMinutes < 1 ? 'Just now' : '${diff.inMinutes}m ago';
+      final relative = diff.inMinutes < 1 ? 'Just now' : '${formatMinutes(diff.inMinutes, suffix: 'm')} ago';
       timeFormatted = '$hour:$minute $period • $relative';
     }
 

@@ -9,6 +9,7 @@ import '../core/app_colors.dart';
 import '../models/ride_checkin.dart';
 import '../services/emergency_service.dart';
 import '../services/ride_checkin_service.dart';
+import '../utils/duration_format.dart';
 
 /// Active Ride tracking screen for the traveler.
 /// Displays live GPS location, elapsed duration vs expected ETA, plate card with zoomable photo,
@@ -523,7 +524,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text('Expected Duration', style: GoogleFonts.poppins(fontSize: 10, color: isOverdue ? AppColors.sosRed : AppColors.textSecondary)),
-                                Text('${ride.expectedMinutes ?? 30} mins', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: isOverdue ? AppColors.sosRed : AppColors.textPrimary)),
+                                Text(formatMinutes(ride.expectedMinutes ?? 30, suffix: ' mins'), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: isOverdue ? AppColors.sosRed : AppColors.textPrimary)),
                               ],
                             ),
                           ),

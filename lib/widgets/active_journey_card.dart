@@ -7,6 +7,7 @@ import '../screens/followed_mode_screen.dart';
 import '../services/journey_service.dart';
 import '../services/pin_security_service.dart';
 import 'pin_input_dialog.dart';
+import '../utils/duration_format.dart';
 
 /// Card displayed on the home screen safety dashboard when a Safe Journey session is active.
 class ActiveJourneyCard extends StatelessWidget {
@@ -23,9 +24,9 @@ class ActiveJourneyCard extends StatelessWidget {
     final timeStr = '$hour:$minute $period';
 
     if (diff.isNegative) {
-      return 'Delayed • $timeStr (${diff.inMinutes.abs()}m past ETA)';
+      return 'Delayed • $timeStr (${formatMinutes(diff.inMinutes.abs(), suffix: 'm')} past ETA)';
     }
-    return 'ETA in ${diff.inMinutes}m • $timeStr';
+    return 'ETA in ${formatMinutes(diff.inMinutes, suffix: 'm')} • $timeStr';
   }
 
   @override

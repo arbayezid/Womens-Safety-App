@@ -9,6 +9,7 @@ import '../models/activity_model.dart';
 import '../services/activity_service.dart';
 import '../services/notification_service.dart';
 import 'incident_room_screen.dart';
+import '../utils/duration_format.dart';
 
 /// Screen displaying the complete chronological history of all SOS emergency alerts
 /// (both received as a trusted guardian and dispatched by the current user).
@@ -663,7 +664,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
     String? liveUpdatedText;
     if (liveTimestamp is Timestamp) {
       final diff = DateTime.now().difference(liveTimestamp.toDate());
-      liveUpdatedText = diff.inSeconds < 60 ? '${diff.inSeconds}s ago' : '${diff.inMinutes}m ago';
+      liveUpdatedText = diff.inSeconds < 60 ? '${diff.inSeconds}s ago' : '${formatMinutes(diff.inMinutes, suffix: 'm')} ago';
     }
 
     return Container(

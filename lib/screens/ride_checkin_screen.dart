@@ -14,6 +14,7 @@ import '../services/ride_ocr_service.dart';
 import 'active_ride_screen.dart';
 import 'contacts_screen.dart';
 import 'plate_crop_screen.dart';
+import '../utils/duration_format.dart';
 
 /// Screen guiding the user through recording ride details, vehicle plate capture/OCR,
 /// driver info, expected ETA, and notifying trusted guardians.
@@ -1188,7 +1189,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Expected Ride Duration', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
-                        Text('$_expectedMinutes mins', style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                        Text(formatMinutes(_expectedMinutes, suffix: ' mins'), style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
                       ],
                     ),
                   ),

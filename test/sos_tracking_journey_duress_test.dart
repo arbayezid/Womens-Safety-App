@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smart_safety/models/journey_model.dart';
 import 'package:smart_safety/services/battery_alert_service.dart';
 import 'package:smart_safety/services/journey_service.dart';
 import 'package:smart_safety/services/live_tracking_service.dart';
@@ -394,6 +395,76 @@ void main() {
       );
 
       expect(trigger, isNull);
+    });
+
+    // ── Regression: automatic SOS while the user was asleep at home ──
+    test('evaluateSafetyTriggers: no inactivity re-check after the user confirmed safe at this spot', () {
+      final now = DateTime(2026, 10, 24, 2, 0, 0); // middle of the night, phone on the bed
+      final trigger = JourneyService.evaluateSafetyTriggers(
+        now: now,
+        startedAt: now.subtract(const Duration(minutes: 40)),
+        expectedArrivalAt: now.add(const Duration(minutes: 10)),
+        lastLocationTime: now.subtract(const Duration(seconds: 10)),
+        distanceToDest: 0.0,
+        crossTrackDist: 0.0,
+        distanceMovedInLast10Min: 0.0,
+        recentDistancesToDest: const [],
+        cooldowns: {},
+        inactivityAcknowledged: true,
+      );
+
+      expect(trigger, isNull);
+    });
+
+    test('shouldEndJourneyOnSafeConfirm: "I\'m safe" after the ETA ends a Safe Journey', () {
+      expect(
+        JourneyService.shouldEndJourneyOnSafeConfirm(
+            type: JourneySafetyTriggerType.delay, isFollowedMode: false),
+        isTrue,
+      );
+    });
+
+    test('shouldEndJourneyOnSafeConfirm: other checks and Followed Mode keep the journey running', () {
+      for (final type in [
+        JourneySafetyTriggerType.inactivity,
+        JourneySafetyTriggerType.deviation,
+        JourneySafetyTriggerType.gpsLost,
+      ]) {
+        expect(JourneyService.shouldEndJourneyOnSafeConfirm(type: type, isFollowedMode: false), isFalse);
+      }
+      expect(
+        JourneyService.shouldEndJourneyOnSafeConfirm(
+            type: JourneySafetyTriggerType.delay, isFollowedMode: true),
+        isFalse,
+      );
+      expect(
+        JourneyService.shouldEndJourneyOnSafeConfirm(
+            type: JourneySafetyTriggerType.followedCheck, isFollowedMode: true),
+        isFalse,
+      );
+    });
+  });
+
+  group('JourneyModel destination pin', () {
+    JourneyModel journeyWith(Map<String, dynamic> destination) => JourneyModel.fromMap({
+          'ownerId': 'u1',
+          'status': 'active',
+          'startLocation': {'latitude': 23.79, 'longitude': 90.40},
+          'destination': destination,
+        }, 'j1');
+
+    test('typed destination that could not be geocoded has no pin', () {
+      final j = journeyWith({'label': 'Home', 'hasCoordinates': false, 'latitude': 23.79, 'longitude': 90.40});
+      expect(j.hasDestinationCoordinates, isFalse);
+    });
+
+    test('destination without coordinates has no pin', () {
+      expect(journeyWith({'label': 'Home'}).hasDestinationCoordinates, isFalse);
+    });
+
+    test('journeys saved before the flag existed keep their pin', () {
+      final j = journeyWith({'label': 'Hospital', 'latitude': 23.80, 'longitude': 90.41});
+      expect(j.hasDestinationCoordinates, isTrue);
     });
   });
 

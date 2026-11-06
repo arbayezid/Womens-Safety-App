@@ -148,6 +148,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     if (diff.isNegative) return '0s';
     final m = diff.inMinutes;
     final s = diff.inSeconds % 60;
+    if (m >= 60) return '${m ~/ 60}h ${m % 60}m ${s}s';
     return '${m}m ${s}s';
   }
 

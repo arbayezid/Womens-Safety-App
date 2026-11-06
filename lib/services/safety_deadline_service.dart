@@ -80,6 +80,10 @@ class SafetyDeadline {
   final String title;
   final String body;
 
+  /// "I'm safe" on the native prompt ends the journey instead of arming another check
+  /// (Safe Journey arrival check, see JourneyService.shouldEndJourneyOnSafeConfirm).
+  final bool endOnSafe;
+
   const SafetyDeadline({
     required this.id,
     required this.kind,
@@ -90,6 +94,7 @@ class SafetyDeadline {
     this.direct = false,
     this.title = '',
     this.body = '',
+    this.endOnSafe = false,
   });
 
   Map<String, dynamic> toArgs({bool replace = false}) => {
@@ -102,6 +107,7 @@ class SafetyDeadline {
         'direct': direct,
         'title': title,
         'body': body,
+        'endOnSafe': endOnSafe,
         'replace': replace,
       };
 
@@ -111,6 +117,7 @@ class SafetyDeadline {
         'refId': refId,
         'fireAt': Timestamp.fromDate(fireAt),
         'direct': direct,
+        'endOnSafe': endOnSafe,
         'state': state,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -269,6 +276,7 @@ class SafetyDeadlineService {
           uid: user.uid,
           fireAt: fireAt,
           direct: data['direct'] == true,
+          endOnSafe: data['endOnSafe'] == true,
         ));
       }
     } catch (e) {

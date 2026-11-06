@@ -4,10 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart' hide ActivityType;
+import 'package:latlong2/latlong.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:telephony/telephony.dart';
 import '../models/activity_model.dart';
 import '../models/journey_model.dart';
+import '../utils/duration_format.dart';
 import 'activity_service.dart';
 import 'auth_service.dart';
 import 'background_service.dart';
@@ -17,6 +19,7 @@ import 'live_tracking_service.dart';
 import 'notification_service.dart';
 import 'motion_detection_service.dart';
 import 'ride_checkin_service.dart';
+import 'route_service.dart';
 import 'safety_deadline_service.dart';
 
 /// Categories of safety triggers evaluated by the Safe Journey monitor loop
@@ -100,6 +103,34 @@ class JourneyService {
   String? _deadlineJourneyId;
   final List<double> _recentDistancesToDest = [];
   final List<Map<String, dynamic>> _recentLocationTrail = [];
+
+  /// The check this service is showing. A ride-overdue check reuses the same dialog, so this
+  /// tells the two apart. SafetyCheckState.copyWith keeps the same trigger instance.
+  JourneySafetyTrigger? _journeyCheckTrigger;
+
+  /// Where the user confirmed an inactivity check. Inactivity is not re-checked until they
+  /// move [inactivityResumeDistanceMeters] from here, so someone asleep is not re-prompted.
+  double? _inactivityAckLat;
+  double? _inactivityAckLng;
+  static const double inactivityResumeDistanceMeters = 50.0;
+
+  /// Set while this device ends the journey itself, so the Firestore listener doesn't clean up twice.
+  bool _endingLocally = false;
+
+  /// Decoded road route, cached per polyline so the 30 s monitor doesn't decode it every tick.
+  String? _cachedRoutePolyline;
+  List<LatLng>? _cachedRoutePoints;
+
+  List<LatLng>? _routePointsFor(JourneyModel journey) {
+    final route = JourneyRoute.fromMap(journey.route);
+    if (route == null) return null;
+    if (_cachedRoutePolyline != route.polyline) {
+      _cachedRoutePolyline = route.polyline;
+      final points = route.points;
+      _cachedRoutePoints = points.length >= 2 ? points : null;
+    }
+    return _cachedRoutePoints;
+  }
 
   // ─────────────────────────────────────────────────────────────
   //  PURE STATIC GEO-MATH & TRIGGER FUNCTIONS (100% UNIT TESTABLE)
@@ -211,6 +242,7 @@ class JourneyService {
     required double distanceMovedInLast10Min,
     required List<double> recentDistancesToDest,
     required Map<JourneySafetyTriggerType, DateTime> cooldowns,
+    bool inactivityAcknowledged = false,
     int delayGraceMinutes = 5,
     double deviationCrossTrackThreshold = 500.0,
     double inactivityDistanceThreshold = 30.0,
@@ -242,7 +274,7 @@ class JourneyService {
         return JourneySafetyTrigger(
           type: JourneySafetyTriggerType.delay,
           title: 'Arrival Delay Detected',
-          reason: 'You are $delayedBy minutes past your estimated arrival time. Please confirm you are safe.',
+          reason: 'You are ${formatMinutes(delayedBy, suffix: ' minutes')} past your estimated arrival time. Please confirm you are safe.',
         );
       }
     }
@@ -265,8 +297,9 @@ class JourneyService {
       }
     }
 
-    // 4. Check Inactivity Trigger (moved < 30m in last 10 min, after at least 10 min of journey)
-    if (!isTriggerOnCooldown(JourneySafetyTriggerType.inactivity)) {
+    // 4. Check Inactivity Trigger (moved < 30m in last 10 min, after at least 10 min of journey).
+    //    Skipped once the user has confirmed they are safe at this spot (until they move again).
+    if (!inactivityAcknowledged && !isTriggerOnCooldown(JourneySafetyTriggerType.inactivity)) {
       if (now.difference(startedAt).inMinutes >= inactivityTimeElapsedMinutes &&
           distanceMovedInLast10Min < inactivityDistanceThreshold) {
         return const JourneySafetyTrigger(
@@ -290,6 +323,17 @@ class JourneyService {
     if (isCooldownActive) return false;
     return now.difference(lastCheckOrStart).inMinutes >= intervalMinutes;
   }
+
+  /// "I'm safe" on an arrival-delay check ends a Safe Journey: the user is past the ETA and
+  /// has confirmed they are safe, so the journey's job is done. Before this, every
+  /// confirmation scheduled another check 10 minutes later, all night, until one went
+  /// unanswered while the user slept and sent an SOS. "+15m Extend" is for users still
+  /// travelling. Followed Mode keeps checking, because that is its purpose.
+  static bool shouldEndJourneyOnSafeConfirm({
+    required JourneySafetyTriggerType type,
+    required bool isFollowedMode,
+  }) =>
+      !isFollowedMode && type == JourneySafetyTriggerType.delay;
 
   // ─────────────────────────────────────────────────────────────
   //  LIFECYCLE MANAGEMENT
@@ -321,6 +365,20 @@ class JourneyService {
         return;
       }
       final model = JourneyModel.fromMap(snap.data()!, snap.id);
+
+      // Ended outside this code path (e.g. "I'm safe" on the native notification while the app
+      // was closed): stop tracking and forget the session so it is not restored again.
+      if (!_endingLocally &&
+          (model.status == JourneyStatus.arrived || model.status == JourneyStatus.cancelled)) {
+        debugPrint('[JourneyService] Journey ${model.id} ended elsewhere (${model.status.name}); cleaning up.');
+        _cleanupMonitor();
+        _clearLocalSession();
+        unawaited(LiveTrackingService.instance.stopTrackingSession());
+        unawaited(BackgroundServiceManager.instance.stopService());
+        MotionDetectionService.instance.checkAndSyncMonitoringState();
+        return;
+      }
+
       activeJourneyNotifier.value = model;
 
       if (!model.isActive) {
@@ -343,6 +401,8 @@ class JourneyService {
     bool notifySms = false,
     List<String>? guardianUids,
     List<String>? guardianEmails,
+    JourneyRoute? route,
+    JourneyTravelMode travelMode = JourneyTravelMode.walking,
   }) async {
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
@@ -363,12 +423,31 @@ class JourneyService {
     final startLat = startPos?.latitude ?? 23.8103;
     final startLng = startPos?.longitude ?? 90.4125;
 
-    final destLat = (destination['latitude'] as num?)?.toDouble() ?? startLat;
-    final destLng = (destination['longitude'] as num?)?.toDouble() ?? startLng;
+    final rawDestLat = (destination['latitude'] as num?)?.toDouble();
+    final rawDestLng = (destination['longitude'] as num?)?.toDouble();
+    // No coordinates = destination not on the map: arrival and route checks are skipped
+    // and the user ends the journey manually. Start coordinates are stored only so maps
+    // have something to centre on.
+    final hasDestCoords = rawDestLat != null && rawDestLng != null;
+    final destLat = rawDestLat ?? startLat;
+    final destLng = rawDestLng ?? startLng;
     final destLabel = destination['label']?.toString() ?? 'Destination';
 
-    final distanceMeters = haversineDistance(startLat, startLng, destLat, destLng);
-    final durationMinutes = customEstimatedMinutes ?? estimateWalkingDurationMinutes(distanceMeters);
+    // Road route for the map and route checks (the start sheet usually has it already)
+    JourneyRoute? journeyRoute = route;
+    if (journeyRoute == null && hasDestCoords) {
+      journeyRoute = await RouteService.instance.fetchRoute(
+        from: LatLng(startLat, startLng),
+        to: LatLng(destLat, destLng),
+        mode: travelMode,
+      );
+    }
+
+    final distanceMeters = journeyRoute?.distanceMeters ??
+        (hasDestCoords ? haversineDistance(startLat, startLng, destLat, destLng) : 0.0);
+    final durationMinutes = customEstimatedMinutes ??
+        journeyRoute?.durationMinutes ??
+        (hasDestCoords ? estimateWalkingDurationMinutes(distanceMeters) : 20);
 
     final now = DateTime.now();
     final expectedArrival = now.add(Duration(minutes: durationMinutes));
@@ -388,7 +467,9 @@ class JourneyService {
       'longitude': destLng,
       'label': destLabel,
       'address': destination['address'] ?? destLabel,
-      'googleMapsUrl': EmergencyService.instance.generateGoogleMapsUrl(destLat, destLng),
+      'hasCoordinates': hasDestCoords,
+      if (hasDestCoords)
+        'googleMapsUrl': EmergencyService.instance.generateGoogleMapsUrl(destLat, destLng),
     };
 
     final journey = JourneyModel(
@@ -406,6 +487,7 @@ class JourneyService {
       currentLocation: startLocationMap,
       lastUpdatedAt: now,
       startSmsSent: notifySms,
+      route: journeyRoute?.toMap(),
     );
 
     // Save to Firestore
@@ -417,7 +499,9 @@ class JourneyService {
 
     activeJourneyNotifier.value = journey;
     _recentDistancesToDest.clear();
-    _recentDistancesToDest.add(distanceMeters);
+    if (hasDestCoords) _recentDistancesToDest.add(distanceMeters);
+    _inactivityAckLat = null;
+    _inactivityAckLng = null;
     _recentLocationTrail.clear();
     _recentLocationTrail.add({'lat': startLat, 'lng': startLng, 'time': now});
 
@@ -455,7 +539,7 @@ class JourneyService {
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         type: ActivityType.location,
         title: 'Safe Journey Started',
-        subtitle: 'Destination: $destLabel • ETA: $durationMinutes min',
+        subtitle: 'Destination: $destLabel • ETA: ${formatMinutes(durationMinutes)}',
         timestamp: now,
       ),
     );
@@ -681,16 +765,39 @@ class JourneyService {
       return;
     }
 
+    // Arrival and route checks need a real destination pin
+    final hasDest = journey.hasDestinationCoordinates;
+
     // Check Arrival (<= 100m)
-    final distanceToDest = haversineDistance(curLat, curLng, journey.destinationLat, journey.destinationLng);
-    if (distanceToDest <= 100.0) {
+    final distanceToDest =
+        hasDest ? haversineDistance(curLat, curLng, journey.destinationLat, journey.destinationLng) : 0.0;
+    if (hasDest && distanceToDest <= 100.0) {
       debugPrint('[JourneyService] 🎯 User arrived within ${distanceToDest.round()}m of destination!');
       await completeJourney();
       return;
     }
 
-    _recentDistancesToDest.add(distanceToDest);
-    if (_recentDistancesToDest.length > 10) _recentDistancesToDest.removeAt(0);
+    // With a road route, progress is measured along the roads: a road that bends away from
+    // the destination is not "moving away", and the straight line is not the path taken.
+    final routePoints = hasDest ? _routePointsFor(journey) : null;
+
+    if (hasDest) {
+      final progressDistance = routePoints != null
+          ? RouteService.remainingRouteMeters(curLat, curLng, routePoints)
+          : distanceToDest;
+      _recentDistancesToDest.add(progressDistance);
+      if (_recentDistancesToDest.length > 10) _recentDistancesToDest.removeAt(0);
+    }
+
+    // Inactivity stays muted after "I'm safe" until the user has really moved away
+    if (_inactivityAckLat != null && _inactivityAckLng != null) {
+      final movedSinceAck = haversineDistance(_inactivityAckLat!, _inactivityAckLng!, curLat, curLng);
+      if (movedSinceAck >= inactivityResumeDistanceMeters) {
+        _inactivityAckLat = null;
+        _inactivityAckLng = null;
+      }
+    }
+    final inactivityAcknowledged = _inactivityAckLat != null;
 
     // Track movement history
     _recentLocationTrail.add({'lat': curLat, 'lng': curLng, 'time': now});
@@ -712,15 +819,19 @@ class JourneyService {
       );
     }
 
-    // Compute cross-track deviation
-    final crossTrack = crossTrackDistance(
-      pointLat: curLat,
-      pointLon: curLng,
-      startLat: journey.startLat,
-      startLon: journey.startLng,
-      destLat: journey.destinationLat,
-      destLon: journey.destinationLng,
-    );
+    // Compute deviation: distance from the road route, else from the straight start→destination line
+    final crossTrack = routePoints != null
+        ? RouteService.distanceToRouteMeters(curLat, curLng, routePoints)
+        : hasDest
+        ? crossTrackDistance(
+            pointLat: curLat,
+            pointLon: curLng,
+            startLat: journey.startLat,
+            startLon: journey.startLng,
+            destLat: journey.destinationLat,
+            destLon: journey.destinationLng,
+          )
+        : 0.0;
 
     // Evaluate triggers
     final trigger = evaluateSafetyTriggers(
@@ -731,8 +842,9 @@ class JourneyService {
       distanceToDest: distanceToDest,
       crossTrackDist: crossTrack,
       distanceMovedInLast10Min: distanceMovedInLast10Min,
-      recentDistancesToDest: _recentDistancesToDest,
+      recentDistancesToDest: hasDest ? _recentDistancesToDest : const [],
       cooldowns: _triggerCooldowns,
+      inactivityAcknowledged: inactivityAcknowledged,
     );
 
     if (trigger != null && activeSafetyCheckNotifier.value == null) {
@@ -744,6 +856,7 @@ class JourneyService {
   /// Initiates 60-second Dead-Man's Switch countdown
   void _triggerSafetyCheck(JourneySafetyTrigger trigger) {
     _triggerCooldowns[trigger.type] = DateTime.now();
+    _journeyCheckTrigger = trigger;
 
     activeSafetyCheckNotifier.value = SafetyCheckState(
       trigger: trigger,
@@ -786,14 +899,44 @@ class JourneyService {
     });
   }
 
+  /// Whether "I'm safe" on the check now on screen ends the journey (see
+  /// [shouldEndJourneyOnSafeConfirm]). The dialog uses this to label its button.
+  bool get confirmSafeEndsJourney {
+    final check = activeSafetyCheckNotifier.value;
+    final journey = activeJourney;
+    if (check == null || journey == null || !journey.isActive) return false;
+    if (!identical(check.trigger, _journeyCheckTrigger)) return false; // e.g. a ride check
+    return shouldEndJourneyOnSafeConfirm(type: check.trigger.type, isFollowedMode: journey.isFollowedMode);
+  }
+
   /// User confirms they are safe during the 60s countdown
-  Future<void> confirmSafe() async {
+  Future<void> confirmSafe() => _acknowledgeSafetyCheck(allowEndJourney: true);
+
+  Future<void> _acknowledgeSafetyCheck({required bool allowEndJourney}) async {
     debugPrint('[JourneyService] 🛡️ User confirmed safe in safety check.');
+    final check = activeSafetyCheckNotifier.value;
+    final isJourneyCheck = check != null && identical(check.trigger, _journeyCheckTrigger);
+    final endJourney = allowEndJourney && confirmSafeEndsJourney;
+
     _countdownTimer?.cancel();
+    _journeyCheckTrigger = null;
     activeSafetyCheckNotifier.value = null;
     await NotificationService.instance.cancelSafetyCheckNotification();
 
     final journey = activeJourney;
+
+    if (endJourney && journey != null) {
+      debugPrint('[JourneyService] User is safe after the ETA; ending the journey.');
+      await completeJourney();
+      return;
+    }
+
+    if (isJourneyCheck && check.trigger.type == JourneySafetyTriggerType.inactivity) {
+      final last = _recentLocationTrail.isNotEmpty ? _recentLocationTrail.last : null;
+      _inactivityAckLat = (last?['lat'] as num?)?.toDouble() ?? journey?.currentLat;
+      _inactivityAckLng = (last?['lng'] as num?)?.toDouble() ?? journey?.currentLng;
+    }
+
     if (journey != null) {
       try {
         await FirebaseFirestore.instance.collection('journeys').doc(journey.id).update({
@@ -830,7 +973,8 @@ class JourneyService {
     });
 
     _triggerCooldowns.remove(JourneySafetyTriggerType.delay);
-    await confirmSafe();
+    // Still travelling: acknowledge the check but keep the journey running
+    await _acknowledgeSafetyCheck(allowEndJourney: false);
     _armJourneyDeadline(journey,
         expectedArrivalAt: newExpected, lastSafetyCheckAt: DateTime.now(), replace: true);
 
@@ -839,7 +983,7 @@ class JourneyService {
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         type: ActivityType.location,
         title: 'Journey Extended',
-        subtitle: 'Added $minutes minutes to expected arrival time.',
+        subtitle: 'Added ${formatMinutes(minutes, suffix: ' minutes')} to expected arrival time.',
         timestamp: DateTime.now(),
       ),
     );
@@ -904,7 +1048,7 @@ class JourneyService {
             type: JourneySafetyTriggerType.delay,
             title: 'Arrival Delay Detected',
             reason:
-                'You are ${DateTime.now().difference(journey.expectedArrivalAt).inMinutes} minutes past your estimated arrival time. Please confirm you are safe.',
+                'You are ${formatMinutes(DateTime.now().difference(journey.expectedArrivalAt).inMinutes, suffix: ' minutes')} past your estimated arrival time. Please confirm you are safe.',
           ));
     return true;
   }
@@ -932,7 +1076,9 @@ class JourneyService {
         title: followed ? '⚠️ Followed Mode check-in' : '⚠️ Safe Journey check: are you OK?',
         body: followed
             ? 'It has been 10 minutes since your last check-in.'
-            : 'You have not arrived at ${journey.destinationLabel} yet.',
+            : 'You are past your arrival time for ${journey.destinationLabel}. Tap "I\'m safe" to end the journey.',
+        // The Safe Journey deadline is always the post-ETA arrival check
+        endOnSafe: !followed,
       ),
       replace: replace,
     ));
@@ -980,10 +1126,15 @@ class JourneyService {
 
     debugPrint('[JourneyService] 🎉 Completing Safe Journey: ${journey.id}');
 
-    await FirebaseFirestore.instance.collection('journeys').doc(journey.id).update({
-      'status': JourneyStatus.arrived.name,
-      'lastUpdatedAt': FieldValue.serverTimestamp(),
-    });
+    _endingLocally = true;
+    try {
+      await FirebaseFirestore.instance.collection('journeys').doc(journey.id).update({
+        'status': JourneyStatus.arrived.name,
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+      });
+    } finally {
+      _endingLocally = false;
+    }
 
     if (journey.startSmsSent) {
       _sendJourneySms(
@@ -1017,10 +1168,15 @@ class JourneyService {
 
     debugPrint('[JourneyService] 🛑 Cancelling Safe Journey: ${journey.id}');
 
-    await FirebaseFirestore.instance.collection('journeys').doc(journey.id).update({
-      'status': JourneyStatus.cancelled.name,
-      'lastUpdatedAt': FieldValue.serverTimestamp(),
-    });
+    _endingLocally = true;
+    try {
+      await FirebaseFirestore.instance.collection('journeys').doc(journey.id).update({
+        'status': JourneyStatus.cancelled.name,
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+      });
+    } finally {
+      _endingLocally = false;
+    }
 
     _cleanupMonitor();
     _clearLocalSession();
@@ -1044,6 +1200,10 @@ class JourneyService {
     _monitorTimer?.cancel();
     _countdownTimer?.cancel();
     _journeyDocSub?.cancel();
+    _journeyDocSub = null;
+    _journeyCheckTrigger = null;
+    _inactivityAckLat = null;
+    _inactivityAckLng = null;
     activeSafetyCheckNotifier.value = null;
     final deadlineJourneyId = _deadlineJourneyId;
     if (deadlineJourneyId != null) {

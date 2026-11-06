@@ -29,6 +29,10 @@ class JourneyModel {
   final bool startSmsSent;
   final String mode; // 'safe_journey' | 'followed'
 
+  /// Road route chosen at start: {polyline, distanceMeters, durationSeconds, mode, provider}.
+  /// Null for Followed Mode, journeys without a destination pin, or when routing was offline.
+  final Map<String, dynamic>? route;
+
   const JourneyModel({
     required this.id,
     required this.ownerId,
@@ -48,6 +52,7 @@ class JourneyModel {
     this.linkedSosAlertId,
     this.startSmsSent = false,
     this.mode = 'safe_journey',
+    this.route,
   });
 
   /// Whether this session is running in "I'm Being Followed" mode
@@ -60,6 +65,14 @@ class JourneyModel {
     if (isFollowedMode) return 'Followed Mode (No fixed destination)';
     return 'Destination';
   }
+
+  /// False when the destination could not be placed on the map (typed name that did not
+  /// geocode). Such journeys have no arrival/route checks; the user ends them manually.
+  /// Journeys stored before this flag existed count as having coordinates.
+  bool get hasDestinationCoordinates =>
+      destination['hasCoordinates'] != false &&
+      destination['latitude'] is num &&
+      destination['longitude'] is num;
 
   /// Destination latitude
   double get destinationLat => (destination['latitude'] as num?)?.toDouble() ?? 0.0;
@@ -104,6 +117,7 @@ class JourneyModel {
       if (linkedSosAlertId != null) 'linkedSosAlertId': linkedSosAlertId,
       'startSmsSent': startSmsSent,
       'mode': mode,
+      if (route != null) 'route': route,
     };
   }
 
@@ -156,6 +170,7 @@ class JourneyModel {
       linkedSosAlertId: map['linkedSosAlertId']?.toString(),
       startSmsSent: map['startSmsSent'] as bool? ?? false,
       mode: map['mode']?.toString() ?? 'safe_journey',
+      route: map['route'] is Map ? Map<String, dynamic>.from(map['route'] as Map) : null,
     );
   }
 
@@ -179,6 +194,7 @@ class JourneyModel {
     String? linkedSosAlertId,
     bool? startSmsSent,
     String? mode,
+    Map<String, dynamic>? route,
   }) {
     return JourneyModel(
       id: id ?? this.id,
@@ -199,6 +215,7 @@ class JourneyModel {
       linkedSosAlertId: linkedSosAlertId ?? this.linkedSosAlertId,
       startSmsSent: startSmsSent ?? this.startSmsSent,
       mode: mode ?? this.mode,
+      route: route ?? this.route,
     );
   }
 }

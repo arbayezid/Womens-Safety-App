@@ -81,6 +81,8 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
 
           final seconds = liveState.secondsRemaining;
           final isUrgent = seconds <= 15;
+          // Past the ETA: "I'm safe" ends the journey; "+15m" keeps it going
+          final safeEndsJourney = JourneyService.instance.confirmSafeEndsJourney;
 
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
@@ -204,7 +206,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                       },
                       icon: const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
                       label: Text(
-                        "I'M SAFE (CANCEL SOS)",
+                        safeEndsJourney ? "I'M SAFE, END JOURNEY" : "I'M SAFE (CANCEL SOS)",
                         style: GoogleFonts.poppins(
                           fontSize: 14,
                           fontWeight: FontWeight.w800,
@@ -238,7 +240,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                             padding: const EdgeInsets.symmetric(vertical: 10),
                           ),
                           child: Text(
-                            '+15m Extend',
+                            safeEndsJourney ? '+15m Still going' : '+15m Extend',
                             style: GoogleFonts.poppins(
                               fontSize: 12,
                               fontWeight: FontWeight.w700,

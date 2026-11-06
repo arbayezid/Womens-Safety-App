@@ -957,7 +957,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
         countdownText = 'Stage 2 Maximum Escalation Active';
       }
     } else {
-      countdownText = 'Escalation sequence complete (Resolved)';
+      countdownText = 'Resolved';
     }
 
     return Container(
@@ -980,23 +980,31 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   color: AppColors.textPrimary,
                 ),
               ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: isAnyGuardianAcknowledged
-                      ? const Color(0xFFE8F5E9)
-                      : (isActive ? const Color(0xFFFFF3CD) : const Color(0xFFF1F5F9)),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  countdownText,
-                  style: GoogleFonts.poppins(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    color: isAnyGuardianAcknowledged
-                        ? AppColors.actionGreen
-                        : (isActive ? Colors.orange.shade800 : AppColors.textSecondary),
+              const SizedBox(width: 8),
+              // The badge takes the remaining width and ellipsizes instead of overflowing
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isAnyGuardianAcknowledged
+                          ? const Color(0xFFE8F5E9)
+                          : (isActive ? const Color(0xFFFFF3CD) : const Color(0xFFF1F5F9)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      countdownText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        color: isAnyGuardianAcknowledged
+                            ? AppColors.actionGreen
+                            : (isActive ? Colors.orange.shade800 : AppColors.textSecondary),
+                      ),
+                    ),
                   ),
                 ),
               ),

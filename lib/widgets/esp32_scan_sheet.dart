@@ -38,7 +38,6 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
   String? _connectingDeviceId;
   bool _isTurningOnBt = false;
   String? _errorMessage;
-  bool _showUnnamed = false;
 
   late AnimationController _pulseController;
 
@@ -747,12 +746,9 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
 
   /// View displaying discovered Bluetooth devices in real time.
   Widget _buildDeviceListView() {
-    // Sort devices: Named devices and ESP32 devices at top
-    // Devices that broadcast no name are hidden unless the user opts in;
-    // the ESP32 pendant is always shown.
-    bool isNamed(ScanResult r) => _isEsp32(r) || _broadcastName(r) != null;
-    final unnamedCount = _scanResults.where((r) => !isNamed(r)).length;
-    final sortedResults = _scanResults.where((r) => _showUnnamed || isNamed(r)).toList();
+    // Show all available devices directly without filtering.
+    // ESP32 devices and named devices remain sorted at the top by signal strength.
+    final sortedResults = List<ScanResult>.from(_scanResults);
     sortedResults.sort((a, b) {
       final aIsEsp = _isEsp32(a);
       final bIsEsp = _isEsp32(b);
@@ -820,35 +816,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             ),
           ],
         ),
-        if (unnamedCount > 0)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => setState(() => _showUnnamed = !_showUnnamed),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
-                child: Row(
-                  children: [
-                    Icon(
-                      _showUnnamed ? Icons.visibility_off_rounded : Icons.visibility_rounded,
-                      size: 16,
-                      color: AppColors.textSecondary,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        _showUnnamed
-                            ? 'Hide $unnamedCount devices without a broadcast name'
-                            : 'Show $unnamedCount devices without a broadcast name',
-                        style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+
         const SizedBox(height: 8),
 
         // Device List

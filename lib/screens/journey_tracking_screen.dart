@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/app_colors.dart';
 import '../models/journey_model.dart';
 import '../services/journey_service.dart';
+import '../services/route_service.dart';
 
 /// Screen allowing travelers and trusted guardians to track an active Safe Journey in real-time.
 class JourneyTrackingScreen extends StatefulWidget {
@@ -41,6 +42,21 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
       }
     } catch (_) {}
   }
+
+  // The journey doc re-emits every location update; decode the route only when it changes
+  String? _decodedPolyline;
+  List<LatLng> _decodedPoints = const [];
+
+  List<LatLng> _routePoints(String polyline) {
+    if (polyline != _decodedPolyline) {
+      _decodedPolyline = polyline;
+      _decodedPoints = RouteService.decodePolyline(polyline);
+    }
+    return _decodedPoints;
+  }
+
+  String _formatDistance(double meters) =>
+      meters >= 1000 ? '${(meters / 1000).toStringAsFixed(1)} km' : '${meters.round()} m';
 
   String _formatClockTime(DateTime dt) {
     final hour = dt.hour == 0 ? 12 : (dt.hour > 12 ? dt.hour - 12 : dt.hour);
@@ -82,13 +98,21 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
           final curPos = LatLng(journey.currentLat, journey.currentLng);
           final startPos = LatLng(journey.startLat, journey.startLng);
           final destPos = LatLng(journey.destinationLat, journey.destinationLng);
+          final hasDest = journey.hasDestinationCoordinates;
 
-          final distanceToDest = JourneyService.haversineDistance(
-            journey.currentLat,
-            journey.currentLng,
-            journey.destinationLat,
-            journey.destinationLng,
-          );
+          // Road route saved at start; older journeys and offline starts have none
+          final route = hasDest ? JourneyRoute.fromMap(journey.route) : null;
+          final routePoints = route != null ? _routePoints(route.polyline) : const <LatLng>[];
+          final hasRoute = routePoints.length >= 2;
+
+          final distanceToDest = hasRoute
+              ? RouteService.remainingRouteMeters(journey.currentLat, journey.currentLng, routePoints)
+              : JourneyService.haversineDistance(
+                  journey.currentLat,
+                  journey.currentLng,
+                  journey.destinationLat,
+                  journey.destinationLng,
+                );
 
           final now = DateTime.now();
           final isDelayed = now.isAfter(journey.expectedArrivalAt) && journey.isActive;
@@ -104,22 +128,46 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                       options: MapOptions(
                         initialCenter: curPos,
                         initialZoom: 14.5,
+                        // Show the whole route (and the traveler) when the screen opens
+                        initialCameraFit: hasDest
+                            ? CameraFit.bounds(
+                                bounds: LatLngBounds.fromPoints(
+                                    [...routePoints, startPos, destPos, curPos]),
+                                padding: const EdgeInsets.fromLTRB(40, 80, 40, 40),
+                                maxZoom: 17,
+                              )
+                            : null,
                       ),
                       children: [
                         TileLayer(
                           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                           userAgentPackageName: 'com.smart_safety.app',
                         ),
-                        // Route polyline from start to destination
-                        PolylineLayer(
-                          polylines: [
-                            Polyline(
-                              points: [startPos, destPos],
-                              strokeWidth: 4.0,
-                              color: AppColors.primary.withValues(alpha: 0.6),
-                            ),
-                          ],
-                        ),
+                        if (hasRoute)
+                          // Road route
+                          PolylineLayer(
+                            polylines: [
+                              Polyline(
+                                points: routePoints,
+                                strokeWidth: 6.0,
+                                color: AppColors.primary,
+                                borderStrokeWidth: 2.0,
+                                borderColor: Colors.white,
+                              ),
+                            ],
+                          )
+                        else if (hasDest)
+                          // No road route saved: dotted line only marks the direction
+                          PolylineLayer(
+                            polylines: [
+                              Polyline(
+                                points: [startPos, destPos],
+                                strokeWidth: 3.0,
+                                isDotted: true,
+                                color: AppColors.primary.withValues(alpha: 0.5),
+                              ),
+                            ],
+                          ),
                         MarkerLayer(
                           markers: [
                             // Start marker
@@ -136,6 +184,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                               ),
                             ),
                             // Destination marker
+                            if (hasDest)
                             Marker(
                               point: destPos,
                               width: 36,
@@ -170,7 +219,13 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                     ),
                                   ],
                                 ),
-                                child: const Icon(Icons.directions_walk_rounded, color: Colors.white, size: 24),
+                                child: Icon(
+                                  route?.mode == JourneyTravelMode.vehicle
+                                      ? Icons.directions_car_rounded
+                                      : Icons.directions_walk_rounded,
+                                  color: Colors.white,
+                                  size: 24,
+                                ),
                               ),
                             ),
                           ],
@@ -297,7 +352,9 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                 ),
                               ),
                               Text(
-                                '${journey.ownerName} • ${distanceToDest.round()}m remaining',
+                                hasDest
+                                    ? '${journey.ownerName} • ${_formatDistance(distanceToDest)} ${hasRoute ? 'left by road' : 'remaining'}'
+                                    : '${journey.ownerName} • no map pin, end it manually on arrival',
                                 style: GoogleFonts.poppins(
                                   fontSize: 12,
                                   color: AppColors.textSecondary,
