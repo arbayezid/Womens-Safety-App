@@ -160,6 +160,18 @@ class Esp32BleService {
   bool _lastConnectUnsupported = false;
   bool get lastConnectWasUnsupported => _lastConnectUnsupported;
 
+  /// Short description of why the last connect attempt failed, or null.
+  String? _lastConnectError;
+  String? get lastConnectError => _lastConnectError;
+
+  static const int _maxConnectAttempts = 3;
+
+  static String _describeBleError(Object e) {
+    if (e is TimeoutException) return 'connection timed out';
+    final text = e is PlatformException ? '${e.code}: ${e.message}' : e.toString();
+    return text.length > 160 ? '${text.substring(0, 160)}…' : text;
+  }
+
   /// Reactive connection state notifier
   final ValueNotifier<Esp32ConnectionStatus> connectionStateNotifier =
       ValueNotifier<Esp32ConnectionStatus>(Esp32ConnectionStatus.disconnected);
@@ -375,20 +387,43 @@ class Esp32BleService {
       }
 
       _lastConnectUnsupported = false;
+      _lastConnectError = null;
       _updateStateOnMainThread(Esp32ConnectionStatus.connecting);
-      debugPrint('[Esp32BleService] Connecting to device ${device.remoteId} (${device.platformName})...');
 
-      // 4. Establish GATT connection
-      await device.connect(
-        timeout: const Duration(seconds: 12),
-        autoConnect: false,
-      );
-
-      _connectedDevice = device;
-
-      // 5. Discover GATT services and attach characteristic hooks. Only a device that exposes
+      // 4 + 5. Establish the GATT connection, then discover services and attach characteristic
+      // hooks. Android often fails the first connect right after a scan (GATT error 133), so
+      // retry, closing the half-open GATT client between attempts. Only a device that exposes
       // the safety service (and a supported SOS characteristic) is kept and saved.
-      final check = await _discoverAndSubscribeServices(device);
+      var check = _PendantCheck.discoveryFailed;
+      for (var attempt = 1; attempt <= _maxConnectAttempts; attempt++) {
+        debugPrint('[Esp32BleService] Connecting to device ${device.remoteId} '
+            '(${device.platformName}), attempt $attempt/$_maxConnectAttempts...');
+        var linked = false;
+        try {
+          await device.connect(timeout: const Duration(seconds: 15), autoConnect: false);
+          linked = true;
+          _connectedDevice = device;
+          check = await _discoverAndSubscribeServices(device);
+          if (check != _PendantCheck.discoveryFailed) break;
+        } catch (e) {
+          _lastConnectError = _describeBleError(e);
+          debugPrint('[Esp32BleService] Connect attempt $attempt failed: $e');
+        }
+        // A stale Android GATT cache can make discovery fail on every attempt.
+        if (linked && Platform.isAndroid) {
+          try {
+            await device.clearGattCache();
+          } catch (_) {}
+        }
+        try {
+          await device.disconnect();
+        } catch (_) {}
+        _connectedDevice = null;
+        if (attempt < _maxConnectAttempts) {
+          await Future.delayed(const Duration(milliseconds: 800));
+        }
+      }
+
       if (check != _PendantCheck.supported) {
         debugPrint('[Esp32BleService] Device ${device.remoteId} refused as pendant: $check');
         final isSaved = device.remoteId.str == _savedDeviceId;
@@ -423,10 +458,12 @@ class Esp32BleService {
       return true;
     } on PlatformException catch (e) {
       debugPrint('[Esp32BleService] ❌ Native platform error: ${e.code} - ${e.message}');
+      _lastConnectError = _describeBleError(e);
       _handleDeviceDisconnected();
       return false;
     } catch (e) {
       debugPrint('[Esp32BleService] ❌ Connection error: $e');
+      _lastConnectError = _describeBleError(e);
       _handleDeviceDisconnected();
       return false;
     }
@@ -537,6 +574,7 @@ class Esp32BleService {
       return _PendantCheck.supported;
     } catch (e) {
       debugPrint('[Esp32BleService] Error during service discovery: $e');
+      _lastConnectError = 'service discovery failed (${_describeBleError(e)})';
       return _PendantCheck.discoveryFailed;
     }
   }

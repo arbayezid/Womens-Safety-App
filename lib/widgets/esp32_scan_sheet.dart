@@ -176,9 +176,12 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             '${device.platformName.isNotEmpty ? device.platformName : "This device"} is not a supported Woman Guard pendant (unsupported firmware). Nothing was saved.';
       });
     } else {
+      final reason = _bleService.lastConnectError;
       setState(() {
         _errorMessage =
-            'Failed to connect to ${device.platformName.isNotEmpty ? device.platformName : "device"}. Ensure it is powered on and within range.';
+            'Failed to connect to ${device.platformName.isNotEmpty ? device.platformName : "device"}. '
+            'Ensure it is powered on, within range and not connected to another app.'
+            '${reason != null ? '\nReason: $reason' : ''}';
       });
     }
   }

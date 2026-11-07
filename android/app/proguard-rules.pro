@@ -12,3 +12,7 @@
 # classes, fields and callbacks by name, so R8 must not rename or strip them.
 -keep class com.googlecode.tesseract.android.** { *; }
 -keep class com.googlecode.leptonica.android.** { *; }
+
+# flutter_blue_plus (ESP32 SOS pendant): keep the plugin's classes intact in release builds, as
+# its README requires.
+-keep class com.lib.flutter_blue_plus.** { *; }

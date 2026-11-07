@@ -49,3 +49,6 @@ secrets.json
 
 # Firebase Admin credentials for scripts/cleanup_sos.js (never commit)
 service-account.json
+
+# Local copies of the ESP32 hardware files, shared for review only (not for GitHub)
+/ESP32 Files/

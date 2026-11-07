@@ -84,7 +84,7 @@ dependencies:
   # Grayscale / contrast pre-processing of plate photos before Tesseract
   image: ^4.12.0
   record: 6.0.0
-  flutter_blue_plus: 1.34.0
+  flutter_blue_plus: 1.34.5
 
 dev_dependencies:
   flutter_test:
