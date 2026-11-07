@@ -13,6 +13,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../firebase_options.dart';
 import '../screens/incident_room_screen.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../models/journey_model.dart';
 import '../models/ride_checkin.dart';
 import '../screens/ride_details_screen.dart';
 import '../widgets/intrusive_sos_dialog.dart';
@@ -220,6 +221,19 @@ class NotificationService {
   StreamSubscription? _journeySubUid;
   StreamSubscription? _journeySubEmail;
   final Set<String> _notifiedJourneyKeys = {};
+
+  /// Latest journey documents from each guardian stream ('uid' / 'email'), merged into
+  /// [incomingActiveJourneysNotifier].
+  final Map<String, Map<String, Map<String, dynamic>>> _guardianJourneyDocs = {};
+
+  /// Re-evaluates the live journey list every minute (ETA countdown, stale sessions dropping off)
+  /// even when the traveller's phone stops sending updates.
+  Timer? _guardianJourneyClock;
+
+  /// Safe Journeys / Followed Mode sessions currently underway by contacts this user protects.
+  /// Shown on the home screen so they stay reachable after the notification is dismissed.
+  final ValueNotifier<List<JourneyModel>> incomingActiveJourneysNotifier =
+      ValueNotifier<List<JourneyModel>>([]);
 
   /// Active rides currently underway by contacts this user protects
   final ValueNotifier<List<RideCheckinModel>> incomingActiveRidesNotifier =
@@ -563,6 +577,10 @@ class NotificationService {
           _rideCheckinSubEmail?.cancel();
           _journeySubUid?.cancel();
           _journeySubEmail?.cancel();
+          _guardianJourneyClock?.cancel();
+          _guardianJourneyClock = null;
+          _guardianJourneyDocs.clear();
+          incomingActiveJourneysNotifier.value = [];
           activeIncomingSosNotifier.value = null;
           SirenService.instance.stopSiren();
         }
@@ -1356,9 +1374,16 @@ class NotificationService {
     final myEmail = (user.email ?? '').toLowerCase().trim();
     final journeys = FirebaseFirestore.instance.collection('journeys');
 
+    _guardianJourneyDocs.clear();
+    _guardianJourneyClock?.cancel();
+    _guardianJourneyClock = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (_guardianJourneyDocs.values.any((docs) => docs.isNotEmpty)) {
+        _refreshIncomingActiveJourneys(myUid);
+      }
+    });
     _journeySubUid?.cancel();
     _journeySubUid = journeys.where('guardianUids', arrayContains: myUid).snapshots().listen(
-          (snap) => _processGuardianJourneys(snap, myUid),
+          (snap) => _processGuardianJourneys(snap, myUid, source: 'uid'),
           onError: (err) => debugPrint('[NotificationService] Journey UID stream error: $err'),
         );
 
@@ -1366,7 +1391,7 @@ class NotificationService {
     _journeySubEmail = null;
     if (myEmail.isNotEmpty) {
       _journeySubEmail = journeys.where('guardianEmails', arrayContains: myEmail).snapshots().listen(
-            (snap) => _processGuardianJourneys(snap, myUid),
+            (snap) => _processGuardianJourneys(snap, myUid, source: 'email'),
             onError: (err) => debugPrint('[NotificationService] Journey email stream error: $err'),
           );
     }
@@ -1374,8 +1399,13 @@ class NotificationService {
 
   Future<void> _processGuardianJourneys(
     QuerySnapshot<Map<String, dynamic>> snap,
-    String myUid,
-  ) async {
+    String myUid, {
+    required String source,
+  }) async {
+    // The home-screen list may use cached data too: better a slightly old card than none.
+    _guardianJourneyDocs[source] = {for (final d in snap.docs) d.id: d.data()};
+    _refreshIncomingActiveJourneys(myUid);
+
     // Cached results may be stale (cold start, offline); only notify on server data.
     if (snap.metadata.isFromCache) return;
     final now = DateTime.now();
@@ -1385,6 +1415,40 @@ class NotificationService {
       if (!await GuardianAlertService.instance.claimAlert(event.key)) continue;
       await _showJourneyNotification(doc.id, event);
     }
+  }
+
+  /// Rebuilds [incomingActiveJourneysNotifier] from both guardian streams: journeys needing
+  /// attention (alert, followed mode) first, then the most recently started.
+  void _refreshIncomingActiveJourneys(String myUid) {
+    final merged = <String, Map<String, dynamic>>{
+      ...?_guardianJourneyDocs['uid'],
+      ...?_guardianJourneyDocs['email'],
+    };
+    incomingActiveJourneysNotifier.value = activeGuardianJourneys(merged, myUid: myUid, now: DateTime.now());
+  }
+
+  /// Journeys in [docs] (id -> data) that [myUid] should see as live on the home screen.
+  @visibleForTesting
+  static List<JourneyModel> activeGuardianJourneys(
+    Map<String, Map<String, dynamic>> docs, {
+    required String myUid,
+    required DateTime now,
+  }) {
+    final journeys = <JourneyModel>[];
+    for (final e in docs.entries) {
+      if (!isJourneyLiveForGuardian(data: e.value, myUid: myUid, now: now)) continue;
+      try {
+        journeys.add(JourneyModel.fromMap(e.value, e.key));
+      } catch (err) {
+        debugPrint('[NotificationService] Skipping malformed journey ${e.key}: $err');
+      }
+    }
+    int urgency(JourneyModel j) => j.status == JourneyStatus.alert ? 0 : (j.isFollowedMode ? 1 : 2);
+    journeys.sort((a, b) {
+      final byUrgency = urgency(a).compareTo(urgency(b));
+      return byUrgency != 0 ? byUrgency : b.startedAt.compareTo(a.startedAt);
+    });
+    return journeys;
   }
 
   Future<void> _showJourneyNotification(String journeyId, JourneyGuardianEvent event) async {

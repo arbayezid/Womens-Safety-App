@@ -29,6 +29,28 @@ DateTime? _date(dynamic value) {
 
 String _hhmm(DateTime t) => '${t.hour}:${t.minute.toString().padLeft(2, '0')}';
 
+/// Whether journey [data] is still underway for a guardian: it belongs to someone else and is
+/// either active (started within [journeyStartedWindow]) or has raised an alert that is still
+/// recent ([journeyAlertWindow]). Such journeys are listed on the guardian's home screen, so
+/// they can be followed even after the notification was dismissed.
+bool isJourneyLiveForGuardian({
+  required Map<String, dynamic> data,
+  required String myUid,
+  required DateTime now,
+}) {
+  final ownerId = (data['ownerId'] ?? data['owner_uid'])?.toString();
+  if (ownerId == null || ownerId.isEmpty || ownerId == myUid) return false;
+  final status = (data['status'] ?? '').toString().toLowerCase();
+  final startedAt = _date(data['startedAt']);
+  final updatedAt = _date(data['lastUpdatedAt']) ?? startedAt;
+  bool within(DateTime? t, Duration window) => t != null && now.difference(t).abs() <= window;
+  return switch (status) {
+    'active' => within(startedAt, journeyStartedWindow),
+    'alert' => within(updatedAt, journeyAlertWindow),
+    _ => false,
+  };
+}
+
 /// What a guardian should be told about journey [data], or null for nothing.
 ///
 /// The native GuardianAlertService (Android) applies the same rules; keep the two in step.

@@ -23,6 +23,7 @@ import '../widgets/fake_call_caller_sheet.dart';
 import '../models/journey_model.dart';
 import '../services/journey_service.dart';
 import '../widgets/active_journey_card.dart';
+import '../widgets/incoming_journey_card.dart';
 import '../widgets/safety_check_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
 import '../services/pin_security_service.dart';
@@ -767,6 +768,23 @@ class _SafetyDashboard extends StatelessWidget {
                 return Padding(
                   padding: const EdgeInsets.only(top: 14),
                   child: ActiveJourneyCard(journey: activeJourney),
+                );
+              },
+            ),
+
+            // ── Protected Contacts' Live Safe Journeys (Receiver) ──
+            ValueListenableBuilder<List<JourneyModel>>(
+              valueListenable: NotificationService.instance.incomingActiveJourneysNotifier,
+              builder: (context, incomingJourneys, _) {
+                if (incomingJourneys.isEmpty) return const SizedBox.shrink();
+                return Column(
+                  children: [
+                    for (final journey in incomingJourneys)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 14),
+                        child: IncomingJourneyCard(key: ValueKey(journey.id), journey: journey),
+                      ),
+                  ],
                 );
               },
             ),
