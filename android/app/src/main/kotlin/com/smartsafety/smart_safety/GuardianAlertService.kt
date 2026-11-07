@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -22,6 +23,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.QuerySnapshot
 import java.util.Date
 
@@ -49,10 +51,45 @@ class GuardianAlertService : Service() {
         private const val KEY_PROTECTING = "protecting"
         private const val STALE_ALERT_MS = 3 * 60 * 60 * 1000L
         private const val REATTACH_DELAY_MS = 15_000L
+        private const val MISSED_NOTIFICATION_ID = 7303
+        /**
+         * An active alert (re)pressed at most this long ago is live: full-screen alert + siren.
+         * Older active alerts and ended ones only get an ordinary notification and the inbox.
+         * Same window as sosLiveWindow in notification_service.dart; keep the two in step.
+         */
+        private const val LIVE_ALERT_MS = 30 * 60 * 1000L
+        /** Not-live alerts this old or newer that never rang here are reported once. */
+        private const val MISSED_ALERT_WINDOW_MS = 24 * 60 * 60 * 1000L
+        /** Longest the CPU is kept awake for listeners to catch up with the server. */
+        private const val SYNC_WAKE_MS = 30_000L
+        /** Retry delay after the service was killed or the app swiped away. */
+        private const val RESTART_DELAY_MS = 60_000L
 
         @Volatile
         var isRunning = false
             private set
+
+        @Volatile
+        private var instance: GuardianAlertService? = null
+
+        /**
+         * Watchdog alarm: restart the service if it was killed, otherwise reconnect it. Runs on the
+         * main thread inside the alarm's onReceive, so the work starts before the alarm's wake lock
+         * ends; from there the service keeps the CPU awake itself.
+         */
+        fun onWatchdogTick(context: Context) {
+            val service = instance
+            if (service != null && isRunning) {
+                service.refreshConnection()
+            } else {
+                Log.i(TAG, "Watchdog: guardian service not running; restarting")
+                // Bridge until the restarted service takes its own wake lock in onStartCommand.
+                context.getSystemService(PowerManager::class.java)
+                    ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WomanGuard:GuardianRestart")
+                    ?.acquire(15_000L)
+                start(context)
+            }
+        }
 
         fun setEnabled(context: Context, enabled: Boolean) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).apply()
@@ -88,6 +125,7 @@ class GuardianAlertService : Service() {
         }
 
         fun stop(context: Context) {
+            GuardianWatchdogReceiver.cancel(context)
             AlertSirenPlayer.stop(context)
             NotificationManagerCompat.from(context).cancel(ALERT_NOTIFICATION_ID)
             context.stopService(Intent(context, GuardianAlertService::class.java))
@@ -105,6 +143,12 @@ class GuardianAlertService : Service() {
     private var presentedAlertId: String? = null
     private var authListenerAdded = false
     private val reattach = Runnable { attachListenersForCurrentUser(force = true) }
+
+    /** Names of the attached SOS alert listeners ("uid", "email"). */
+    private val alertSources = mutableListOf<String>()
+    /** Alert listeners that have not yet delivered server data since the last (re)connect. */
+    private val pendingSync = mutableSetOf<String>()
+    private var syncWakeLock: PowerManager.WakeLock? = null
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         if (auth.currentUser == null) {
@@ -135,6 +179,8 @@ class GuardianAlertService : Service() {
             return START_NOT_STICKY
         }
         isRunning = true
+        instance = this
+        GuardianWatchdogReceiver.schedule(this)
         if (!authListenerAdded) {
             FirebaseAuth.getInstance().addAuthStateListener(authListener)
             authListenerAdded = true
@@ -143,12 +189,64 @@ class GuardianAlertService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Some vendors kill the whole process shortly after the app is swiped away.
+        if (isEnabled(this) && isProtecting(this)) GuardianWatchdogReceiver.schedule(this, RESTART_DELAY_MS)
+        super.onTaskRemoved(rootIntent)
+    }
+
     override fun onDestroy() {
         isRunning = false
+        if (instance === this) instance = null
         handler.removeCallbacks(reattach)
         if (authListenerAdded) FirebaseAuth.getInstance().removeAuthStateListener(authListener)
         detachListeners()
+        releaseSyncWakeLock()
+        // Destroyed while still wanted (killed by the system, not signed out / stopped): come back soon.
+        if (isEnabled(this) && isProtecting(this)) GuardianWatchdogReceiver.schedule(this, RESTART_DELAY_MS)
         super.onDestroy()
+    }
+
+    /**
+     * Forces a fresh Firestore connection. While the screen is off the CPU sleeps, so the
+     * connection's keep-alives stop and the network silently drops it; Firestore then waits for
+     * data that never comes. Reconnecting resumes every listener and delivers what was missed.
+     */
+    private fun refreshConnection() {
+        if (listeningUid == null || registrations.isEmpty()) {
+            attachListenersForCurrentUser(force = true)
+            return
+        }
+        // In use and healthy while the app is on screen; never disturb a ringing alert.
+        if (MainActivity.foregroundActivity() != null || AlertSirenPlayer.currentAlertId != null) return
+        Log.i(TAG, "Watchdog: reconnecting to Firestore")
+        holdAwakeUntilSynced()
+        val db = FirebaseFirestore.getInstance()
+        db.disableNetwork()
+            .continueWithTask { db.enableNetwork() }
+            .addOnFailureListener { e ->
+                Log.w(TAG, "Firestore reconnect failed", e)
+                releaseSyncWakeLock()
+            }
+    }
+
+    /** Keeps the CPU awake (at most [SYNC_WAKE_MS]) until every alert listener has server data. */
+    private fun holdAwakeUntilSynced() {
+        pendingSync.clear()
+        pendingSync.addAll(alertSources)
+        if (pendingSync.isEmpty()) return
+        val lock = syncWakeLock
+            ?: getSystemService(PowerManager::class.java)
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WomanGuard:GuardianSync")
+                ?.apply { setReferenceCounted(false) }
+                ?.also { syncWakeLock = it }
+            ?: return
+        lock.acquire(SYNC_WAKE_MS)
+    }
+
+    private fun releaseSyncWakeLock() {
+        pendingSync.clear()
+        syncWakeLock?.let { if (it.isHeld) it.release() }
     }
 
     private fun enterForeground(): Boolean = try {
@@ -189,13 +287,19 @@ class GuardianAlertService : Service() {
         listeningEmail = user.email?.lowercase()?.trim().orEmpty()
         Log.i(TAG, "Listening for SOS alerts addressed to ${user.uid}")
 
+        // Metadata changes included: the switch from cached to server data must be seen even when
+        // no document changed, both to ring for alerts first seen in the cache and to know when a
+        // reconnect has caught up.
         val alerts = FirebaseFirestore.getInstance().collection("sos_alerts")
         registrations += alerts.whereArrayContains("recipientUids", user.uid)
-            .addSnapshotListener { snap, err -> onSnapshot("uid", snap, err) }
+            .addSnapshotListener(MetadataChanges.INCLUDE) { snap, err -> onSnapshot("uid", snap, err) }
+        alertSources += "uid"
         if (listeningEmail.isNotEmpty()) {
             registrations += alerts.whereArrayContains("recipientEmails", listeningEmail)
-                .addSnapshotListener { snap, err -> onSnapshot("email", snap, err) }
+                .addSnapshotListener(MetadataChanges.INCLUDE) { snap, err -> onSnapshot("email", snap, err) }
+            alertSources += "email"
         }
+        holdAwakeUntilSynced()
 
         val rides = FirebaseFirestore.getInstance().collection("ride_checkins")
         rideRegistrations += rides.whereArrayContains("guardianIds", user.uid)
@@ -248,6 +352,7 @@ class GuardianAlertService : Service() {
     private fun detachListeners() {
         registrations.forEach { it.remove() }
         registrations.clear()
+        alertSources.clear()
         rideRegistrations.forEach { it.remove() }
         rideRegistrations.clear()
         docsBySource.clear()
@@ -467,11 +572,15 @@ class GuardianAlertService : Service() {
         }
         snapshot ?: return
         docsBySource[source] = snapshot.documents
+        val fromCache = snapshot.metadata.isFromCache
         try {
-            evaluate(fromCache = snapshot.metadata.isFromCache)
+            evaluate(fromCache)
         } catch (e: Exception) {
             // Unexpected alert data must never take the service (and the app process) down.
             Log.e(TAG, "Failed to process SOS alerts", e)
+        } finally {
+            // Caught up with the server (the siren holds its own wake lock): let the CPU sleep again.
+            if (!fromCache && pendingSync.remove(source) && pendingSync.isEmpty()) releaseSyncWakeLock()
         }
     }
 
@@ -512,11 +621,17 @@ class GuardianAlertService : Service() {
         // Cached data may be stale (e.g. right after boot, offline); only ring on server data.
         if (fromCache) return
 
+        // Live alerts ring; everything else (ended, or still active but older than the live window)
+        // only gets an ordinary notification, never the full-screen alert or the siren.
+        val live = eligible.filter { now - lastRingMillis(it, now) <= LIVE_ALERT_MS }
+        val liveIds = live.mapTo(mutableSetOf()) { it.id }
+        notifyEarlierAlerts(all.filter { it.id !in liveIds }, uid, now)
+
         // One ring per ring key (alertId#ringSeq): the same alert rings again only when the sender
         // deliberately presses SOS again.
-        val fresh = eligible.filter { !AlertRegistry.isClaimed(this, ringKey(it)) }
+        val fresh = live.filter { !AlertRegistry.isClaimed(this, ringKey(it)) }
         if (fresh.isEmpty()) return
-        val latest = fresh.maxByOrNull { alertTimeMillis(it) ?: now } ?: return
+        val latest = fresh.maxByOrNull { lastRingMillis(it, now) } ?: return
         val claimedLatest = AlertRegistry.tryClaim(this, ringKey(latest))
         // Older alerts from the same burst must not ring later on their own.
         fresh.filter { it.id != latest.id }.forEach { AlertRegistry.tryClaim(this, ringKey(it)) }
@@ -526,6 +641,99 @@ class GuardianAlertService : Service() {
         }
         presentAlert(latest)
     }
+
+    /**
+     * Alerts that are no longer live when this phone first sees them: ended (resolved, expired)
+     * or still active but pressed more than [LIVE_ALERT_MS] ago, e.g. because the phone was
+     * offline or asleep. They must not ring, but the guardian still has to know. Each is reported
+     * once with an ordinary notification; alerts that rang here, that the guardian dismissed or
+     * answered, or that the sender marked as a false alarm are skipped.
+     */
+    private fun notifyEarlierAlerts(notLive: List<DocumentSnapshot>, uid: String, now: Long) {
+        val missed = notLive.filter { doc ->
+            val senderId = str(doc, "senderId") ?: str(doc, "sender_uid")
+            if (senderId == uid) return@filter false
+            if (doc.get("falseAlarm") == true || str(doc, "status")?.lowercase()?.startsWith("false") == true) {
+                return@filter false
+            }
+            if (stringList(doc.get("dismissedBy")).contains(uid)) return@filter false
+            if (stringList(doc.get("acknowledgedBy")).contains(uid)) return@filter false
+            val time = alertTimeMillis(doc) ?: return@filter false
+            if (now - time > MISSED_ALERT_WINDOW_MS || time - now > STALE_ALERT_MS) return@filter false
+            !AlertRegistry.anyRingClaimed(this, doc.id) && !AlertRegistry.isClaimed(this, missedKey(doc.id))
+        }
+        val claimed = missed.filter { AlertRegistry.tryClaim(this, missedKey(it.id)) }
+        if (claimed.isEmpty()) return
+        presentEarlierAlerts(claimed.sortedByDescending { alertTimeMillis(it) ?: 0L }, uid, now)
+    }
+
+    private fun missedKey(alertId: String) = "missed:$alertId"
+
+    private fun senderName(doc: DocumentSnapshot): String =
+        (str(doc, "senderName") ?: str(doc, "sender_name"))?.takeIf { it.isNotBlank() } ?: "Your contact"
+
+    private fun presentEarlierAlerts(docs: List<DocumentSnapshot>, uid: String, now: Long) {
+        val format = java.text.SimpleDateFormat("MMM d, h:mm a", java.util.Locale.getDefault())
+        fun sentAt(doc: DocumentSnapshot) = alertTimeMillis(doc)?.let { format.format(Date(it)) } ?: "earlier"
+        fun stillActive(doc: DocumentSnapshot) = isEligible(doc, uid, now)
+        Log.i(TAG, "Earlier SOS alerts (no longer live when they reached this phone): ${docs.map { it.id }}")
+
+        val builder = NotificationCompat.Builder(this, NotificationChannels.MISSED_ALERTS)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setColor(0xFFFF3B30.toInt())
+            .setAutoCancel(true)
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    this,
+                    MISSED_NOTIFICATION_ID,
+                    Intent(this, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        .putExtra(MainActivity.EXTRA_OPEN_INBOX, true),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+            )
+        if (docs.size == 1) {
+            val doc = docs.first()
+            val location = doc.get("location") as? Map<*, *>
+            val address = (location?.get("address") ?: doc.get("address"))?.toString()?.takeIf { it.isNotBlank() }
+            val active = stillActive(doc)
+            val body = if (active) {
+                "Sent ${sentAt(doc)} and still active, but your phone received it late. " +
+                    "Tap to see their live location."
+            } else {
+                "Sent ${sentAt(doc)}, but your phone could not receive it in time. " +
+                    "The alert has ended. Check that they are safe."
+            }
+            builder.setContentTitle(
+                if (active) "🚨 SOS from ${senderName(doc)} is still active" else "⚠️ Missed SOS from ${senderName(doc)}"
+            )
+                .setContentText(body)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(body + (address?.let { "\n📍 $it" } ?: "")))
+        } else {
+            val inbox = NotificationCompat.InboxStyle()
+            docs.take(6).forEach {
+                inbox.addLine("${senderName(it)} · ${sentAt(it)} · ${if (stillActive(it)) "still active" else "ended"}")
+            }
+            builder.setContentTitle("⚠️ ${docs.size} SOS alerts reached you late")
+                .setContentText("Your phone could not receive them in time. Tap to see them all.")
+                .setStyle(inbox)
+        }
+        if (!canPostNotifications()) {
+            Log.w(TAG, "Notification permission denied; cannot report missed alerts")
+            return
+        }
+        try {
+            NotificationManagerCompat.from(this).notify(MISSED_NOTIFICATION_ID, builder.build())
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Could not post missed-alert notification", e)
+        }
+    }
+
+    private fun canPostNotifications(): Boolean = Build.VERSION.SDK_INT < 33 ||
+        ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     /** Ring key shared with the Dart listener: alert ID plus ring sequence (missing = 0). */
     private fun ringKey(doc: DocumentSnapshot): String {
@@ -551,8 +759,18 @@ class GuardianAlertService : Service() {
             else -> null
         }
         if (expiresAt != null && expiresAt < now) return false
-        val time = alertTimeMillis(doc) ?: return false
-        return kotlin.math.abs(now - time) <= STALE_ALERT_MS
+        if (alertTimeMillis(doc) == null) return false
+        return kotlin.math.abs(now - lastRingMillis(doc, now)) <= STALE_ALERT_MS
+    }
+
+    /**
+     * When the alert last rang on purpose: its trigger time, or `ringAt` of the sender's latest
+     * re-press if later. (Not lastUpdatedAt: live location updates move that every few seconds.)
+     */
+    private fun lastRingMillis(doc: DocumentSnapshot, now: Long): Long {
+        val triggered = alertTimeMillis(doc) ?: now
+        val rung = millis(doc.get("ringAt")) ?: return triggered
+        return maxOf(triggered, rung)
     }
 
     private fun stringList(value: Any?): List<String> = (value as? List<*>)?.map { it.toString() } ?: emptyList()
@@ -631,9 +849,7 @@ class GuardianAlertService : Service() {
             )
         }
 
-        val canPost = Build.VERSION.SDK_INT < 33 ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        if (!canPost) {
+        if (!canPostNotifications()) {
             Log.w(TAG, "Notification permission denied; alert $alertId is siren-only")
             return
         }

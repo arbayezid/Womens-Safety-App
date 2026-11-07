@@ -29,6 +29,11 @@ object AlertRegistry {
     @Synchronized
     fun isClaimed(context: Context, alertId: String): Boolean = claimedIn(load(context), alertId)
 
+    /** Whether any ring of [alertId] (any ring sequence) already rang on this device. */
+    @Synchronized
+    fun anyRingClaimed(context: Context, alertId: String): Boolean =
+        alertId.isNotBlank() && load(context).any { it == alertId || it.startsWith("$alertId#") }
+
     /** Entries claimed before ring keys existed are bare alert IDs; they stand for ring 0. */
     private fun claimedIn(ids: List<String>, key: String): Boolean =
         key in ids || (key.endsWith("#0") && key.removeSuffix("#0") in ids)

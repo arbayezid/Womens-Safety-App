@@ -24,6 +24,8 @@ class MainActivity : FlutterActivity() {
         const val SOURCE_TAP = "tap"
         const val SOURCE_FULL_SCREEN = "full_screen"
         const val EXTRA_JOURNEY_ID = "journey_id"
+        /** Opens the in-app notification inbox (bell), e.g. from a late/missed alert notification. */
+        const val EXTRA_OPEN_INBOX = "open_inbox"
 
         private const val GUARDIAN_CHANNEL = "com.smartsafety.smart_safety/guardian"
         private const val FAKE_CALL_CHANNEL = "com.smartsafety.smart_safety/fake_call"
@@ -42,6 +44,10 @@ class MainActivity : FlutterActivity() {
         @Volatile
         var pendingAlertId: String? = null
 
+        /** Inbox requested from a notification before the Flutter engine was ready. */
+        @Volatile
+        var pendingOpenInbox: Boolean = false
+
         /** The visible activity, or null when the app is in the background. */
         fun foregroundActivity(): Activity? = resumedActivity?.get()
     }
@@ -52,6 +58,7 @@ class MainActivity : FlutterActivity() {
         handleAlertIntent(intent)
         handleRideIntent(intent)
         handleJourneyIntent(intent)
+        handleInboxIntent(intent)
         super.onCreate(savedInstanceState)
     }
 
@@ -60,6 +67,7 @@ class MainActivity : FlutterActivity() {
         handleAlertIntent(intent)
         handleRideIntent(intent)
         handleJourneyIntent(intent)
+        handleInboxIntent(intent)
     }
 
     override fun onResume() {
@@ -89,6 +97,12 @@ class MainActivity : FlutterActivity() {
         AppChannels.registerDeadline(messenger, this)
         DeadlineDartRunner.mainMessenger = messenger
         MethodChannel(messenger, GUARDIAN_CHANNEL).setMethodCallHandler(::onGuardianCall)
+        // Keeps the app's siren button in step with the native alert siren (e.g. its 2-minute end).
+        AlertSirenPlayer.stateListener = { playing ->
+            DeadlineDartRunner.mainMessenger?.let {
+                MethodChannel(it, GUARDIAN_CHANNEL).invokeMethod("onSirenStateChanged", playing)
+            }
+        }
 
         val audio = FakeCallAudio(applicationContext)
         fakeCallAudio = audio
@@ -121,6 +135,7 @@ class MainActivity : FlutterActivity() {
         }
         fakeCallAudio?.stopAll()
         fakeCallAudio = null
+        AlertSirenPlayer.stateListener = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -146,6 +161,22 @@ class MainActivity : FlutterActivity() {
             "stopSiren" -> {
                 AlertSirenPlayer.stop(this)
                 result.success(null)
+            }
+            // Incoming live alert while the app is open: same alarm-stream siren, 2-minute cap.
+            "startAlertSiren" -> {
+                val alertId = call.argument<String>("alertId") ?: ""
+                if (alertId.isNotEmpty()) AlertSirenPlayer.start(this, alertId)
+                result.success(AlertSirenPlayer.isPlaying)
+            }
+            "stopAlertSiren" -> {
+                AlertSirenPlayer.stopIfAlert(this, call.argument<String>("alertId") ?: "")
+                result.success(null)
+            }
+            "isSirenPlaying" -> result.success(AlertSirenPlayer.isPlaying)
+            "getPendingOpenInbox" -> {
+                val open = pendingOpenInbox
+                pendingOpenInbox = false
+                result.success(open)
             }
             "canUseFullScreenIntent" -> result.success(canUseFullScreenIntent())
             "openFullScreenIntentSettings" -> result.success(openFullScreenIntentSettings())
@@ -184,6 +215,17 @@ class MainActivity : FlutterActivity() {
             MethodChannel(it, GUARDIAN_CHANNEL).invokeMethod("onJourneyTapped", journeyId)
         }
         intent.removeExtra(EXTRA_JOURNEY_ID)
+    }
+
+    private fun handleInboxIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_INBOX, false) != true) return
+        val messenger = DeadlineDartRunner.mainMessenger
+        if (messenger != null) {
+            MethodChannel(messenger, GUARDIAN_CHANNEL).invokeMethod("onOpenInbox", null)
+        } else {
+            pendingOpenInbox = true
+        }
+        intent.removeExtra(EXTRA_OPEN_INBOX)
     }
 
     private fun canUseFullScreenIntent(): Boolean {

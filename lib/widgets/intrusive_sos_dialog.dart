@@ -61,10 +61,13 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
   @override
   void dispose() {
     _tickerTimer?.cancel();
-    SirenService.instance.stopSiren();
+    // No siren stop here: the dialog also closes when a newer alert replaces it, and that must not
+    // cut the new alert's siren. Its buttons (guardian actions) stop the siren themselves.
     _animController.dispose();
     super.dispose();
   }
+
+  bool _resolvedSirenStopped = false;
 
   void _checkAndReverseGeocode(double? lat, double? lng) {
     if (lat == null || lng == null) return;
@@ -491,8 +494,10 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
         (widget.data['totalPresses'] as int?) ??
         1;
 
-    if (isResolved) {
-      SirenService.instance.stopSiren();
+    if (isResolved && !_resolvedSirenStopped) {
+      // The sender ended this alert: silence its siren only (never another alert's).
+      _resolvedSirenStopped = true;
+      SirenService.instance.stopAlertSiren(widget.data['alertId']?.toString() ?? '');
     }
 
     return PopScope(

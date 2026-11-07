@@ -227,6 +227,7 @@ service cloud.firestore {
           // Alert lifecycle: expiry and deliberate re-alert
           'expiresAt',
           'ringSeq',
+          'ringAt',
           'dismissedBy'
         ])
         // nobody revives an ended alert
@@ -235,6 +236,8 @@ service cloud.firestore {
         && (!changed().hasAny(['dismissedBy']) || request.resource.data.dismissedBy.size() == 0)
         && (!changed().hasAny(['ringSeq']) ||
             request.resource.data.ringSeq == resource.data.get('ringSeq', 0) + 1)
+        // a re-press is stamped with the server time, never back- or forward-dated
+        && (!changed().hasAny(['ringAt']) || request.resource.data.ringAt == request.time)
         && (!changed().hasAny(['expiresAt']) ||
             request.resource.data.expiresAt <= request.time + duration.value(3, 'h')))
         ||

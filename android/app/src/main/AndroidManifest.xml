@@ -93,6 +93,11 @@
             </intent-filter>
         </receiver>
 
+        <!-- Every 10 min, even in Doze: restarts a killed guardian listener and reconnects a stale one -->
+        <receiver
+            android:name=".GuardianWatchdogReceiver"
+            android:exported="false" />
+
         <!-- Safety deadlines: exact-alarm callback and the "I'm safe" notification action -->
         <receiver
             android:name=".SafetyDeadlineReceiver"

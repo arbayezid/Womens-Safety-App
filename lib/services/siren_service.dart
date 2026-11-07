@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'activity_service.dart';
@@ -17,8 +18,60 @@ class SirenService {
   AudioPlayer? _audioPlayer;
   bool _isInitAttempted = false;
 
-  /// Reactive notifier for UI bindings
+  /// How long the siren of an incoming live SOS alert rings unless the guardian stops it or the
+  /// sender ends the alert. Same as AlertSirenPlayer.MAX_RING_MS on Android.
+  static const Duration incomingAlertRingDuration = Duration(minutes: 2);
+
+  /// Reactive notifier for UI bindings: true while this app's siren or the native incoming-alert
+  /// siren is sounding.
   final ValueNotifier<bool> isPlayingNotifier = ValueNotifier<bool>(false);
+
+  bool _dartPlaying = false;
+  bool _nativePlaying = false;
+  Timer? _ringLimitTimer;
+  String? _dartAlertId;
+
+  void _publish() {
+    final playing = _dartPlaying || _nativePlaying;
+    if (isPlayingNotifier.value != playing) isPlayingNotifier.value = playing;
+  }
+
+  /// Called by GuardianAlertService when the native alert siren starts or stops.
+  void setNativeAlertSirenPlaying(bool playing) {
+    _nativePlaying = playing;
+    _publish();
+  }
+
+  bool get _useNativeAlertSiren => !kIsWeb && Platform.isAndroid;
+
+  /// Rings for an incoming live SOS alert: loud, alarm stream (also in silent mode), for
+  /// [incomingAlertRingDuration]. Stop it early only through a guardian action or the alert
+  /// ending, with [stopAlertSiren] (or [stopSiren] for an explicit "stop all").
+  Future<void> startAlertSiren(String alertId) async {
+    if (_useNativeAlertSiren) {
+      final started = await GuardianAlertService.instance.startNativeAlertSiren(alertId);
+      if (started) {
+        _nativePlaying = true;
+        _publish();
+        debugPrint('[SirenService] 🚨 Native alert siren for $alertId (2 min)');
+        return;
+      }
+    }
+    await startSiren();
+    _dartAlertId = alertId;
+    _ringLimitTimer?.cancel();
+    _ringLimitTimer = Timer(incomingAlertRingDuration, () {
+      if (_dartAlertId == alertId) stopAlertSiren(alertId);
+    });
+  }
+
+  /// Stops the siren only if it is ringing for [alertId], so ending one alert can never silence
+  /// another, newer one.
+  Future<void> stopAlertSiren(String alertId) async {
+    if (alertId.isEmpty) return;
+    await GuardianAlertService.instance.stopNativeAlertSiren(alertId);
+    if (_dartAlertId == alertId) await stopSiren();
+  }
 
   /// Getter for current siren state
   bool get isPlaying => isPlayingNotifier.value;
@@ -36,10 +89,8 @@ class SirenService {
       final player = AudioPlayer();
       player.setReleaseMode(ReleaseMode.loop).catchError((_) {});
       player.onPlayerStateChanged.listen((state) {
-        final playing = (state == PlayerState.playing);
-        if (isPlayingNotifier.value != playing) {
-          isPlayingNotifier.value = playing;
-        }
+        _dartPlaying = state == PlayerState.playing;
+        _publish();
       }, onError: (_) {});
       _audioPlayer = player;
       return player;
@@ -69,17 +120,23 @@ class SirenService {
         }
       }
 
-      isPlayingNotifier.value = true;
+      _dartAlertId = null;
+      _dartPlaying = true;
+      _publish();
       ActivityService.instance.logSiren(isPlaying: true);
       debugPrint('[SirenService] 🔊 Siren is now playing on loop at MAX volume.');
     } catch (e) {
       debugPrint('[SirenService] ❌ Failed to play siren audio: $e');
-      isPlayingNotifier.value = false;
+      _dartPlaying = false;
+      _publish();
     }
   }
 
-  /// Stops the emergency siren audio immediately.
+  /// Stops every siren immediately (this app's and the native incoming-alert siren). For an
+  /// explicit guardian/user action only; code acting for one alert uses [stopAlertSiren].
   Future<void> stopSiren() async {
+    _ringLimitTimer?.cancel();
+    _dartAlertId = null;
     try {
       debugPrint('[SirenService] 🔇 Stopping Emergency Siren...');
       final player = _audioPlayer;
@@ -88,12 +145,15 @@ class SirenService {
       }
       // An incoming alert may be ringing through the native guardian service instead
       await GuardianAlertService.instance.stopNativeSiren();
-      isPlayingNotifier.value = false;
+      _dartPlaying = false;
+      _nativePlaying = false;
+      _publish();
       ActivityService.instance.logSiren(isPlaying: false);
       debugPrint('[SirenService] ✅ Siren stopped.');
     } catch (e) {
       debugPrint('[SirenService] ❌ Error stopping siren audio: $e');
-      isPlayingNotifier.value = false;
+      _dartPlaying = false;
+      _publish();
     }
   }
 

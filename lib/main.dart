@@ -21,6 +21,7 @@ import 'services/ride_checkin_service.dart';
 import 'services/safety_deadline_service.dart';
 import 'services/app_permission_service.dart';
 import 'services/esp32_ble_service.dart';
+import 'services/inbox_service.dart';
 
 /// Global navigator key enabling intrusive dialog overlays from background or notification events
 final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
@@ -135,6 +136,9 @@ Future<void> _bootstrap() async {
 
     // Native background SOS alert receiver; runs only while a user is signed in
     GuardianAlertService.instance.initialize(rootNavigatorKey);
+
+    // Notification inbox (bell): history of alerts from protected people, with unread badge
+    InboxService.instance.initialize();
 
     // Re-arm safety deadlines recorded in Firestore (reinstall / cleared app data)
     unawaited(SafetyDeadlineService.instance.resyncFromCloud());

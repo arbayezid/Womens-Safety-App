@@ -28,6 +28,8 @@ class GuardianBootReceiver : BroadcastReceiver() {
 
         if (!GuardianAlertService.isEnabled(context)) return
         Log.i("WG/GuardianBoot", "$action -> starting guardian alert listener")
+        // The watchdog retries if this start is refused, and keeps the listener alive afterwards.
+        if (GuardianAlertService.isProtecting(context)) GuardianWatchdogReceiver.schedule(context, 60_000L)
         GuardianAlertService.start(context)
     }
 }

@@ -36,6 +36,8 @@ import '../widgets/esp32_scan_sheet.dart';
 import 'ride_checkin_screen.dart';
 import 'active_ride_screen.dart';
 import 'ride_details_screen.dart';
+import 'inbox_screen.dart';
+import '../services/inbox_service.dart';
 import '../utils/duration_format.dart';
 
 /// Root shell widget for Smart Safety.
@@ -1500,9 +1502,46 @@ class _TopAppBarState extends State<_TopAppBar> {
               ),
             ),
 
+            // ── Notification inbox bell with unread count ────────────────
+            if (isAuthenticated) const _InboxBell(),
+
             // ── ESP32 status badge ───────────────────────────────────────
             _ESP32Badge(),
           ],
+        );
+      },
+    );
+  }
+}
+
+/// Bell opening the notification inbox; the badge shows how many new notifications arrived
+/// since it was last opened (1, 2, 3 … 99+).
+class _InboxBell extends StatelessWidget {
+  const _InboxBell();
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: InboxService.instance.unreadCountNotifier,
+      builder: (context, unread, _) {
+        return IconButton(
+          tooltip: unread > 0 ? '$unread new notifications' : 'Notifications',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const InboxScreen()),
+          ),
+          icon: Badge(
+            isLabelVisible: unread > 0,
+            backgroundColor: AppColors.sosRed,
+            label: Text(
+              unread > 99 ? '99+' : '$unread',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white),
+            ),
+            child: Icon(
+              unread > 0 ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+              color: AppColors.textPrimary,
+              size: 26,
+            ),
+          ),
         );
       },
     );

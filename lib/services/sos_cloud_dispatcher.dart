@@ -314,6 +314,9 @@ class SosCloudDispatcher {
     debugPrint('[SosCloud] 🔁 Re-ringing live alert $alertId (origin: manual, ringSeq: +1)');
     return _firestore.collection('sos_alerts').doc(alertId).update({
       'ringSeq': FieldValue.increment(1),
+      // When this deliberate re-press happened: receivers ring only for presses in the last
+      // 30 minutes (lastUpdatedAt cannot be used, live location moves it constantly).
+      'ringAt': FieldValue.serverTimestamp(),
       'dismissedBy': <String>[],
       'lastUpdatedAt': FieldValue.serverTimestamp(),
       'expiresAt': Timestamp.fromDate(DateTime.now().add(sosAlertLifetime)),

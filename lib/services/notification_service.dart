@@ -138,6 +138,27 @@ class NotificationService {
     return null;
   }
 
+  /// An active alert (re)pressed at most this long ago is live: full-screen dialog + 2-minute
+  /// siren. Older active alerts and ended ones go to the inbox only. Same as LIVE_ALERT_MS in
+  /// GuardianAlertService.kt; keep the two in step.
+  static const Duration sosLiveWindow = Duration(minutes: 30);
+
+  /// When the alert last rang on purpose: its trigger time, or `ringAt` of the sender's latest
+  /// re-press if later. (Not lastUpdatedAt: live location updates move that every few seconds.)
+  static DateTime? sosLastRingTime(Map<String, dynamic> data) {
+    final triggered = _parseAlertTime(data['triggeredAt'] ?? data['timestamp']);
+    final rung = _parseAlertTime(data['ringAt']);
+    if (triggered == null) return rung;
+    if (rung == null) return triggered;
+    return rung.isAfter(triggered) ? rung : triggered;
+  }
+
+  /// Whether an alert that is active for this user is still live (pressed within [sosLiveWindow]).
+  static bool isSosAlertLive(Map<String, dynamic> data, DateTime now) {
+    final last = sosLastRingTime(data);
+    return last != null && now.difference(last) <= sosLiveWindow;
+  }
+
   /// Eligibility rules shared with the native GuardianAlertService. Returns the alert's trigger
   /// time when [data] should alert this device, or null when it must be skipped: not active, sent
   /// by me, dismissed or acknowledged by me (in the cloud or locally for this ring key), expired,
@@ -169,8 +190,8 @@ class NotificationService {
     final alertDate = _parseAlertTime(data['triggeredAt'] ?? data['timestamp']);
     if (alertDate == null) return null;
 
-    // Ignore stale alerts older than 3 hours
-    if (now.difference(alertDate).inHours.abs() > 3) return null;
+    // Ignore stale alerts last pressed more than 3 hours ago
+    if (now.difference(sosLastRingTime(data) ?? alertDate).inHours.abs() > 3) return null;
 
     // Check if current user is an intended recipient
     final recEmails = ((data['recipientEmails'] as List<dynamic>?) ?? const [])
@@ -269,14 +290,17 @@ class NotificationService {
           initSettings,
           onDidReceiveNotificationResponse: (NotificationResponse response) async {
             debugPrint('[LocalNotification] Clicked notification: action=${response.actionId} | payload=${response.payload}');
-            // Stop siren immediately when notification is tapped
-            SirenService.instance.stopSiren();
-
             Map<String, dynamic>? parsedPayload;
             if (response.payload != null && response.payload!.isNotEmpty) {
               try {
                 parsedPayload = jsonDecode(response.payload!) as Map<String, dynamic>?;
               } catch (_) {}
+            }
+
+            // Tapping an SOS notification counts as the guardian opening that alert: silence its
+            // siren. Other notifications (rides, journeys, requests) never touch the siren.
+            if (parsedPayload?['type'] == 'SOS_ALERT') {
+              unawaited(SirenService.instance.stopAlertSiren(parsedPayload?['alertId']?.toString() ?? ''));
             }
 
             final activeAlert = activeIncomingSosNotifier.value ?? parsedPayload;
@@ -615,7 +639,7 @@ class NotificationService {
     final ringKey = sosRingKey(alertId, ringSeq ?? _currentRingSeqFor(alertId));
     _shownRingKeys.add(ringKey);
     _dismissedRingKeys.add(ringKey);
-    SirenService.instance.stopSiren();
+    unawaited(SirenService.instance.stopAlertSiren(alertId));
 
     if (activeIncomingSosNotifier.value?['alertId'] == alertId) {
       activeIncomingSosNotifier.value = null;
@@ -659,7 +683,7 @@ class NotificationService {
     final ringKey = sosRingKey(alertId, ringSeq ?? _currentRingSeqFor(alertId));
     _shownRingKeys.add(ringKey);
     _dismissedRingKeys.add(ringKey);
-    SirenService.instance.stopSiren();
+    unawaited(SirenService.instance.stopAlertSiren(alertId));
 
     // 1. Persist locally to SharedPreferences
     try {
@@ -839,9 +863,11 @@ class NotificationService {
     }
 
     if (eligibleAlerts.isEmpty) {
-      if (activeIncomingSosNotifier.value != null) {
+      final ended = activeIncomingSosNotifier.value;
+      if (ended != null) {
         activeIncomingSosNotifier.value = null;
-        SirenService.instance.stopSiren();
+        // The sender ended it (or it was answered/dismissed): silence that alert's siren only.
+        unawaited(SirenService.instance.stopAlertSiren(ended['alertId']?.toString() ?? ''));
       }
       return;
     }
@@ -892,6 +918,7 @@ class NotificationService {
       'liveLocation': latestData['liveLocation'],
       'ringSeq': latestRingSeq,
       'ringKey': latestRingKey,
+      'isLive': isSosAlertLive(latestData, now),
       'origin': latestData['origin']?.toString() ?? '',
       'source': latestData['source']?.toString() ?? '',
     };
@@ -905,6 +932,13 @@ class NotificationService {
       // Mark all older alerts from this sender as processed so they don't trigger subsequently
       for (final a in eligibleAlerts) {
         _shownRingKeys.add(sosRingKey(a['alertId'] as String, (a['data'] as Map<String, dynamic>)['ringSeq']));
+      }
+
+      // Not live (pressed more than 30 minutes ago, e.g. this phone was offline): no dialog and
+      // no siren. It stays on the home screen card and in the notification inbox.
+      if (alertPayload['isLive'] != true) {
+        debugPrint('[NotificationService] SOS $latestRingKey is older than ${sosLiveWindow.inMinutes} min; inbox only');
+        return;
       }
 
       debugPrint('[NotificationService] 🚨 In-App SOS alert (latest of $totalPresses) detected for $myEmail from ${latestData['senderName']}!');
@@ -942,7 +976,8 @@ class NotificationService {
         'origin: ${latestData['origin']}, ringSeq: ${ringSeqOf(latestData['ringSeq'])})');
     final bool isAutomatic = latestData['origin'] == 'automatic';
 
-    SirenService.instance.startSiren();
+    // Loud alarm-stream siren for 2 minutes; only the guardian or the sender can end it early.
+    unawaited(SirenService.instance.startAlertSiren(alertId));
     _bannerAlertIds.add(alertId);
     _showLocalSosAlertBanner(
       title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
@@ -1138,6 +1173,8 @@ class NotificationService {
     final ringKey = alert['ringKey'] as String? ?? '';
     if (_dismissedRingKeys.contains(ringKey)) return;
     if (!userRequested && _presentedRingKeys.contains(ringKey)) return;
+    // Only live alerts open full screen on their own; older ones wait in the inbox.
+    if (!userRequested && alert['isLive'] != true) return;
     _markPresented(ringKey);
     _displayDialog(context, alert);
   }
@@ -1183,14 +1220,14 @@ class NotificationService {
       barrierDismissible: false,
       builder: (ctx) => IntrusiveSosDialog(
         data: data,
+        // The dialog's own buttons (guardian actions) stop the siren. Closing it because a newer
+        // alert replaces it must not: that would cut the new alert's siren short.
         onDismissed: () {
           _isSosDialogShowing = false;
-          SirenService.instance.stopSiren();
         },
       ),
     ).then((_) {
       _isSosDialogShowing = false;
-      SirenService.instance.stopSiren();
     });
   }
 

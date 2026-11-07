@@ -23,6 +23,12 @@ object NotificationChannels {
     /** Incoming SOS alerts from people who added this user as a guardian. */
     const val GUARDIAN_ALERTS = "guardian_emergency_alerts_channel"
 
+    /**
+     * SOS alerts that were no longer live when they reached this phone (ended, or older than 30
+     * minutes; phone offline/asleep). Ordinary notification, never full-screen or siren.
+     */
+    const val MISSED_ALERTS = "guardian_missed_alerts_channel"
+
     /** The sender's own "are you safe?" check when a safety timer runs out while the app is closed. */
     const val SAFETY_CHECKS = "safety_deadline_checks_channel"
 
@@ -66,6 +72,17 @@ object NotificationChannels {
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 // Only honoured when the user grants Do Not Disturb access; ignored otherwise.
                 setBypassDnd(true)
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(MISSED_ALERTS, "Missed Emergency Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "SOS alerts from people you protect that reached your phone late (ended or older than 30 minutes)."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 700, 300, 700)
+                enableLights(true)
+                lightColor = Color.RED
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
         )
 

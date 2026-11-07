@@ -8,11 +8,13 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../core/app_colors.dart';
+import '../screens/inbox_screen.dart';
 import '../screens/journey_tracking_screen.dart';
 import '../screens/ride_details_screen.dart';
 import 'background_service.dart';
 import 'contact_sync_service.dart';
 import 'pin_security_service.dart';
+import 'siren_service.dart';
 
 /// Controls the native guardian alert listener (Android GuardianAlertService), which receives SOS
 /// alerts while the app is in the background, swiped away or the screen is locked, and plays the
@@ -53,10 +55,16 @@ class GuardianAlertService {
       } else if (call.method == 'onAlertOpened') {
         final alertId = call.arguments?.toString() ?? '';
         if (alertId.isNotEmpty) _alertOpened(alertId);
+      } else if (call.method == 'onSirenStateChanged') {
+        SirenService.instance.setNativeAlertSirenPlaying(call.arguments == true);
+      } else if (call.method == 'onOpenInbox') {
+        openInbox();
       }
     });
 
     _checkPendingRide();
+    _checkPendingInbox();
+    _syncNativeSirenState();
     _checkPendingJourney();
     _checkPendingAlert();
 
@@ -87,6 +95,30 @@ class GuardianAlertService {
       final journeyId = await _invoke('getPendingJourneyId');
       if (journeyId is String && journeyId.isNotEmpty) openJourney(journeyId);
     } catch (_) {}
+  }
+
+  Future<void> _checkPendingInbox() async {
+    if (await _invoke('getPendingOpenInbox') == true) openInbox();
+  }
+
+  /// A siren may already be ringing from before the app UI started.
+  Future<void> _syncNativeSirenState() async {
+    if (await _invoke('isSirenPlaying') == true) SirenService.instance.setNativeAlertSirenPlaying(true);
+  }
+
+  /// Opens the notification inbox (bell), e.g. from a late-alert notification.
+  void openInbox() {
+    int attempts = 0;
+    void tryPush() {
+      final context = _navigatorKey?.currentContext;
+      if (context != null && context.mounted) {
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InboxScreen()));
+      } else if (attempts < 15) {
+        attempts++;
+        Future.delayed(const Duration(milliseconds: 300), tryPush);
+      }
+    }
+    tryPush();
   }
 
   /// Opens the live tracking screen of a protected contact's Safe Journey.
@@ -193,6 +225,15 @@ class GuardianAlertService {
   /// Silences a siren started by the native service.
   Future<void> stopNativeSiren() async {
     await _invoke('stopSiren');
+  }
+
+  /// Rings the native alarm-stream siren (2 minutes) for a live alert. False if unavailable.
+  Future<bool> startNativeAlertSiren(String alertId) async =>
+      (await _invoke('startAlertSiren', {'alertId': alertId})) == true;
+
+  /// Silences the native siren only if it is ringing for [alertId].
+  Future<void> stopNativeAlertSiren(String alertId) async {
+    await _invoke('stopAlertSiren', {'alertId': alertId});
   }
 
   void _scheduleReliabilitySetup() {
