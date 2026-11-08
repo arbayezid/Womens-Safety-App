@@ -57,6 +57,9 @@ class ContactSyncService {
   final Map<String, Map<String, dynamic>> _docsByReceiverEmail = {};
   final Map<String, Map<String, dynamic>> _docsByReceiverEmailCamel = {};
   final Map<String, Map<String, dynamic>> _requestsMap = {};
+
+  /// Request IDs whose guardian link is being ended ([stopProtecting] in flight).
+  final Set<String> _endingRequestIds = {};
   final StreamController<List<Map<String, dynamic>>> _broadcastRequestsController =
       StreamController<List<Map<String, dynamic>>>.broadcast();
 
@@ -150,6 +153,7 @@ class ContactSyncService {
     _docsByReceiverEmail.clear();
     _docsByReceiverEmailCamel.clear();
     _requestsMap.clear();
+    _endingRequestIds.clear();
     _notifyIncomingRequests();
   }
 
@@ -287,6 +291,9 @@ class ContactSyncService {
     ]) {
       merged.addAll(map);
     }
+
+    // Links being ended right now stay hidden even if a refresh still reads them as accepted
+    merged.removeWhere((id, _) => _endingRequestIds.contains(id));
 
     _requestsMap
       ..clear()
@@ -844,6 +851,111 @@ class ContactSyncService {
     debugPrint('[ContactSync] ❌ Request rejected: $requestId');
     unawaited(ContactService.instance.getContacts(forceRefresh: true));
     unawaited(refreshIncomingRequests());
+  }
+
+  // ── People I Protect: reverse invite and ending a link ──────────────────────
+
+  /// One-tap invite: asks [person], whom the current user already protects, to become the
+  /// current user's guardian too.
+  ///
+  /// Uses the normal consent flow: [person] receives a request and only gets the current
+  /// user's SOS alerts after accepting. Until then the contact shows as "Sync Pending".
+  /// Throws an [Exception] with a user-facing message when the request cannot be sent.
+  Future<void> addProtectedPersonAsContact(
+    ProtectedPerson person, {
+    required String relationship,
+  }) async {
+    if (person.uid.isEmpty && person.email.trim().isEmpty) {
+      throw Exception('This account has no email or ID to send a request to.');
+    }
+    await sendConnectionRequest(
+      receiverUid: person.uid.isNotEmpty ? person.uid : null,
+      receiverEmail: person.email,
+      receiverName: person.name,
+      relationship: relationship,
+    );
+  }
+
+  /// Ends the current user's role as guardian of [person] ("Stop protecting").
+  ///
+  /// 1. Removes the current user from [person]'s guardian list (`users/{person}/contacts/{me}`)
+  ///    so [person]'s SOS alerts no longer go to the current user.
+  /// 2. Marks every active request from [person] to the current user as rejected, which drops
+  ///    them from "People I Protect".
+  ///
+  /// Does NOT touch the current user's own contact list: if [person] is also the current
+  /// user's emergency contact, they stay one.
+  /// Returns false (and restores the list) when the server refuses the change.
+  Future<bool> stopProtecting(ProtectedPerson person) async {
+    final myUid = _currentUid;
+    if (myUid == null || myUid.isEmpty || person.uid.isEmpty) return false;
+    final myEmail = _currentEmail ?? '';
+
+    final requestIds = {
+      ...activeRequestIdsFrom(
+        person.uid,
+        _requestsMap.entries.map((e) => GuardianRequestRecord.fromMap(e.key, e.value)),
+        myUid: myUid,
+        myEmail: myEmail,
+      ),
+      if (person.requestId.isNotEmpty) person.requestId,
+    };
+
+    // 0. Optimistic UI: drop the person from "People I Protect" right away
+    _endingRequestIds.addAll(requestIds);
+    final removedEntries = <String, Map<String, dynamic>>{};
+    for (final id in requestIds) {
+      final entry = _requestsMap.remove(id);
+      if (entry != null) removedEntries[id] = entry;
+    }
+    _notifyIncomingRequests();
+
+    const opTimeout = Duration(seconds: 8);
+    try {
+      // 1. Leave their guardian list (and any email placeholder they kept for the current user)
+      final theirContacts = _firestore.collection('users').doc(person.uid).collection('contacts');
+      final batch = _firestore.batch()..delete(theirContacts.doc(myUid));
+      if (myEmail.isNotEmpty) {
+        batch.delete(theirContacts.doc('pending_${guardianEmailKey(myEmail)}'));
+      }
+      try {
+        await batch.commit().timeout(opTimeout);
+      } on TimeoutException {
+        debugPrint('[ContactSync] Leaving ${person.uid}\'s guardian list queued offline');
+      }
+    } catch (e) {
+      debugPrint('[ContactSync] ❌ Could not stop protecting ${person.uid}: $e');
+      _endingRequestIds.removeAll(requestIds);
+      _requestsMap.addAll(removedEntries);
+      _notifyIncomingRequests();
+      unawaited(refreshIncomingRequests());
+      return false;
+    }
+
+    // 2. End the request(s) so the link no longer shows on either side
+    for (final id in requestIds) {
+      final ref = _firestore.collection('connection_requests').doc(id);
+      try {
+        await ref.update({
+          'status': 'rejected',
+          'endedByGuardian': true,
+          'respondedAt': FieldValue.serverTimestamp(),
+        }).timeout(opTimeout);
+      } on TimeoutException {
+        debugPrint('[ContactSync] Ending request $id queued offline');
+      } catch (e) {
+        debugPrint('[ContactSync] Could not mark request $id as ended, deleting it: $e');
+        try {
+          await ref.delete().timeout(opTimeout);
+        } catch (_) {}
+      }
+    }
+
+    debugPrint('[ContactSync] 🛡️ Stopped protecting ${person.uid}');
+    // The local cache now holds the ended requests, so a refresh can no longer bring them back
+    _endingRequestIds.removeAll(requestIds);
+    unawaited(refreshIncomingRequests());
+    return true;
   }
 
   /// Permanently removes a guardian/contact from the user's own Firestore list, this

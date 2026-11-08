@@ -146,6 +146,56 @@ void main() {
     final seenAt = now.subtract(const Duration(hours: 1));
     expect(InboxService.countBadge(items, readKeys: {}, seenAt: seenAt), 3);
     expect(InboxService.countBadge(items, readKeys: {'b'}, seenAt: seenAt), 2);
-    expect(InboxService.countBadge(items, readKeys: {}, seenAt: now), 0);
+    expect(InboxService.countBadge(items, readKeys: {}, seenAt: now, seenKeys: {'a', 'b', 'c', 'd'}), 0);
+  });
+
+  group('badge after the inbox was opened (seen keys)', () {
+    InboxItem item(String key, DateTime time) => InboxItem(
+          key: key,
+          type: InboxItemType.journey,
+          id: key,
+          title: '',
+          body: '',
+          time: time,
+          status: '',
+          tone: InboxTone.neutral,
+        );
+
+    test('an active journey whose lastUpdatedAt keeps moving does not come back', () {
+      final seenAt = now;
+      // Seen while open, then a location update pushes its time past the visit
+      final moved = item('journey:j1:active', now.add(const Duration(minutes: 2)));
+      expect(InboxService.countBadge([moved], readKeys: {}, seenAt: seenAt, seenKeys: {moved.key}), 0);
+    });
+
+    test('server time ahead of this phone does not bring a seen item back', () {
+      final ahead = item('sos:a#0', now.add(const Duration(seconds: 90)));
+      expect(InboxService.countBadge([ahead], readKeys: {}, seenAt: now, seenKeys: {ahead.key}), 0);
+    });
+
+    test('a genuinely new event (new key) still shows', () {
+      final arrived = item('journey:j1:arrived', now.add(const Duration(minutes: 5)));
+      expect(
+          InboxService.countBadge([arrived], readKeys: {}, seenAt: now, seenKeys: {'journey:j1:active'}), 1);
+    });
+
+    test('a late-delivered item with a slightly older time still shows', () {
+      final late = item('sos:b#0', now.subtract(const Duration(minutes: 3)));
+      expect(InboxService.countBadge([late], readKeys: {}, seenAt: now), 1);
+      final old = item('sos:c#0', now.subtract(const Duration(hours: 2)));
+      expect(InboxService.countBadge([old], readKeys: {}, seenAt: now), 0);
+    });
+  });
+
+  group('trimKeys', () {
+    test('keeps every listed key even when the history is long', () {
+      final keys = {'listed', for (var i = 0; i < 10; i++) 'old$i'};
+      final kept = InboxService.trimKeys(keys, keep: {'listed'}, max: 3);
+      expect(kept, ['listed', 'old8', 'old9']);
+    });
+
+    test('under the limit nothing is dropped', () {
+      expect(InboxService.trimKeys({'a', 'b'}, keep: {}, max: 5), ['a', 'b']);
+    });
   });
 }

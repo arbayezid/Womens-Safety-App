@@ -40,6 +40,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
   /// Starts true so the hint never flashes before the saved value is loaded.
   bool _primaryHintSeen = true;
 
+  /// "People I Protect" entries with an add / stop-protecting call in flight.
+  final Set<String> _busyProtectedUids = {};
+
+  /// Contacts that are also people I protect (from the latest build), keyed by contact ID.
+  Map<String, _ProtectedMatch> _protectedMatches = const {};
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
     _isLoading = _contacts.isEmpty;
     ContactService.instance.contactsNotifier.addListener(_onContactsChanged);
     ContactSyncService.instance.incomingRequestsNotifier.addListener(_onIncomingRequestsChanged);
+    ContactSyncService.instance.protectedPeopleNotifier.addListener(_onProtectedPeopleChanged);
 
     ContactSyncService.instance.initialize();
     _loadContacts();
@@ -130,8 +137,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
     ));
   }
 
-  /// Long-press menu on a contact card.
-  Future<void> _showContactMenu(ContactModel contact) async {
+  /// Long-press menu on a contact card. [protectedPerson] is set when the current user also
+  /// protects this contact; the menu then offers "Stop protecting".
+  Future<void> _showContactMenu(ContactModel contact, {ProtectedPerson? protectedPerson}) async {
     HapticFeedback.mediumImpact();
     final bool isPrimary = _isPrimary(contact);
     final action = await showModalBottomSheet<String>(
@@ -185,6 +193,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600)),
                 onTap: () => Navigator.pop(ctx, 'edit'),
               ),
+              if (protectedPerson != null)
+                _sheetTile(
+                  ctx,
+                  icon: Icons.remove_moderator_outlined,
+                  color: AppColors.sosRed,
+                  title: 'Stop protecting ${protectedPerson.name.split(' ').first}',
+                  subtitle: 'You will no longer receive their SOS alerts',
+                  value: 'stop',
+                ),
             ],
           ),
         ),
@@ -195,6 +212,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
       await _applyPrimary(contact, makePrimary: !isPrimary);
     } else if (action == 'edit') {
       await _showEditPhoneDialog(contact);
+    } else if (action == 'stop' && protectedPerson != null) {
+      await _confirmStopProtecting(protectedPerson);
     }
   }
 
@@ -226,6 +245,22 @@ class _ContactsScreenState extends State<ContactsScreen> {
     }
   }
 
+  void _onProtectedPeopleChanged() {
+    if (mounted) setState(() {});
+  }
+
+  /// People I protect who are also in my own contact list, keyed by that contact's ID.
+  /// They get ONE card (the contact card) with a shield badge instead of a second card.
+  Map<String, _ProtectedMatch> _protectedByContactId(List<ProtectedPerson> people) {
+    final map = <String, _ProtectedMatch>{};
+    for (final p in people) {
+      final link = linkToProtectedPerson(p, _contacts);
+      final contact = link.contact;
+      if (contact != null) map[contact.id] = _ProtectedMatch(p, link.state);
+    }
+    return map;
+  }
+
   void _subscribeToSyncedContacts() {
     _contactsSubscription?.cancel();
     _contactsSubscription =
@@ -240,6 +275,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   void dispose() {
     ContactService.instance.contactsNotifier.removeListener(_onContactsChanged);
     ContactSyncService.instance.incomingRequestsNotifier.removeListener(_onIncomingRequestsChanged);
+    ContactSyncService.instance.protectedPeopleNotifier.removeListener(_onProtectedPeopleChanged);
     _contactsSubscription?.cancel();
     _searchController.dispose();
     super.dispose();
@@ -285,6 +321,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
         !_primaryHintSeen &&
         _searchQuery.trim().isEmpty &&
         others.isNotEmpty;
+
+    final query = _searchQuery.trim().toLowerCase();
+    final protectedPeople = ContactSyncService.instance.protectedPeopleNotifier.value;
+    final protectedMatches = _protectedByContactId(protectedPeople);
+    _protectedMatches = protectedMatches;
+    final mergedUids = protectedMatches.values.map((m) => m.person.uid).toSet();
+    final shownProtected = protectedPeople
+        .where((p) => !mergedUids.contains(p.uid))
+        .where((p) =>
+            query.isEmpty ||
+            p.name.toLowerCase().contains(query) ||
+            p.email.toLowerCase().contains(query))
+        .toList();
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -351,22 +400,19 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                   : 'No contacts match "$_searchQuery"',
                             ),
 
-                          // ── People I Protect (read-only, one-way links) ──────────
-                          ValueListenableBuilder<List<ProtectedPerson>>(
-                            valueListenable: ContactSyncService.instance.protectedPeopleNotifier,
-                            builder: (context, people, _) {
-                              final query = _searchQuery.trim().toLowerCase();
-                              final shown = query.isEmpty
-                                  ? people
-                                  : people
-                                      .where((p) =>
-                                          p.name.toLowerCase().contains(query) ||
-                                          p.email.toLowerCase().contains(query))
-                                      .toList();
-                              if (shown.isEmpty) return const SizedBox.shrink();
-                              return _PeopleIProtectSection(people: shown);
-                            },
-                          ),
+                          // ── People I Protect (they chose me as their guardian) ──────
+                          // Anyone who is also my contact is shown once, above, with a shield.
+                          if (protectedPeople.isNotEmpty &&
+                              (shownProtected.isNotEmpty || query.isEmpty))
+                            _PeopleIProtectSection(
+                              people: shownProtected,
+                              totalCount: protectedPeople.length,
+                              alsoContactStates: protectedMatches.values.map((m) => m.state).toSet(),
+                              myContacts: _contacts,
+                              busyUids: _busyProtectedUids,
+                              onTap: _onProtectedPersonTap,
+                              onMenu: _showProtectedPersonMenu,
+                            ),
                         ],
                       ),
                     ),
@@ -389,14 +435,16 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Widget _buildContactCard(ContactModel c, {required bool isPrimary}) {
+    final match = _protectedMatches[c.id];
     return _ContactCard(
       contact: c,
       isPrimary: isPrimary,
+      protectState: match?.state,
       onTogglePrimary: () => _togglePrimary(c),
-      onLongPress: () => _showContactMenu(c),
+      onLongPress: () => _showContactMenu(c, protectedPerson: match?.person),
       onCall: () => makePhoneCall(c.phone),
       onMessage: () => openSMSApp(c.phone),
-      onDelete: () => _confirmDelete(c),
+      onDelete: () => _confirmDelete(c, protectedPerson: match?.person),
       onUpgrade: () => _handleUpgrade(c),
       onEditPhone: () => _showEditPhoneDialog(c),
     );
@@ -651,7 +699,22 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   /// Displays confirmation dialog and removes contact on confirmation.
-  Future<void> _confirmDelete(ContactModel contact) async {
+  ///
+  /// [protectedPerson] is set when the removal starts from a "People I Protect" card: only the
+  /// current user's own contact entry is removed, and the person stays in "People I Protect".
+  Future<void> _confirmDelete(ContactModel contact, {ProtectedPerson? protectedPerson}) async {
+    final bool fromProtected = protectedPerson != null;
+    final bool isRequest = contact.isPending;
+    final String who = contact.hasPhone ? '"${contact.name}" (${contact.phone})' : '"${contact.name}"';
+    final String message = fromProtected
+        ? (isRequest
+            ? 'Cancel your guardian request to $who? You will still protect them and receive their SOS alerts.'
+            : 'Remove $who from your emergency contacts? They will no longer receive your SOS alerts. '
+                'You will still protect them and receive their SOS alerts.')
+        : 'Are you sure you want to remove $who? They will no longer receive emergency alerts.';
+    final String title =
+        fromProtected ? (isRequest ? 'Cancel Request' : 'Remove Contact') : 'Delete Contact';
+    final String confirmLabel = fromProtected ? (isRequest ? 'Cancel request' : 'Remove') : 'Delete';
     await AuthGuard.run(
       context,
       actionName: 'manage emergency contacts',
@@ -677,7 +740,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 ),
                 const SizedBox(width: 12),
                 Text(
-                  'Delete Contact',
+                  title,
                   style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
@@ -686,7 +749,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
               ],
             ),
             content: Text(
-              'Are you sure you want to remove "${contact.name}" (${contact.phone})? They will no longer receive emergency alerts.',
+              message,
               style: GoogleFonts.poppins(
                   fontSize: 13, color: AppColors.textSecondary),
             ),
@@ -694,7 +757,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx, false),
-                child: Text('Cancel',
+                child: Text(isRequest && fromProtected ? 'Keep' : 'Cancel',
                     style: GoogleFonts.poppins(
                         fontWeight: FontWeight.w600,
                         color: AppColors.textSecondary)),
@@ -707,7 +770,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
                 ),
-                child: Text('Delete',
+                child: Text(confirmLabel,
                     style: GoogleFonts.poppins(
                         fontWeight: FontWeight.w600, color: Colors.white)),
               ),
@@ -735,7 +798,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
                 removed
-                    ? '${contact.name} removed from contacts'
+                    ? (fromProtected && isRequest
+                        ? 'Request to ${contact.name} cancelled'
+                        : fromProtected
+                            ? '${contact.name} removed from your contacts. You still protect them.'
+                            : '${contact.name} removed from contacts')
                     : 'Could not remove ${contact.name}. Check your connection and try again.',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
             backgroundColor: removed ? AppColors.textPrimary : AppColors.sosRed,
@@ -746,6 +813,365 @@ class _ContactsScreenState extends State<ContactsScreen> {
           ));
         }
       },
+    );
+  }
+
+  // ── People I Protect actions ───────────────────────────────────────────────
+
+  /// Card tap: invite when not yet a contact, otherwise show the options.
+  void _onProtectedPersonTap(ProtectedPerson person) {
+    if (_busyProtectedUids.contains(person.uid)) return;
+    final link = linkToProtectedPerson(person, _contacts);
+    if (link.state == ProtectedLinkState.notAdded) {
+      _confirmAddProtectedPerson(person);
+    } else {
+      _showProtectedPersonMenu(person);
+    }
+  }
+
+  void _setProtectedBusy(String uid, bool busy) {
+    if (!mounted) return;
+    setState(() => busy ? _busyProtectedUids.add(uid) : _busyProtectedUids.remove(uid));
+  }
+
+  void _showResultSnack(String message, {required bool success, IconData? icon}) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(SnackBar(
+      content: Row(
+        children: [
+          Icon(icon ?? (success ? Icons.check_circle_rounded : Icons.error_outline_rounded),
+              color: Colors.white, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(message,
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13)),
+          ),
+        ],
+      ),
+      backgroundColor: success ? AppColors.actionGreen : AppColors.sosRed,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      margin: const EdgeInsets.all(16),
+      duration: Duration(seconds: success ? 3 : 4),
+    ));
+  }
+
+  /// Yes / No modal: invite a protected person to become the user's emergency contact too.
+  Future<void> _confirmAddProtectedPerson(ProtectedPerson person) async {
+    HapticFeedback.selectionClick();
+    String relationship = suggestReverseRelationship(person.relationship);
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: AppColors.surface,
+          titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+          contentPadding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+          title: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: AppColors.primarySurface,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.person_add_alt_1_rounded,
+                    color: AppColors.primary, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Add as Emergency Contact?',
+                  style: GoogleFonts.poppins(
+                      fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text.rich(
+                  TextSpan(
+                    style: GoogleFonts.poppins(
+                        fontSize: 13, height: 1.45, color: AppColors.textSecondary),
+                    children: [
+                      const TextSpan(text: 'Do you want to add '),
+                      TextSpan(
+                        text: person.name,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                      ),
+                      const TextSpan(
+                          text: ' as your emergency contact? They will get a request and, '
+                              'once they accept, will receive your SOS alerts.'),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  '${person.name.split(' ').first} is your…',
+                  style: GoogleFonts.poppins(
+                      fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: reverseRelationshipOptions.map((rel) {
+                    final selected = rel == relationship;
+                    return ChoiceChip(
+                      label: Text(rel),
+                      selected: selected,
+                      showCheckmark: false,
+                      visualDensity: VisualDensity.compact,
+                      labelStyle: GoogleFonts.poppins(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: selected ? Colors.white : AppColors.textPrimary,
+                      ),
+                      selectedColor: AppColors.primary,
+                      backgroundColor: AppColors.background,
+                      side: BorderSide(
+                          color: selected
+                              ? AppColors.primary
+                              : AppColors.textSecondary.withValues(alpha: 0.25)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      onSelected: (_) => setDialogState(() => relationship = rel),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'You will keep protecting ${person.name.split(' ').first} either way.',
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('No',
+                  style: GoogleFonts.poppins(
+                      fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.primary,
+                elevation: 0,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+              child: Text('Yes, add',
+                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    _setProtectedBusy(person.uid, true);
+    try {
+      await ContactSyncService.instance
+          .addProtectedPersonAsContact(person, relationship: relationship);
+      _showResultSnack(
+        'Request sent to ${person.name}. They become your emergency contact once they accept.',
+        success: true,
+        icon: Icons.send_rounded,
+      );
+      await _loadContacts();
+    } catch (e) {
+      _showResultSnack(e.toString().replaceAll('Exception: ', ''), success: false);
+    } finally {
+      _setProtectedBusy(person.uid, false);
+    }
+  }
+
+  /// Options for a protected person: add / cancel / remove as my contact, and stop protecting.
+  Future<void> _showProtectedPersonMenu(ProtectedPerson person) async {
+    if (_busyProtectedUids.contains(person.uid)) return;
+    HapticFeedback.mediumImpact();
+    final link = linkToProtectedPerson(person, _contacts);
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
+                child: Text(
+                  person.name,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                      fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                ),
+              ),
+              if (link.state == ProtectedLinkState.notAdded)
+                _sheetTile(
+                  ctx,
+                  icon: Icons.person_add_alt_1_rounded,
+                  color: AppColors.primary,
+                  title: 'Add as my emergency contact',
+                  subtitle: 'Sends them a request to receive your SOS alerts',
+                  value: 'add',
+                )
+              else if (link.state == ProtectedLinkState.requestSent)
+                _sheetTile(
+                  ctx,
+                  icon: Icons.cancel_schedule_send_rounded,
+                  color: AppColors.actionOrange,
+                  title: 'Cancel my request',
+                  subtitle: 'They have not accepted yet',
+                  value: 'remove',
+                )
+              else
+                _sheetTile(
+                  ctx,
+                  icon: Icons.person_remove_alt_1_rounded,
+                  color: AppColors.actionOrange,
+                  title: 'Remove from my emergency contacts',
+                  subtitle: 'They stop getting your alerts. You still protect them.',
+                  value: 'remove',
+                ),
+              _sheetTile(
+                ctx,
+                icon: Icons.remove_moderator_outlined,
+                color: AppColors.sosRed,
+                title: 'Stop protecting ${person.name.split(' ').first}',
+                subtitle: 'You will no longer receive their SOS alerts',
+                value: 'stop',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'add':
+        await _confirmAddProtectedPerson(person);
+      case 'remove':
+        if (link.contact != null) await _confirmDelete(link.contact!, protectedPerson: person);
+      case 'stop':
+        await _confirmStopProtecting(person);
+    }
+  }
+
+  Widget _sheetTile(
+    BuildContext ctx, {
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required String value,
+  }) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(title,
+          style: GoogleFonts.poppins(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: color == AppColors.sosRed ? AppColors.sosRed : AppColors.textPrimary)),
+      subtitle: Text(subtitle,
+          style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary)),
+      onTap: () => Navigator.pop(ctx, value),
+    );
+  }
+
+  /// Removes a person from "People I Protect": the user leaves their guardian list.
+  Future<void> _confirmStopProtecting(ProtectedPerson person) async {
+    final link = linkToProtectedPerson(person, _contacts);
+    final firstName = person.name.split(' ').first;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        backgroundColor: AppColors.surface,
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFE5E5),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(Icons.remove_moderator_outlined,
+                  color: AppColors.sosRed, size: 22),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'Stop Protecting?',
+                style: GoogleFonts.poppins(
+                    fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+              ),
+            ),
+          ],
+        ),
+        content: Text(
+          'You will be removed from ${person.name}\'s emergency contacts and will no longer '
+          'receive their SOS alerts or journey updates. $firstName can send you a new request later.'
+          '${link.state == ProtectedLinkState.notAdded ? '' : '\n\n$firstName stays in your own emergency contacts.'}',
+          style: GoogleFonts.poppins(fontSize: 13, height: 1.45, color: AppColors.textSecondary),
+        ),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel',
+                style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.sosRed,
+              elevation: 0,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: Text('Stop protecting',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    _setProtectedBusy(person.uid, true);
+    final ok = await ContactSyncService.instance.stopProtecting(person);
+    _setProtectedBusy(person.uid, false);
+    _showResultSnack(
+      ok
+          ? 'You no longer protect ${person.name}'
+          : 'Could not stop protecting ${person.name}. Check your connection and try again.',
+      success: ok,
+      icon: ok ? Icons.remove_moderator_outlined : null,
     );
   }
 
@@ -1042,11 +1468,43 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
 // ─── Sub-widgets ────────────────────────────────────────────────────────────
 
-/// Read-only list of people who added the current user as their guardian.
-/// They are NOT the current user's guardians: the current user only receives their alerts.
+/// A contact who is also someone the current user protects.
+class _ProtectedMatch {
+  final ProtectedPerson person;
+
+  /// [ProtectedLinkState.added]: both sides protect each other (green shield).
+  /// [ProtectedLinkState.requestSent]: the current user's request is still pending (orange).
+  final ProtectedLinkState state;
+
+  const _ProtectedMatch(this.person, this.state);
+}
+
+/// People who added the current user as their guardian. The current user receives their
+/// alerts; each card also shows whether the person is one of the current user's own
+/// emergency contacts, and lets the user add or remove them, or stop protecting them.
 class _PeopleIProtectSection extends StatelessWidget {
+  /// People to show here: those who are NOT also the current user's contacts.
   final List<ProtectedPerson> people;
-  const _PeopleIProtectSection({required this.people});
+
+  /// Everyone the current user protects, including those shown above as contacts.
+  final int totalCount;
+
+  /// Shield colours in use on contact cards above (people who are also contacts).
+  final Set<ProtectedLinkState> alsoContactStates;
+  final List<ContactModel> myContacts;
+  final Set<String> busyUids;
+  final ValueChanged<ProtectedPerson> onTap;
+  final ValueChanged<ProtectedPerson> onMenu;
+
+  const _PeopleIProtectSection({
+    required this.people,
+    required this.totalCount,
+    required this.alsoContactStates,
+    required this.myContacts,
+    required this.busyUids,
+    required this.onTap,
+    required this.onMenu,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -1055,17 +1513,32 @@ class _PeopleIProtectSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _SectionLabel(label: 'People I Protect (${people.length})'),
+          _SectionLabel(label: 'People I Protect ($totalCount)'),
           const SizedBox(height: 2),
           Text(
-            'You receive their SOS alerts. They do not receive yours.',
+            people.isEmpty
+                ? 'You receive their SOS alerts.'
+                : 'You receive their SOS alerts. Tap a card to add them as your emergency contact too.',
             style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
           ),
+          if (alsoContactStates.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _ShieldLegend(states: alsoContactStates),
+          ],
           const SizedBox(height: 10),
-          ...people.map((p) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _ProtectedPersonCard(person: p),
-              )),
+          ...people.map((p) {
+            final link = linkToProtectedPerson(p, myContacts);
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _ProtectedPersonCard(
+                person: p,
+                link: link,
+                busy: busyUids.contains(p.uid),
+                onTap: () => onTap(p),
+                onMenu: () => onMenu(p),
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -1074,59 +1547,178 @@ class _PeopleIProtectSection extends StatelessWidget {
 
 class _ProtectedPersonCard extends StatelessWidget {
   final ProtectedPerson person;
-  const _ProtectedPersonCard({required this.person});
+  final ProtectedPersonLink link;
+  final bool busy;
+  final VoidCallback onTap;
+  final VoidCallback onMenu;
+
+  const _ProtectedPersonCard({
+    required this.person,
+    required this.link,
+    required this.busy,
+    required this.onTap,
+    required this.onMenu,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool added = link.state == ProtectedLinkState.added;
+    return Material(
+      color: AppColors.surface,
+      borderRadius: BorderRadius.circular(18),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: busy ? null : onTap,
+        onLongPress: busy ? null : onMenu,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: added
+                  ? AppColors.actionGreen.withValues(alpha: 0.35)
+                  : AppColors.primary.withValues(alpha: 0.15),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration:
+                        const BoxDecoration(color: Color(0xFFEDE7F6), shape: BoxShape.circle),
+                    alignment: Alignment.center,
+                    child: Text(
+                      person.initial,
+                      style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: AppColors.primaryViolet),
+                    ),
+                  ),
+                  Positioned(
+                    right: 0,
+                    bottom: 0,
+                    child: Container(
+                      width: 17,
+                      height: 17,
+                      decoration: BoxDecoration(
+                          color: AppColors.primaryViolet,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: AppColors.surface, width: 2)),
+                      alignment: Alignment.center,
+                      child: const Icon(Icons.shield_rounded, size: 9, color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      person.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: GoogleFonts.poppins(
+                          fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                    ),
+                    if (person.email.isNotEmpty && person.email != person.name)
+                      Text(
+                        person.email,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                      ),
+                    if (person.relationship.isNotEmpty)
+                      Text(
+                        'Added you as: ${person.relationship}',
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.poppins(fontSize: 11, color: AppColors.primaryViolet),
+                      ),
+                  ],
+                ),
+              ),
+              if (busy)
+                const SizedBox(
+                  width: 40,
+                  height: 40,
+                  child: Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.primary),
+                    ),
+                  ),
+                )
+              else
+                IconButton(
+                  tooltip: 'More options',
+                  onPressed: onMenu,
+                  constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+                  padding: EdgeInsets.zero,
+                  icon: const Icon(Icons.more_vert_rounded, color: AppColors.textSecondary),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shield badge on a contact's avatar when the current user also protects them.
+/// Green: you protect each other. Orange: you protect them; your request to them is pending.
+class _ProtectShieldBadge extends StatelessWidget {
+  final ProtectedLinkState state;
+  const _ProtectShieldBadge({required this.state});
+
+  static Color colorFor(ProtectedLinkState state) =>
+      state == ProtectedLinkState.added ? AppColors.actionGreen : AppColors.actionOrange;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      width: 17,
+      height: 17,
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppColors.primary.withValues(alpha: 0.15)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 42,
-            height: 42,
-            decoration: const BoxDecoration(color: Color(0xFFEDE7F6), shape: BoxShape.circle),
-            alignment: Alignment.center,
-            child: Text(
-              person.initial,
-              style: GoogleFonts.poppins(
-                  fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.primaryViolet),
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  person.name,
-                  overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                      fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                ),
-                if (person.email.isNotEmpty && person.email != person.name)
-                  Text(
-                    person.email,
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
-                  ),
-                if (person.relationship.isNotEmpty)
-                  Text(
-                    'Added you as: ${person.relationship}',
-                    overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(fontSize: 11, color: AppColors.primaryViolet),
-                  ),
-              ],
-            ),
-          ),
-          const Icon(Icons.shield_outlined, size: 18, color: AppColors.primaryViolet),
-        ],
-      ),
+          color: colorFor(state),
+          shape: BoxShape.circle,
+          border: Border.all(color: AppColors.surface, width: 2)),
+      alignment: Alignment.center,
+      child: const Icon(Icons.shield_rounded, size: 9, color: Colors.white),
+    );
+  }
+}
+
+/// Explains the shield colours on contact avatars.
+class _ShieldLegend extends StatelessWidget {
+  final Set<ProtectedLinkState> states;
+  const _ShieldLegend({required this.states});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget entry(ProtectedLinkState state, String label) => Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shield_rounded, size: 13, color: _ProtectShieldBadge.colorFor(state)),
+            const SizedBox(width: 4),
+            Text(label,
+                style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSecondary)),
+          ],
+        );
+    return Wrap(
+      spacing: 12,
+      runSpacing: 4,
+      children: [
+        if (states.contains(ProtectedLinkState.added))
+          entry(ProtectedLinkState.added, 'Shown above: you protect each other'),
+        if (states.contains(ProtectedLinkState.requestSent))
+          entry(ProtectedLinkState.requestSent, 'Shown above: your request is pending'),
+      ],
     );
   }
 }
@@ -1151,6 +1743,9 @@ class _SectionLabel extends StatelessWidget {
 class _ContactCard extends StatelessWidget {
   final ContactModel contact;
   final bool isPrimary;
+
+  /// Set when the current user also protects this contact (shield badge on the avatar).
+  final ProtectedLinkState? protectState;
   final VoidCallback onTogglePrimary;
   final VoidCallback? onLongPress;
   final VoidCallback onCall, onMessage, onDelete;
@@ -1160,6 +1755,7 @@ class _ContactCard extends StatelessWidget {
   const _ContactCard({
     required this.contact,
     required this.isPrimary,
+    this.protectState,
     required this.onTogglePrimary,
     this.onLongPress,
     required this.onCall,
@@ -1224,6 +1820,13 @@ class _ContactCard extends StatelessWidget {
                     alignment: Alignment.center,
                     child: const Icon(Icons.star_rounded, size: 10, color: Colors.white),
                   ),
+                ),
+              // You also protect them: green = both ways, orange = your request is pending
+              if (protectState != null)
+                Positioned(
+                  left: 0,
+                  bottom: 0,
+                  child: _ProtectShieldBadge(state: protectState!),
                 ),
             ],
           ),

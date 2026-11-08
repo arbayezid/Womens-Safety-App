@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:smart_safety/models/contact_model.dart';
 import 'package:smart_safety/services/guardian_link_logic.dart';
 
 const a = 'uid_a';
@@ -217,4 +218,131 @@ void main() {
       expect(verdictFor(decisions, a), GuardianEntryVerdict.reverseEntry);
     });
   });
+
+  group('linkToProtectedPerson (is a protected person also my contact?)', () {
+    const alice = ProtectedPerson(
+        uid: a, name: 'Alice', email: aEmail, relationship: 'Parent', requestId: '${a}_$b');
+
+    ContactModel contact(String id,
+            {String? uid, String email = '', String status = 'synced', String phone = ''}) =>
+        ContactModel(
+          id: id,
+          name: 'X',
+          email: email,
+          phone: phone,
+          relationship: 'Friend',
+          contactUid: uid,
+          isSyncedAppUser: status == 'synced',
+          syncStatus: status,
+        );
+
+    test('not in my contacts', () {
+      final link = linkToProtectedPerson(alice, [contact(c, uid: c)]);
+      expect(link.state, ProtectedLinkState.notAdded);
+      expect(link.contact, isNull);
+    });
+
+    test('pending request sent by me', () {
+      final link = linkToProtectedPerson(alice, [contact(a, uid: a, status: 'pending')]);
+      expect(link.state, ProtectedLinkState.requestSent);
+      expect(link.contact!.id, a);
+    });
+
+    test('accepted: my emergency contact', () {
+      final link = linkToProtectedPerson(alice, [contact(a, uid: a)]);
+      expect(link.state, ProtectedLinkState.added);
+    });
+
+    test('matched by contactUid under another doc id', () {
+      final link = linkToProtectedPerson(alice, [contact('legacy_doc', uid: a)]);
+      expect(link.state, ProtectedLinkState.added);
+    });
+
+    test('matched by email, case-insensitive (SMS-only contact counts as added)', () {
+      final link = linkToProtectedPerson(
+          alice, [contact('offline_1', email: 'ALICE@example.com', status: 'offline_only')]);
+      expect(link.state, ProtectedLinkState.added);
+      expect(link.contact!.id, 'offline_1');
+    });
+
+    test('matched by email placeholder id', () {
+      final link = linkToProtectedPerson(
+          alice, [contact('pending_${guardianEmailKey(aEmail)}', status: 'pending')]);
+      expect(link.state, ProtectedLinkState.requestSent);
+    });
+
+    test('a settled entry wins over a leftover pending one', () {
+      final link = linkToProtectedPerson(alice, [
+        contact('pending_${guardianEmailKey(aEmail)}', status: 'pending'),
+        contact(a, uid: a),
+      ]);
+      expect(link.state, ProtectedLinkState.added);
+      expect(link.contact!.id, a);
+    });
+
+    test('phone-only person (no email) does not match contacts without an email', () {
+      const noEmail =
+          ProtectedPerson(uid: a, name: 'Alice', email: '', relationship: '', requestId: 'r');
+      final link = linkToProtectedPerson(noEmail, [contact('offline_2', status: 'offline_only')]);
+      expect(link.state, ProtectedLinkState.notAdded);
+    });
+  });
+
+  group('suggestReverseRelationship', () {
+    test('inverts parent/child and keeps symmetric labels', () {
+      expect(suggestReverseRelationship('Parent'), 'Child');
+      expect(suggestReverseRelationship('mother'), 'Child');
+      expect(suggestReverseRelationship('Child'), 'Parent');
+      expect(suggestReverseRelationship('Sister'), 'Sibling');
+      expect(suggestReverseRelationship('Spouse'), 'Spouse');
+      expect(suggestReverseRelationship('Friend'), 'Friend');
+      expect(suggestReverseRelationship(' Colleague '), 'Colleague');
+    });
+
+    test('unknown labels fall back to Other, which is always offered', () {
+      expect(suggestReverseRelationship('Guardian'), 'Other');
+      expect(suggestReverseRelationship(''), 'Other');
+      for (final label in ['Parent', 'Child', 'Sister', 'Spouse', 'Friend', 'Colleague', 'x']) {
+        expect(reverseRelationshipOptions, contains(suggestReverseRelationship(label)));
+      }
+    });
+  });
+
+  group('activeRequestIdsFrom (requests ended by "Stop protecting")', () {
+    test('collects uid- and email-keyed requests from that sender to me', () {
+      final ids = activeRequestIdsFrom(
+        a,
+        [
+          req(a, b, 'accepted'),
+          req(a, '', 'accepted', receiverEmail: bEmail),
+          req(a, b, 'rejected').copyWithId('old'),
+          req(c, b, 'accepted'),
+          req(b, a, 'accepted'),
+        ],
+        myUid: b,
+        myEmail: bEmail,
+      );
+      expect(ids, unorderedEquals(['${a}_$b', '${a}_${guardianEmailKey(bEmail)}']));
+    });
+
+    test('empty sender uid matches nothing', () {
+      expect(activeRequestIdsFrom('', [req(a, b, 'accepted')], myUid: b, myEmail: bEmail),
+          isEmpty);
+    });
+  });
+}
+
+extension on GuardianRequestRecord {
+  GuardianRequestRecord copyWithId(String id) => GuardianRequestRecord(
+        id: id,
+        senderUid: senderUid,
+        senderEmail: senderEmail,
+        senderName: senderName,
+        receiverUid: receiverUid,
+        receiverEmail: receiverEmail,
+        relationship: relationship,
+        status: status,
+        createdAt: createdAt,
+        respondedAt: respondedAt,
+      );
 }

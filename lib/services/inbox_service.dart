@@ -73,8 +73,19 @@ class InboxService {
   String? _uid;
 
   Set<String> _readKeys = {};
+
+  /// Keys of every item that was on screen while the inbox was open. The badge is key-based:
+  /// an item's time can keep moving (an active journey's `lastUpdatedAt` refreshes with every
+  /// location update) and server times can be ahead of this phone's clock, so "newer than the
+  /// last visit" alone made already-seen items come back on the badge.
+  Set<String> _seenKeys = {};
   DateTime _seenAt = DateTime.fromMillisecondsSinceEpoch(0);
   DateTime _readBaseline = DateTime.fromMillisecondsSinceEpoch(0);
+
+  /// Inbox screens currently open (the bell and a notification tap can each push one).
+  /// While any is showing, everything that arrives is seen.
+  int _openInboxScreens = 0;
+  bool get _inboxOpen => _openInboxScreens > 0;
 
   /// Starts following the signed-in user. Safe to call more than once.
   void initialize() {
@@ -126,6 +137,7 @@ class InboxService {
     _docsBySource.clear();
     _uid = null;
     _readKeys = {};
+    _seenKeys = {};
     itemsNotifier.value = const [];
     unreadCountNotifier.value = 0;
   }
@@ -156,30 +168,59 @@ class InboxService {
       now: DateTime.now(),
     );
     itemsNotifier.value = items;
-    unreadCountNotifier.value = countBadge(items, readKeys: _readKeys, seenAt: _seenAt);
+    if (_inboxOpen) {
+      // On screen right now, so already seen: must not show on the badge after going back
+      final before = _seenKeys.length;
+      _seenKeys.addAll(items.map((i) => i.key));
+      if (_seenKeys.length != before) unawaited(_saveReadState());
+    }
+    _updateBadge();
+  }
+
+  void _updateBadge() {
+    unreadCountNotifier.value =
+        countBadge(itemsNotifier.value, readKeys: _readKeys, seenKeys: _seenKeys, seenAt: _seenAt);
   }
 
   /// Whether [item] is highlighted as unread in the list.
   bool isUnread(InboxItem item) => !_readKeys.contains(item.key) && item.time.isAfter(_readBaseline);
 
-  /// The inbox was opened: clears the badge; items stay highlighted until tapped.
+  /// The inbox screen became visible: everything listed now (and everything that arrives while
+  /// it stays open) counts as seen and leaves the badge. Items stay highlighted until tapped.
+  Future<void> inboxOpened() async {
+    _openInboxScreens++;
+    await markAllSeen();
+  }
+
+  /// The inbox screen was closed. Items that arrived while it was open were seen too.
+  Future<void> inboxClosed() async {
+    if (_openInboxScreens > 0) _openInboxScreens--;
+    await markAllSeen();
+  }
+
+  /// Clears the badge for everything currently listed.
   Future<void> markAllSeen() async {
+    _seenKeys.addAll(itemsNotifier.value.map((i) => i.key));
     _seenAt = DateTime.now();
-    unreadCountNotifier.value = 0;
+    _updateBadge();
     await _saveReadState();
   }
 
   Future<void> markRead(InboxItem item) async {
-    if (!_readKeys.add(item.key)) return;
-    unreadCountNotifier.value = countBadge(itemsNotifier.value, readKeys: _readKeys, seenAt: _seenAt);
+    final added = _readKeys.add(item.key);
+    _seenKeys.add(item.key);
+    if (!added) return;
+    _updateBadge();
     itemsNotifier.value = List.of(itemsNotifier.value); // repaint highlights
     await _saveReadState();
   }
 
   Future<void> markAllRead() async {
-    _readKeys.addAll(itemsNotifier.value.map((i) => i.key));
+    final keys = itemsNotifier.value.map((i) => i.key);
+    _readKeys.addAll(keys);
+    _seenKeys.addAll(keys);
     _seenAt = DateTime.now();
-    unreadCountNotifier.value = 0;
+    _updateBadge();
     itemsNotifier.value = List.of(itemsNotifier.value);
     await _saveReadState();
   }
@@ -190,6 +231,7 @@ class InboxService {
     try {
       final prefs = await SharedPreferences.getInstance();
       _readKeys = (prefs.getStringList(_k('read', uid)) ?? const []).toSet();
+      _seenKeys = (prefs.getStringList(_k('seenkeys', uid)) ?? const []).toSet();
       final baseline = prefs.getInt(_k('baseline', uid));
       if (baseline == null) {
         // First run: anything from the last 24 hours is new to this user.
@@ -212,9 +254,9 @@ class InboxService {
     if (uid == null) return;
     try {
       final prefs = await SharedPreferences.getInstance();
-      var keys = _readKeys.toList();
-      if (keys.length > _maxReadKeys) keys = keys.sublist(keys.length - _maxReadKeys);
-      await prefs.setStringList(_k('read', uid), keys);
+      final listed = itemsNotifier.value.map((i) => i.key).toSet();
+      await prefs.setStringList(_k('read', uid), trimKeys(_readKeys, keep: listed, max: _maxReadKeys));
+      await prefs.setStringList(_k('seenkeys', uid), trimKeys(_seenKeys, keep: listed, max: _maxReadKeys));
       await prefs.setInt(_k('seen', uid), _seenAt.millisecondsSinceEpoch);
     } catch (e) {
       debugPrint('[Inbox] Could not save read state: $e');
@@ -223,9 +265,34 @@ class InboxService {
 
   // ── Pure mapping (unit-tested) ─────────────────────────────────────────────
 
-  /// Bell badge: items newer than the last time the inbox was opened and not read yet.
-  static int countBadge(List<InboxItem> items, {required Set<String> readKeys, required DateTime seenAt}) =>
-      items.where((i) => i.time.isAfter(seenAt) && !readKeys.contains(i.key)).length;
+  /// How far before the last inbox visit an item's time may lie and still count as new when its
+  /// key was never seen: covers a phone clock running ahead of the server and alerts delivered
+  /// late (phone offline). Items that were listed during the visit are excluded by key.
+  static const Duration badgeClockGrace = Duration(minutes: 15);
+
+  /// Bell badge: items never listed while the inbox was open ([seenKeys]), not read, and not
+  /// older than the last visit ([seenAt], minus [badgeClockGrace]).
+  static int countBadge(
+    List<InboxItem> items, {
+    required Set<String> readKeys,
+    required DateTime seenAt,
+    Set<String> seenKeys = const {},
+  }) {
+    final since = seenAt.subtract(badgeClockGrace);
+    return items
+        .where((i) => !seenKeys.contains(i.key) && !readKeys.contains(i.key) && i.time.isAfter(since))
+        .length;
+  }
+
+  /// Keys to persist: every key of a listed item ([keep]) first, then the most recent others,
+  /// at most [max]. Keeping the listed ones means a long history can never evict the key of an
+  /// item that is still shown (which would put it back on the badge).
+  static List<String> trimKeys(Set<String> keys, {required Set<String> keep, required int max}) {
+    final listed = keys.where(keep.contains).toList();
+    final others = keys.where((k) => !keep.contains(k)).toList();
+    final room = (max - listed.length).clamp(0, others.length);
+    return [...listed, ...others.sublist(others.length - room)];
+  }
 
   static DateTime? _date(dynamic raw) {
     if (raw is Timestamp) return raw.toDate();

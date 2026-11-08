@@ -22,7 +22,13 @@ class _InboxScreenState extends State<InboxScreen> {
   @override
   void initState() {
     super.initState();
-    InboxService.instance.markAllSeen();
+    InboxService.instance.inboxOpened();
+  }
+
+  @override
+  void dispose() {
+    InboxService.instance.inboxClosed();
+    super.dispose();
   }
 
   void _open(InboxItem item) {

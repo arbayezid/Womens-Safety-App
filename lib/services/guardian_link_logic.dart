@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../models/contact_model.dart';
 
 /// Pure (Firestore-free) rules for one-way guardian links.
 ///
@@ -109,6 +110,116 @@ class ProtectedPerson {
 
   @override
   int get hashCode => Object.hash(uid, name, email, relationship, requestId, since);
+}
+
+/// Whether a protected person is also one of the current user's own emergency
+/// contacts (the opposite direction of the link).
+enum ProtectedLinkState {
+  /// Not in the current user's contacts. They can be invited with one tap.
+  notAdded,
+
+  /// The current user sent them a guardian request that they have not accepted yet.
+  requestSent,
+
+  /// Already in the current user's emergency contacts.
+  added,
+}
+
+class ProtectedPersonLink {
+  final ProtectedLinkState state;
+
+  /// The matching entry in the current user's contacts (null when [ProtectedLinkState.notAdded]).
+  final ContactModel? contact;
+
+  const ProtectedPersonLink(this.state, [this.contact]);
+}
+
+/// Finds [person] in the current user's own contact list ([myContacts]).
+///
+/// Matches by uid (doc ID or contactUid), by email, or by the email placeholder
+/// ID (`pending_<email key>`) used for requests sent before the uid was known.
+ProtectedPersonLink linkToProtectedPerson(
+  ProtectedPerson person,
+  Iterable<ContactModel> myContacts,
+) {
+  final email = person.email.toLowerCase().trim();
+  final placeholderId = email.isEmpty ? '' : 'pending_${guardianEmailKey(email)}';
+
+  bool matches(ContactModel c) {
+    if (person.uid.isNotEmpty && (c.id == person.uid || c.contactUid == person.uid)) return true;
+    if (email.isNotEmpty && c.email.toLowerCase().trim() == email) return true;
+    return placeholderId.isNotEmpty && c.id == placeholderId;
+  }
+
+  final matched = myContacts.where(matches).toList();
+  if (matched.isEmpty) return const ProtectedPersonLink(ProtectedLinkState.notAdded);
+
+  // An accepted (or SMS-only) entry wins over a leftover pending one.
+  final settled = matched.where((c) => !c.isPending).firstOrNull;
+  if (settled != null) return ProtectedPersonLink(ProtectedLinkState.added, settled);
+  return ProtectedPersonLink(ProtectedLinkState.requestSent, matched.first);
+}
+
+/// Relationship options offered when adding a protected person as a contact.
+const List<String> reverseRelationshipOptions = [
+  'Parent',
+  'Child',
+  'Sibling',
+  'Spouse',
+  'Friend',
+  'Colleague',
+  'Other',
+];
+
+/// Suggests how the current user would label a protected person, given how that
+/// person labelled the current user. If they call me "Parent", they are my "Child".
+String suggestReverseRelationship(String theirLabelForMe) {
+  switch (theirLabelForMe.toLowerCase().trim()) {
+    case 'parent':
+    case 'mother':
+    case 'father':
+    case 'mom':
+    case 'dad':
+      return 'Child';
+    case 'child':
+    case 'son':
+    case 'daughter':
+      return 'Parent';
+    case 'sibling':
+    case 'sister':
+    case 'brother':
+      return 'Sibling';
+    case 'spouse':
+    case 'partner':
+    case 'husband':
+    case 'wife':
+      return 'Spouse';
+    case 'friend':
+      return 'Friend';
+    case 'colleague':
+      return 'Colleague';
+    default:
+      return 'Other';
+  }
+}
+
+/// IDs of every request in which [senderUid] asked the current user to be their
+/// guardian and that is still active (pending or accepted). Several can exist
+/// for one sender: one keyed by uid and one keyed by email.
+List<String> activeRequestIdsFrom(
+  String senderUid,
+  Iterable<GuardianRequestRecord> requests, {
+  required String myUid,
+  required String myEmail,
+}) {
+  if (senderUid.isEmpty) return const [];
+  return requests
+      .where((r) =>
+          r.senderUid == senderUid &&
+          (r.isAccepted || r.isPending) &&
+          r.isAddressedTo(myUid, myEmail))
+      .map((r) => r.id)
+      .toList();
 }
 
 /// Derives "People I Protect" from accepted requests addressed to the current
