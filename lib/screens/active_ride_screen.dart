@@ -87,7 +87,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
           children: [
             const Icon(Icons.check_circle_rounded, color: AppColors.actionGreen, size: 28),
             const SizedBox(width: 10),
-            Text('Arrived Safely?', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 17)),
+            Expanded(child: Text('Arrived Safely?', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 17))),
           ],
         ),
         content: Text(
@@ -329,7 +329,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
+                            Flexible(child: Row(
                               children: [
                                 Container(
                                   width: 8,
@@ -340,7 +340,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                                   ),
                                 ),
                                 const SizedBox(width: 8),
-                                Text(
+                                Flexible(child: Text(
                                   isOverdue
                                       ? '⚠️ RIDE OVERDUE (Dead-Man Active)'
                                       : '🚗 Live Ride Tracking Active',
@@ -348,10 +348,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
                                     color: isOverdue ? AppColors.sosRed : AppColors.textPrimary,
-                                  ),
-                                ),
+                                  ), maxLines: 1, overflow: TextOverflow.ellipsis)),
                               ],
-                            ),
+                            )),
                             if (ride.batteryLevel != null)
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),

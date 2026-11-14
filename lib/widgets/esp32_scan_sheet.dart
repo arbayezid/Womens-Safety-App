@@ -961,10 +961,9 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                 const SizedBox(height: 2),
                 Row(
                   children: [
-                    Text(
+                    Flexible(child: Text(
                       device.remoteId.str,
-                      style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
-                    ),
+                      style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
                     const SizedBox(width: 8),
                     Text(
                       '• ${result.rssi} dBm',

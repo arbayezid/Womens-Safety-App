@@ -130,6 +130,57 @@ test('re-ring: the sender bumps ringSeq by exactly 1 and may only clear dismissa
   assert.equal(await update(SENDER, 'rr', { dismissedBy: ['someone'] }), 403);
 });
 
+// Exactly what SosCloudDispatcher.reRing sends (the home screen's "Re-send" and a pendant / button
+// re-press): ringSeq + 1, ringAt = server time, dismissals cleared, lastUpdatedAt, expiresAt.
+const appReRing = (as, id) =>
+  update(as, id, { dismissedBy: [], expiresAt: hoursFromNow(2) }, [
+    { fieldPath: 'ringSeq', increment: { integerValue: '1' } },
+    { fieldPath: 'ringAt', setToServerValue: 'REQUEST_TIME' },
+    { fieldPath: 'lastUpdatedAt', setToServerValue: 'REQUEST_TIME' },
+  ]);
+
+test('re-ring as the app sends it (with ringAt) is allowed, a client-dated ringAt is not', async () => {
+  await seed('app-rr');
+  assert.equal(await appReRing(SENDER, 'app-rr'), 200);
+  assert.equal(await appReRing(SENDER, 'app-rr'), 200, 'a second re-send bumps ringSeq again');
+  assert.equal(await update(SENDER, 'app-rr', { ringAt: new Date() }), 403);
+  assert.equal(await appReRing(GUARDIAN, 'app-rr'), 403, 'only the sender re-rings');
+});
+
+test('re-send after the guardian dismissed or answered "I\'m Responding"', async () => {
+  await seed('after-ack');
+  // Guardian: Dismiss (dismissedBy arrayUnion) ...
+  assert.equal(await update(GUARDIAN, 'after-ack', {}, [
+    { fieldPath: 'dismissedBy', appendMissingElements: { values: [{ stringValue: GUARDIAN.uid }] } },
+  ]), 200);
+  // ... and I'm Responding (acknowledgedBy, acknowledgedAt.<uid>, lastRespondedAt).
+  assert.equal(await commit(GUARDIAN, {
+    update: { name: docName('after-ack'), fields: {} },
+    updateMask: { fieldPaths: [] },
+    currentDocument: { exists: true },
+    updateTransforms: [
+      { fieldPath: 'acknowledgedBy', appendMissingElements: { values: [{ stringValue: GUARDIAN.uid }] } },
+      { fieldPath: `acknowledgedAt.${GUARDIAN.uid}`, setToServerValue: 'REQUEST_TIME' },
+      { fieldPath: 'lastRespondedAt', setToServerValue: 'REQUEST_TIME' },
+    ],
+  }), 200);
+  // Sender re-sends: must still be allowed.
+  assert.equal(await appReRing(SENDER, 'after-ack'), 200);
+});
+
+test('live tracking update as the app sends it is allowed', async () => {
+  await seed('live');
+  const loc = { latitude: 23.77, longitude: 90.35, accuracy: 5, address: 'Dhaka', googleMapsUrl: 'u' };
+  assert.equal(await update(SENDER, 'live', {
+    liveLocation: loc, location: loc, latitude: 23.77, longitude: 90.35, lat: 23.77, lng: 90.35,
+    address: 'Dhaka', google_maps_url: 'u', batteryLevel: 80, isTrackingActive: true,
+  }, [
+    { fieldPath: 'liveUpdatedAt', setToServerValue: 'REQUEST_TIME' },
+    { fieldPath: 'lastUpdatedAt', setToServerValue: 'REQUEST_TIME' },
+    { fieldPath: 'recentTrail', appendMissingElements: { values: [toValue({ latitude: 23.77, longitude: 90.35, timestamp: 1 })] } },
+  ]), 200);
+});
+
 test('expiry: the sender may extend it, but never beyond 3 h from now', async () => {
   await seed('ex');
   assert.equal(await update(SENDER, 'ex', { expiresAt: hoursFromNow(2) }), 200);

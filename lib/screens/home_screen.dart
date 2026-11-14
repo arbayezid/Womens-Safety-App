@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -202,6 +204,24 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   /// Guarded by [AuthGuard.run] so Guest users must authenticate first.
   /// Calls [EmergencyService.instance.triggerEmergency] to obtain location & send background SMS.
   Future<void> _onSOSPressed() async {
+    final emergency = EmergencyService.instance;
+
+    // A round is already going out (from this button, the ESP32 pendant, shake, voice...).
+    if (_isSOSLoading || emergency.sosInProgressNotifier.value) {
+      HapticFeedback.selectionClick();
+      return;
+    }
+
+    // An alert is already live: never re-run the pipeline from a plain tap (that would ring every
+    // guardian again). Offer the explicit actions instead. The pendant is unaffected: it calls
+    // EmergencyService directly and keeps its own behaviour.
+    final activeId = emergency.activeAlertId;
+    if (activeId != null) {
+      HapticFeedback.mediumImpact();
+      await _showActiveSosActions(activeId);
+      return;
+    }
+
     await AuthGuard.run(
       context,
       actionName: 'trigger Emergency SOS',
@@ -253,50 +273,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!mounted) return;
 
       if (result.isSuccess) {
-        final bool needsManualSmsFallback =
-            result.contactsSentCount == 0 && result.recipientPhones.isNotEmpty;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                Icon(
-                  needsManualSmsFallback
-                      ? Icons.mark_email_read_rounded
-                      : Icons.check_circle_rounded,
-                  color: Colors.white,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    result.message.isNotEmpty
-                        ? result.message
-                        : '✅ SOS Alert Dispatched! Location sent to ${result.contactsSentCount} contact(s).',
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
-                  ),
-                ),
-              ],
-            ),
-            action: needsManualSmsFallback
-                ? SnackBarAction(
-                    label: 'SMS App',
-                    textColor: Colors.amberAccent,
-                    onPressed: () {
-                      EmergencyService.instance.launchNativeSmsApp(
-                        phoneNumber: result.recipientPhones.first,
-                        mapUrl: result.googleMapsUrl,
-                      );
-                    },
-                  )
-                : null,
-            backgroundColor: needsManualSmsFallback
-                ? AppColors.primaryViolet
-                : AppColors.successForeground,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            margin: const EdgeInsets.all(16),
-            duration: Duration(seconds: needsManualSmsFallback ? 6 : 4),
-          ),
-        );
+        _showSosResultSnackBar(result);
       } else if (result.hasNoRecipients) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -388,6 +365,164 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         });
       }
     }
+  }
+
+  /// Short result message: the full SMS / guardian status lives in the active-alert banner, so the
+  /// snackbar stays one or two lines and does not cover the Quick Actions for long.
+  void _showSosResultSnackBar(EmergencyResult result, {bool isResend = false}) {
+    final emergency = EmergencyService.instance;
+    final bool needsManualSmsFallback =
+        result.contactsSentCount == 0 && result.recipientPhones.isNotEmpty;
+    final bool statusShownAbove =
+        emergency.activeAlertId != null || emergency.sosInProgressNotifier.value;
+
+    final String text;
+    if (needsManualSmsFallback) {
+      text = isResend
+          ? '🔁 Guardians rung again. SMS not sent automatically; tap Send in Messages.'
+          : '🚨 Alert sent. SMS not sent automatically; tap Send in Messages.';
+    } else if (statusShownAbove) {
+      text = isResend
+          ? '🔁 Alert re-sent. Guardians are being rung again.'
+          : '🚨 SOS sent. Live status is shown at the top.';
+    } else {
+      text = result.message.isNotEmpty
+          ? result.message
+          : '✅ SOS Alert Dispatched! Location sent to ${result.contactsSentCount} contact(s).';
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            Icon(
+              needsManualSmsFallback ? Icons.mark_email_read_rounded : Icons.check_circle_rounded,
+              color: Colors.white,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                text,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12.5),
+              ),
+            ),
+          ],
+        ),
+        action: needsManualSmsFallback
+            ? SnackBarAction(
+                label: 'SMS App',
+                textColor: Colors.amberAccent,
+                onPressed: () {
+                  EmergencyService.instance.launchNativeSmsApp(
+                    phoneNumber: result.recipientPhones.first,
+                    mapUrl: result.googleMapsUrl,
+                  );
+                },
+              )
+            : null,
+        backgroundColor:
+            needsManualSmsFallback ? AppColors.primaryViolet : AppColors.successForeground,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        duration: Duration(seconds: needsManualSmsFallback ? 5 : 3),
+      ),
+    );
+  }
+
+  /// Bottom sheet offered when the SOS button is tapped while an alert is already live.
+  Future<void> _showActiveSosActions(String alertId) async {
+    final action = await showModalBottomSheet<_ActiveSosAction>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => _ActiveSosActionsSheet(alertId: alertId),
+    );
+    // Dismissed by tapping outside or dragging down: do nothing.
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case _ActiveSosAction.resend:
+        await _resendActiveSos();
+      case _ActiveSosAction.incidentRoom:
+        Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => IncidentRoomScreen(alertId: alertId)),
+        );
+      case _ActiveSosAction.markSafe:
+        await _markSafeFromSheet(alertId);
+    }
+  }
+
+  /// Re-rings guardians and re-sends the SMS round for the live alert (same alert document).
+  Future<void> _resendActiveSos() async {
+    if (_isSOSLoading) return;
+    HapticFeedback.heavyImpact();
+    setState(() => _isSOSLoading = true);
+    try {
+      final result = await EmergencyService.instance.resendActiveAlert();
+      if (!mounted) return;
+      if (result.isSuccess) {
+        _showSosResultSnackBar(result, isResend: true);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '⚠️ ${result.message}',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12.5),
+            ),
+            backgroundColor: Colors.orange.shade800,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '❌ Re-send failed: ${e.toString().replaceAll('Exception: ', '')}',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
+          ),
+          backgroundColor: AppColors.sosRed,
+          behavior: SnackBarBehavior.floating,
+          shape: const StadiumBorder(),
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSOSLoading = false);
+    }
+  }
+
+  /// "I'm Safe" from the sheet: the hold-to-confirm gesture replaces the yes/no dialog, but the
+  /// security PIN (when set) is still required.
+  Future<void> _markSafeFromSheet(String alertId) async {
+    final confirmed = await _confirmMarkSafe(context, alreadyConfirmed: true);
+    if (!confirmed || !mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Marking you safe…',
+          style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+        ),
+        backgroundColor: AppColors.safeGreen,
+        behavior: SnackBarBehavior.floating,
+        shape: const StadiumBorder(),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        duration: const Duration(seconds: 2),
+      ),
+    );
+    await EmergencyService.instance.markSafe(alertId: alertId);
+    if (!mounted) return;
+    _showMarkedSafeSnackBar(context);
   }
 
   /// Handles Quick Action cards (e.g. Loud Siren trigger).
@@ -504,10 +639,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 children: [
                   const Icon(Icons.radar_rounded, color: AppColors.actionOrange, size: 28),
                   const SizedBox(width: 10),
-                  Text(
+                  Expanded(child: Text(
                     'Being Followed?',
                     style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
-                  ),
+                  )),
                 ],
               ),
               content: Text(
@@ -825,19 +960,43 @@ class _SafetyDashboard extends StatelessWidget {
 
             const SizedBox(height: 28),
 
-            // ── 3. SOS Button (pulsating rings) ───────────────────
-            Center(
-              child: _SOSButton(
-                pulseAnimation: pulseAnimation,
-                isLoading: isSOSLoading,
-                onPressed: onSOSPressed,
-              ),
+            // ── 3 + 4. SOS Button and hint pill ──────────────────
+            // Driven by EmergencyService state, not by this screen's taps, so an SOS from the
+            // ESP32 pendant, shake or voice switches the button to its LIVE look as well.
+            ListenableBuilder(
+              listenable: Listenable.merge([
+                EmergencyService.instance.activeAlertIdNotifier,
+                EmergencyService.instance.activeAlertStartedAtNotifier,
+                EmergencyService.instance.sosInProgressNotifier,
+                EmergencyService.instance.lastDispatchNotifier,
+              ]),
+              builder: (context, _) {
+                final emergency = EmergencyService.instance;
+                final bool isActive = emergency.activeAlertId != null;
+                final bool isBusy = isSOSLoading || emergency.sosInProgressNotifier.value;
+                return Column(
+                  children: [
+                    Center(
+                      child: _SOSButton(
+                        pulseAnimation: pulseAnimation,
+                        isLoading: isBusy,
+                        isActive: isActive,
+                        activeSince: emergency.activeAlertStartedAtNotifier.value,
+                        onPressed: onSOSPressed,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: _TapHintBadge(
+                        isActive: isActive,
+                        isBusy: isBusy,
+                        status: emergency.lastDispatchNotifier.value,
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
-
-            const SizedBox(height: 16),
-
-            // ── 4. "Tap to send" hint pill ────────────────────────
-            const Center(child: _TapHintBadge()),
 
             const SizedBox(height: 28),
 
@@ -884,6 +1043,7 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
   late final AnimationController _pulseController;
   late final Animation<double> _pulseScale;
   bool _isResolving = false;
+  bool _isRetryingSms = false;
 
   @override
   void initState() {
@@ -904,88 +1064,26 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
   }
 
   Future<void> _handleMarkSafe() async {
-    final isPinEnabled = await PinSecurityService.instance.isPinEnabled();
-    final isRealConfigured = await PinSecurityService.instance.isRealPinConfigured();
-
-    if (isPinEnabled && isRealConfigured) {
-      if (!mounted) return;
-      final verified = await PinInputDialog.show(
-        context,
-        mode: PinDialogMode.verify,
-        customTitle: 'Confirm Safety',
-        customSubtitle: 'Enter your Security PIN to mark yourself safe and resolve this alert',
-      );
-      if (verified != true || !mounted) return;
-    } else {
-      if (!mounted) return;
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: Row(
-            children: [
-              const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
-              const SizedBox(width: 10),
-              Text(
-                "I'm Safe Now",
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
-              ),
-            ],
-          ),
-          content: Text(
-            'Are you sure you are safe? This will resolve the active emergency SOS, stop live GPS tracking, and send an "I\'m safe now" SMS to your emergency contacts.',
-            style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.safeGreen,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: Text(
-                'Yes, I Am Safe',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
-              ),
-            ),
-          ],
-        ),
-      );
-
-      if (confirmed != true || !mounted) return;
-    }
+    final confirmed = await _confirmMarkSafe(context);
+    if (!confirmed || !mounted) return;
 
     setState(() => _isResolving = true);
     try {
       await EmergencyService.instance.markSafe(alertId: widget.alertId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.check_circle_rounded, color: Colors.white),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  '✅ Marked safe! Emergency contacts notified and live tracking stopped.',
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: AppColors.safeGreen,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          margin: const EdgeInsets.all(16),
-          duration: const Duration(seconds: 4),
-        ),
-      );
+      _showMarkedSafeSnackBar(context);
     } finally {
       if (mounted) setState(() => _isResolving = false);
+    }
+  }
+
+  Future<void> _retrySms() async {
+    if (_isRetryingSms) return;
+    setState(() => _isRetryingSms = true);
+    try {
+      await EmergencyService.instance.retryFailedSms();
+    } finally {
+      if (mounted) setState(() => _isRetryingSms = false);
     }
   }
 
@@ -1048,12 +1146,31 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
               ),
             ],
           ),
+
+          // Delivery status of the last round (replaces the long SMS snackbar).
+          ValueListenableBuilder<SosDispatchStatus?>(
+            valueListenable: EmergencyService.instance.lastDispatchNotifier,
+            builder: (context, status, _) {
+              if (status == null) return const SizedBox.shrink();
+              return Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: _SosDeliveryStatusRow(
+                  status: status,
+                  isRetrying: _isRetryingSms,
+                  onRetry: _retrySms,
+                ),
+              );
+            },
+          ),
+
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 44,
+          // minHeight instead of a fixed height, and a label that scales down instead of
+          // wrapping, so the text is never clipped at large system font sizes.
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
                   child: OutlinedButton.icon(
                     onPressed: () {
                       Navigator.of(context).push(
@@ -1063,7 +1180,7 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                       );
                     },
                     icon: const Icon(Icons.meeting_room_rounded, size: 16, color: AppColors.sosRed),
-                    label: Text(
+                    label: _OneLineButtonLabel(
                       'Incident Room',
                       style: GoogleFonts.poppins(
                         fontSize: 12.5,
@@ -1072,17 +1189,15 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                       ),
                     ),
                     style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(0, 46),
                       side: const BorderSide(color: AppColors.sosRed, width: 1.5),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  height: 44,
+                const SizedBox(width: 8),
+                Expanded(
                   child: ElevatedButton.icon(
                     onPressed: _isResolving ? null : _handleMarkSafe,
                     icon: _isResolving
@@ -1092,7 +1207,7 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                             child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                           )
                         : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
-                    label: Text(
+                    label: _OneLineButtonLabel(
                       _isResolving ? 'Resolving...' : "I'M SAFE NOW",
                       style: GoogleFonts.poppins(
                         fontSize: 12.5,
@@ -1102,14 +1217,17 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                       ),
                     ),
                     style: ElevatedButton.styleFrom(
+                      minimumSize: const Size(0, 46),
                       backgroundColor: AppColors.safeGreen,
+                      disabledBackgroundColor: AppColors.safeGreen.withValues(alpha: 0.6),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                       elevation: 0,
                     ),
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -1338,6 +1456,7 @@ class _ActiveIncomingGuardianSosBannerState
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.sosRed,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       elevation: 0,
                     ),
                   ),
@@ -1364,6 +1483,7 @@ class _ActiveIncomingGuardianSosBannerState
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: AppColors.sosRed, width: 1.5),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                   ),
                 ),
@@ -2161,92 +2281,310 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
   }
 }
 
-/// Central SOS button composed of three concentric circles
-/// that breathe via [pulseAnimation] and shows loading indicator on trigger.
-class _SOSButton extends StatelessWidget {
+/// Central SOS button.
+///
+/// Idle: three concentric circles that breathe via [pulseAnimation] and show "SOS".
+/// Active (an alert is live): deeper red core with a white border, radar ripples spreading
+/// outward, and "LIVE" plus the elapsed time instead of "SOS". Text, icon and motion all change,
+/// so the state never depends on colour alone. With the system's reduce-motion setting on, the
+/// ripples are replaced by static rings.
+class _SOSButton extends StatefulWidget {
   final Animation<double> pulseAnimation;
   final bool isLoading;
+  final bool isActive;
+  final DateTime? activeSince;
   final VoidCallback onPressed;
 
   const _SOSButton({
     required this.pulseAnimation,
     required this.isLoading,
+    required this.isActive,
+    required this.activeSince,
     required this.onPressed,
   });
 
   @override
+  State<_SOSButton> createState() => _SOSButtonState();
+}
+
+class _SOSButtonState extends State<_SOSButton> with SingleTickerProviderStateMixin {
+  static const double _outerSize = 230;
+  static const double _middleSize = 188;
+  static const double _coreSize = 146;
+
+  late final AnimationController _ripple;
+  Timer? _clockTimer;
+
+  /// Used for the timer only if the service has no start time (should not normally happen).
+  DateTime? _fallbackStart;
+
+  bool get _reduceMotion => MediaQuery.maybeDisableAnimationsOf(context) ?? false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ripple = AnimationController(vsync: this, duration: const Duration(milliseconds: 2400));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _syncActiveState();
+  }
+
+  @override
+  void didUpdateWidget(covariant _SOSButton oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.isActive != widget.isActive) _syncActiveState();
+  }
+
+  void _syncActiveState() {
+    if (widget.isActive) {
+      _fallbackStart ??= DateTime.now();
+      _clockTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() {});
+      });
+      if (_reduceMotion) {
+        _ripple.stop();
+      } else if (!_ripple.isAnimating) {
+        _ripple.repeat();
+      }
+    } else {
+      _fallbackStart = null;
+      _clockTimer?.cancel();
+      _clockTimer = null;
+      _ripple
+        ..stop()
+        ..reset();
+    }
+  }
+
+  @override
+  void dispose() {
+    _clockTimer?.cancel();
+    _ripple.dispose();
+    super.dispose();
+  }
+
+  Duration get _elapsed {
+    final start = widget.activeSince ?? _fallbackStart ?? DateTime.now();
+    return DateTime.now().difference(start);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: pulseAnimation,
-      builder: (_, child) => Transform.scale(
-        scale: pulseAnimation.value,
-        child: child,
-      ),
-      child: GestureDetector(
-        onTap: onPressed,
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
+    final bool reduceMotion = _reduceMotion;
+    final String clock = formatElapsedClock(_elapsed);
+
+    final String semanticsLabel;
+    if (widget.isActive) {
+      final minutes = _elapsed.inMinutes;
+      semanticsLabel = 'SOS alert active for '
+          '${minutes < 1 ? 'less than a minute' : '$minutes minute${minutes == 1 ? '' : 's'}'}. '
+          'Tap for options.';
+    } else if (widget.isLoading) {
+      semanticsLabel = 'Sending SOS alert.';
+    } else {
+      semanticsLabel = 'SOS. Tap to send an emergency alert to your guardians.';
+    }
+
+    Widget button = SizedBox(
+      width: _outerSize,
+      height: _outerSize,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          if (!widget.isActive) ...[
             // Outermost ring — very light pink
             Container(
-              width: 230,
-              height: 230,
+              width: _outerSize,
+              height: _outerSize,
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.sosOuterRing,
               ),
             ),
-
             // Middle ring — medium pink/red
             Container(
-              width: 188,
-              height: 188,
+              width: _middleSize,
+              height: _middleSize,
               decoration: const BoxDecoration(
                 shape: BoxShape.circle,
                 color: AppColors.sosMediumRing,
               ),
             ),
-
-            // Core SOS button — radial red gradient
+          ] else if (reduceMotion) ...[
+            // Static rings instead of moving ripples
             Container(
-              width: 146,
-              height: 146,
+              width: _outerSize,
+              height: _outerSize,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: const RadialGradient(
-                  colors: [Color(0xFFFF5F56), Color(0xFFE8231A)],
-                  center: Alignment(-0.3, -0.3),
-                  radius: 1.0,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppColors.sosRed.withValues(alpha: 0.45),
-                    blurRadius: 24,
-                    offset: const Offset(0, 8),
-                    spreadRadius: 2,
-                  ),
-                ],
+                color: AppColors.sosRed.withValues(alpha: 0.12),
               ),
-              alignment: Alignment.center,
-              child: isLoading
-                  ? const SizedBox(
-                      width: 48,
-                      height: 48,
-                      child: CircularProgressIndicator(
-                        color: Colors.white,
-                        strokeWidth: 4,
-                      ),
-                    )
-                  : Text(
-                      'SOS',
+            ),
+            Container(
+              width: _middleSize,
+              height: _middleSize,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.sosRed.withValues(alpha: 0.22),
+              ),
+            ),
+          ] else
+            // Radar ripples spreading outward ("broadcasting")
+            AnimatedBuilder(
+              animation: _ripple,
+              builder: (_, __) => CustomPaint(
+                size: const Size.square(_outerSize),
+                painter: _SosRipplePainter(
+                  progress: _ripple.value,
+                  innerRadius: _coreSize / 2,
+                  outerRadius: _outerSize / 2,
+                ),
+              ),
+            ),
+
+          // Core button
+          widget.isActive ? _buildActiveCore(clock) : _buildIdleCore(),
+        ],
+      ),
+    );
+
+    // The idle look keeps its breathing pulse; the active look moves through its ripples.
+    if (!widget.isActive && !reduceMotion) {
+      final child = button;
+      button = AnimatedBuilder(
+        animation: widget.pulseAnimation,
+        builder: (_, inner) => Transform.scale(scale: widget.pulseAnimation.value, child: inner),
+        child: child,
+      );
+    }
+
+    return Semantics(
+      button: true,
+      label: semanticsLabel,
+      excludeSemantics: true,
+      onTap: widget.onPressed,
+      child: GestureDetector(onTap: widget.onPressed, child: button),
+    );
+  }
+
+  Widget _buildIdleCore() {
+    return Container(
+      width: _coreSize,
+      height: _coreSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const RadialGradient(
+          colors: [Color(0xFFFF5F56), Color(0xFFE8231A)],
+          center: Alignment(-0.3, -0.3),
+          radius: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.sosRed.withValues(alpha: 0.45),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: widget.isLoading
+          ? const SizedBox(
+              width: 48,
+              height: 48,
+              child: CircularProgressIndicator(
+                color: Colors.white,
+                strokeWidth: 4,
+              ),
+            )
+          : Text(
+              'SOS',
+              style: GoogleFonts.poppins(
+                fontSize: 42,
+                fontWeight: FontWeight.w900,
+                color: AppColors.textOnPrimary,
+                letterSpacing: 3,
+              ),
+            ),
+    );
+  }
+
+  Widget _buildActiveCore(String clock) {
+    return Container(
+      width: _coreSize,
+      height: _coreSize,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: const RadialGradient(
+          colors: [Color(0xFFE8231A), Color(0xFFC62828)],
+          center: Alignment(-0.3, -0.3),
+          radius: 1.0,
+        ),
+        border: Border.all(color: Colors.white, width: 3.5),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFC62828).withValues(alpha: 0.5),
+            blurRadius: 28,
+            offset: const Offset(0, 8),
+            spreadRadius: 2,
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      padding: const EdgeInsets.all(20),
+      // Scales down instead of overflowing at large system font sizes.
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.sensors_rounded, color: Colors.white, size: 28),
+            Text(
+              'LIVE',
+              style: GoogleFonts.poppins(
+                fontSize: 26,
+                height: 1.1,
+                fontWeight: FontWeight.w900,
+                color: AppColors.textOnPrimary,
+                letterSpacing: 3,
+              ),
+            ),
+            if (widget.isLoading)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(
+                      width: 12,
+                      height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Sending',
                       style: GoogleFonts.poppins(
-                        fontSize: 42,
-                        fontWeight: FontWeight.w900,
-                        color: AppColors.textOnPrimary,
-                        letterSpacing: 3,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
                     ),
-            ),
+                  ],
+                ),
+              )
+            else
+              Text(
+                clock,
+                style: GoogleFonts.poppins(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white.withValues(alpha: 0.95),
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
           ],
         ),
       ),
@@ -2254,12 +2592,120 @@ class _SOSButton extends StatelessWidget {
   }
 }
 
-/// Small pill badge beneath the SOS button: "Tap to send instant alert"
+/// Paints three red ripples that grow from the core's edge to the outer edge and fade out.
+class _SosRipplePainter extends CustomPainter {
+  final double progress;
+  final double innerRadius;
+  final double outerRadius;
+
+  _SosRipplePainter({
+    required this.progress,
+    required this.innerRadius,
+    required this.outerRadius,
+  });
+
+  static const int _rippleCount = 3;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+
+    // Faint base disc so the button keeps its footprint between ripples.
+    canvas.drawCircle(
+      center,
+      outerRadius,
+      Paint()..color = AppColors.sosRed.withValues(alpha: 0.06),
+    );
+
+    for (int i = 0; i < _rippleCount; i++) {
+      final double t = Curves.easeOut.transform((progress + i / _rippleCount) % 1.0);
+      final double radius = innerRadius + (outerRadius - innerRadius) * t;
+      final double fade = 1.0 - t;
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = AppColors.sosRed.withValues(alpha: 0.22 * fade),
+      );
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = AppColors.sosRed.withValues(alpha: 0.45 * fade),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _SosRipplePainter oldDelegate) =>
+      oldDelegate.progress != progress ||
+      oldDelegate.innerRadius != innerRadius ||
+      oldDelegate.outerRadius != outerRadius;
+}
+
+/// Pill beneath the SOS button. Idle: "Tap to send instant alert". While sending: "Sending SOS…".
+/// Active: light red with the real number of guardians reached and "Tap for options".
 class _TapHintBadge extends StatelessWidget {
-  const _TapHintBadge();
+  final bool isActive;
+  final bool isBusy;
+  final SosDispatchStatus? status;
+
+  const _TapHintBadge({
+    required this.isActive,
+    required this.isBusy,
+    required this.status,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (isActive) {
+      final int reached = status?.contactsReached ?? 0;
+      final parts = <String>[
+        'Alert active',
+        if (reached > 0) '$reached guardian${reached == 1 ? '' : 's'} alerted',
+        isBusy ? 'Sending…' : 'Tap for options',
+      ];
+      return ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 340),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+          decoration: BoxDecoration(
+            color: AppColors.sosRed.withValues(alpha: 0.10),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.30)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: const BoxDecoration(
+                  color: AppColors.sosRed,
+                  shape: BoxShape.circle,
+                ),
+              ),
+              const SizedBox(width: 7),
+              Flexible(
+                child: Text(
+                  parts.join(' · '),
+                  textAlign: TextAlign.center,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFFC62828),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
@@ -2269,14 +2715,14 @@ class _TapHintBadge extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
-            Icons.touch_app_rounded,
+          Icon(
+            isBusy ? Icons.schedule_send_rounded : Icons.touch_app_rounded,
             size: 15,
             color: AppColors.textSecondary,
           ),
           const SizedBox(width: 5),
           Text(
-            'Tap to send instant alert',
+            isBusy ? 'Sending SOS…' : 'Tap to send instant alert',
             style: GoogleFonts.poppins(
               fontSize: 12,
               fontWeight: FontWeight.w500,
@@ -2287,6 +2733,555 @@ class _TapHintBadge extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Button label that stays on one line and scales down rather than wrapping or clipping.
+class _OneLineButtonLabel extends StatelessWidget {
+  final String text;
+  final TextStyle style;
+
+  const _OneLineButtonLabel(this.text, {required this.style});
+
+  @override
+  Widget build(BuildContext context) {
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: Text(text, maxLines: 1, softWrap: false, style: style),
+    );
+  }
+}
+
+/// One line in the active-alert banner: what the last round reached, with "Retry" when some
+/// SMS did not go out automatically.
+class _SosDeliveryStatusRow extends StatelessWidget {
+  final SosDispatchStatus status;
+  final bool isRetrying;
+  final VoidCallback onRetry;
+
+  const _SosDeliveryStatusRow({
+    required this.status,
+    required this.isRetrying,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final bool attention = status.smsNeedsAttention;
+    final Color tone = attention ? const Color(0xFFD35400) : AppColors.safeGreen;
+
+    final parts = <String>[
+      if (status.smsTotal > 0)
+        'SMS ${status.smsSent}/${status.smsTotal} sent'
+            '${status.smsPending > 0 ? ' (${status.smsPending} sending)' : ''}'
+      else
+        'No SMS numbers',
+      status.cloudSent ? 'In-app alert sent' : 'In-app alert pending',
+      if (attention && status.composerOpened) 'Messages opened',
+    ];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.75),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: tone.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            attention ? Icons.sms_failed_rounded : Icons.mark_chat_read_rounded,
+            size: 16,
+            color: tone,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              parts.join(' · '),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: GoogleFonts.poppins(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: AppColors.textPrimary,
+              ),
+            ),
+          ),
+          if (attention)
+            isRetrying
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD35400)),
+                    ),
+                  )
+                : TextButton(
+                    onPressed: onRetry,
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFD35400),
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      minimumSize: const Size(0, 32),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      'Retry',
+                      style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+        ],
+      ),
+    );
+  }
+}
+
+/// What the user picked in the active-alert sheet.
+enum _ActiveSosAction { resend, incidentRoom, markSafe }
+
+/// Bottom sheet shown when the SOS button is tapped while an alert is live: re-send (with a
+/// cooldown), open the Incident Room, or hold to confirm "I'm safe". Tapping outside closes it
+/// and does nothing else.
+class _ActiveSosActionsSheet extends StatefulWidget {
+  final String alertId;
+
+  const _ActiveSosActionsSheet({required this.alertId});
+
+  @override
+  State<_ActiveSosActionsSheet> createState() => _ActiveSosActionsSheetState();
+}
+
+class _ActiveSosActionsSheetState extends State<_ActiveSosActionsSheet> {
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    // Updates the elapsed time and the re-send countdown.
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+    EmergencyService.instance.activeAlertIdNotifier.addListener(_onAlertChanged);
+  }
+
+  /// Closes the sheet if the alert ends meanwhile (e.g. resolved from the Incident Room).
+  void _onAlertChanged() {
+    if (!mounted) return;
+    if (EmergencyService.instance.activeAlertId != widget.alertId) {
+      Navigator.of(context).maybePop();
+    }
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    EmergencyService.instance.activeAlertIdNotifier.removeListener(_onAlertChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final emergency = EmergencyService.instance;
+    final DateTime? startedAt = emergency.activeAlertStartedAtNotifier.value;
+    final Duration cooldown = emergency.resendCooldownRemaining;
+    final bool busy = emergency.sosInProgressNotifier.value;
+    final bool canResend = cooldown == Duration.zero && !busy;
+
+    final String subtitle = startedAt != null
+        ? 'Live for ${formatElapsedClock(DateTime.now().difference(startedAt))} · '
+            'guardians can see your location'
+        : 'Guardians can see your live location';
+
+    final String resendSubtitle;
+    if (busy) {
+      resendSubtitle = 'An alert is being sent right now…';
+    } else if (cooldown > Duration.zero) {
+      resendSubtitle = 'Guardians were just alerted. Available again in ${cooldown.inSeconds + 1}s';
+    } else {
+      resendSubtitle = 'Rings your guardians again and re-sends the SMS with your location';
+    }
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.divider,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: const BoxDecoration(
+                    color: AppColors.sosRed,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.sensors_rounded, color: Colors.white, size: 22),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'SOS alert is active',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: GoogleFonts.poppins(
+                          fontSize: 12,
+                          color: AppColors.textSecondary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 18),
+            _SheetOptionTile(
+              icon: Icons.replay_rounded,
+              color: AppColors.sosRed,
+              title: 'Re-send alert',
+              subtitle: resendSubtitle,
+              enabled: canResend,
+              onTap: () => Navigator.of(context).pop(_ActiveSosAction.resend),
+            ),
+            const SizedBox(height: 10),
+            _SheetOptionTile(
+              icon: Icons.meeting_room_rounded,
+              color: AppColors.primary,
+              title: 'Open Incident Room',
+              subtitle: 'See live updates for this alert',
+              onTap: () => Navigator.of(context).pop(_ActiveSosAction.incidentRoom),
+            ),
+            const SizedBox(height: 18),
+            _HoldToConfirmButton(
+              label: "Hold to confirm I'm safe",
+              semanticsLabel: "I'm safe now. Double tap and hold to confirm.",
+              onConfirmed: () => Navigator.of(context).pop(_ActiveSosAction.markSafe),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Tap outside to close',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SheetOptionTile extends StatelessWidget {
+  final IconData icon;
+  final Color color;
+  final String title;
+  final String subtitle;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  const _SheetOptionTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Opacity(
+      opacity: enabled ? 1 : 0.5,
+      child: Material(
+        color: color.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: enabled
+              ? () {
+                  HapticFeedback.selectionClick();
+                  onTap();
+                }
+              : null,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(icon, color: color, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      Text(
+                        subtitle,
+                        style: GoogleFonts.poppins(
+                          fontSize: 11.5,
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.chevron_right_rounded, color: color),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Green button that must be held for [holdDuration] to confirm. Releasing early rewinds it.
+/// Screen-reader users confirm with the long-press action (double tap and hold).
+class _HoldToConfirmButton extends StatefulWidget {
+  final String label;
+  final String semanticsLabel;
+  final VoidCallback onConfirmed;
+
+  /// Same hold time as the ESP32 pendant's button, so both feel alike.
+  static const Duration holdDuration = Duration(seconds: 2);
+
+  const _HoldToConfirmButton({
+    required this.label,
+    required this.semanticsLabel,
+    required this.onConfirmed,
+  });
+
+  @override
+  State<_HoldToConfirmButton> createState() => _HoldToConfirmButtonState();
+}
+
+class _HoldToConfirmButtonState extends State<_HoldToConfirmButton>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _hold;
+  bool _confirmed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hold = AnimationController(vsync: this, duration: _HoldToConfirmButton.holdDuration)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed && !_confirmed) {
+          _confirmed = true;
+          HapticFeedback.heavyImpact();
+          widget.onConfirmed();
+        }
+      });
+  }
+
+  @override
+  void dispose() {
+    _hold.dispose();
+    super.dispose();
+  }
+
+  void _start() {
+    if (_confirmed) return;
+    HapticFeedback.selectionClick();
+    _hold.forward();
+  }
+
+  void _release() {
+    if (!mounted || _confirmed) return;
+    _hold.animateBack(0, duration: const Duration(milliseconds: 250));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const Color green = AppColors.safeGreen;
+    return Semantics(
+      button: true,
+      label: widget.semanticsLabel,
+      excludeSemantics: true,
+      onLongPress: () {
+        if (_confirmed) return;
+        _confirmed = true;
+        widget.onConfirmed();
+      },
+      child: GestureDetector(
+        onTapDown: (_) => _start(),
+        onTapUp: (_) => _release(),
+        onTapCancel: _release,
+        child: AnimatedBuilder(
+          animation: _hold,
+          builder: (context, _) {
+            final double v = _hold.value;
+            final Color fg = v > 0.5 ? Colors.white : green;
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(14),
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 54),
+                decoration: BoxDecoration(
+                  color: green.withValues(alpha: 0.12),
+                  border: Border.all(color: green, width: 1.5),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: v,
+                        child: const ColoredBox(color: green),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle_rounded, color: fg, size: 20),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: _OneLineButtonLabel(
+                              v > 0 && v < 1 ? 'Keep holding…' : widget.label,
+                              style: GoogleFonts.poppins(
+                                fontSize: 14,
+                                fontWeight: FontWeight.w700,
+                                color: fg,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/// Asks for the security PIN when one is set. Without a PIN, shows the yes/no dialog unless
+/// [alreadyConfirmed] (the hold-to-confirm gesture already confirmed). True when confirmed.
+Future<bool> _confirmMarkSafe(BuildContext context, {bool alreadyConfirmed = false}) async {
+  final isPinEnabled = await PinSecurityService.instance.isPinEnabled();
+  final isRealConfigured = await PinSecurityService.instance.isRealPinConfigured();
+  if (!context.mounted) return false;
+
+  if (isPinEnabled && isRealConfigured) {
+    final verified = await PinInputDialog.show(
+      context,
+      mode: PinDialogMode.verify,
+      customTitle: 'Confirm Safety',
+      customSubtitle: 'Enter your Security PIN to mark yourself safe and resolve this alert',
+    );
+    return verified == true;
+  }
+
+  if (alreadyConfirmed) return true;
+
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: Row(
+        children: [
+          const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              "I'm Safe Now",
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
+            ),
+          ),
+        ],
+      ),
+      content: Text(
+        'Are you sure you are safe? This will resolve the active emergency SOS, stop live GPS tracking, and send an "I\'m safe now" SMS to your emergency contacts.',
+        style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(false),
+          child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
+        ),
+        ElevatedButton(
+          onPressed: () => Navigator.of(ctx).pop(true),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.safeGreen,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
+          child: Text(
+            'Yes, I Am Safe',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
+          ),
+        ),
+      ],
+    ),
+  );
+  return confirmed == true;
+}
+
+void _showMarkedSafeSnackBar(BuildContext context) {
+  final messenger = ScaffoldMessenger.of(context);
+  messenger.hideCurrentSnackBar();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Row(
+        children: [
+          const Icon(Icons.check_circle_rounded, color: Colors.white),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              '✅ Marked safe! Emergency contacts notified and live tracking stopped.',
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
+            ),
+          ),
+        ],
+      ),
+      backgroundColor: AppColors.safeGreen,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      duration: const Duration(seconds: 4),
+    ),
+  );
 }
 
 /// Prominent banner displayed on the Safety dashboard when a Ride Safety Check-in

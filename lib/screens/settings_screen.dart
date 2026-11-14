@@ -1035,8 +1035,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const Icon(Icons.do_not_disturb_on_rounded, color: AppColors.sosRed),
             const SizedBox(width: 8),
-            Text('Do Not Disturb',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+            Expanded(child: Text('Do Not Disturb',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
           ],
         ),
         content: Text(
@@ -1067,8 +1067,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const Icon(Icons.lock_rounded, color: AppColors.actionBlue),
             const SizedBox(width: 8),
-            Text('Privacy & Security',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+            Expanded(child: Text('Privacy & Security',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
           ],
         ),
         content: Column(
@@ -1140,8 +1140,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const Icon(Icons.shield_rounded, color: AppColors.primary),
             const SizedBox(width: 8),
-            Text('Woman Guard',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+            Expanded(child: Text('Woman Guard',
+                style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
           ],
         ),
         content: Column(

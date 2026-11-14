@@ -163,10 +163,10 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
             children: [
               const Icon(Icons.warning_amber_rounded, color: AppColors.sosRed, size: 26),
               const SizedBox(width: 8),
-              Text(
+              Expanded(child: Text(
                 'Duress Warning',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
-              ),
+              )),
             ],
           ),
           content: Text(
@@ -831,14 +831,14 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       children: [
                         const Icon(Icons.location_on_rounded, color: AppColors.primary, size: 18),
                         const SizedBox(width: 6),
-                        Text(
+                        Flexible(child: Text(
                           isTrackingActive ? 'Current Live Location:' : 'Reported GPS Location:',
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                             color: AppColors.textSecondary,
                           ),
-                        ),
+                        )),
                       ],
                     ),
                     const SizedBox(height: 6),

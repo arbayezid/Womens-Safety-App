@@ -15,6 +15,8 @@ Map<String, dynamic> _alert({
   int? ringSeq,
   List<String> dismissedBy = const [],
   List<String> acknowledgedBy = const [],
+  Map<String, Object?>? acknowledgedAt,
+  Object? ringAt,
   List<String> recipientUids = const [_me],
   List<String> recipientEmails = const [],
 }) =>
@@ -26,6 +28,8 @@ Map<String, dynamic> _alert({
       if (ringSeq != null) 'ringSeq': ringSeq,
       'dismissedBy': dismissedBy,
       'acknowledgedBy': acknowledgedBy,
+      if (acknowledgedAt != null) 'acknowledgedAt': acknowledgedAt,
+      if (ringAt != null) 'ringAt': ringAt,
       'recipientUids': recipientUids,
       'recipientEmails': recipientEmails,
     };
@@ -64,6 +68,49 @@ void main() {
 
     test('I\'m Responding (acknowledgedBy) stays quiet', () {
       expect(_eligible(_alert(acknowledgedBy: const [_me])), isFalse);
+    });
+
+    test('I\'m Responding, then the sender re-sends: rings again (acknowledgedBy is never cleared)',
+        () {
+      Timestamp ago(int minutes) => Timestamp.fromDate(_now.subtract(Duration(minutes: minutes)));
+      // Responded 3 min ago, sender re-pressed 1 min ago (ringSeq 1): ring again.
+      expect(
+        _eligible(
+          _alert(
+            ringSeq: 1,
+            ringAt: ago(1),
+            acknowledgedBy: const [_me],
+            acknowledgedAt: {_me: ago(3)},
+          ),
+          dismissed: {'a1#0'},
+        ),
+        isTrue,
+      );
+      // Responded after the latest re-press: stays quiet.
+      expect(
+        _eligible(_alert(
+          ringSeq: 1,
+          ringAt: ago(3),
+          acknowledgedBy: const [_me],
+          acknowledgedAt: {_me: ago(1)},
+        )),
+        isFalse,
+      );
+      // The re-ring already answered on this device stays quiet via its ring key.
+      expect(
+        _eligible(
+          _alert(
+            ringSeq: 1,
+            ringAt: ago(1),
+            acknowledgedBy: const [_me],
+            acknowledgedAt: {_me: ago(3)},
+          ),
+          dismissed: {'a1#0', 'a1#1'},
+        ),
+        isFalse,
+      );
+      // Another guardian's acknowledgement never silences me.
+      expect(_eligible(_alert(acknowledgedBy: const ['someone_else'])), isTrue);
     });
 
     test('a deliberate re-ring (ringSeq + 1, dismissals cleared) is eligible once more', () {

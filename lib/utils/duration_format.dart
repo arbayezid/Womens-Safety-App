@@ -9,3 +9,14 @@ String formatMinutes(int minutes, {String suffix = ' min'}) {
   final mins = minutes % 60;
   return mins == 0 ? '${hours}h' : '${hours}h ${mins}min';
 }
+
+/// Formats an elapsed duration as a clock: `02:15` below an hour, `1:02:15` from an hour on.
+/// Negative durations are shown as `00:00`.
+String formatElapsedClock(Duration elapsed) {
+  final total = elapsed.isNegative ? 0 : elapsed.inSeconds;
+  final hours = total ~/ 3600;
+  final minutes = (total % 3600) ~/ 60;
+  final seconds = total % 60;
+  String two(int v) => v.toString().padLeft(2, '0');
+  return hours > 0 ? '$hours:${two(minutes)}:${two(seconds)}' : '${two(minutes)}:${two(seconds)}';
+}

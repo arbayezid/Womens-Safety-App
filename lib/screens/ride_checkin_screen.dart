@@ -1259,7 +1259,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       activeColor: AppColors.primary,
                       title: Row(
                         children: [
-                          Text(contact.name, style: GoogleFonts.poppins(fontSize: 13.5, fontWeight: FontWeight.w700)),
+                          Flexible(child: Text(contact.name, style: GoogleFonts.poppins(fontSize: 13.5, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
                           if (contact.isPrimary) ...[
                             const SizedBox(width: 6),
                             Container(
@@ -1330,14 +1330,14 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
       children: [
         Icon(icon, size: 18, color: AppColors.primary),
         const SizedBox(width: 8),
-        Text(
+        Flexible(child: Text(
           title,
           style: GoogleFonts.poppins(
             fontSize: 14,
             fontWeight: FontWeight.w800,
             color: AppColors.textPrimary,
           ),
-        ),
+        )),
       ],
     );
   }

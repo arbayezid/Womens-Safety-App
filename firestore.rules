@@ -214,6 +214,9 @@ service cloud.firestore {
           'lastUpdatedAt',
           'latitude',
           'longitude',
+          'lat',
+          'lng',
+          'address',
           'google_maps_url',
           'location',
           'recipientUids',
@@ -257,9 +260,19 @@ service cloud.firestore {
       allow delete: if false;
 
       // Emergency Incident Room Events Subcollection
+      // Inside this match `resource` is the EVENT document (null on create), so sender /
+      // recipient must be checked against the parent alert.
       match /events/{eventId} {
-        allow read: if isSender() || isRecipient();
-        allow create: if isSender() || isRecipient();
+        function isAlertParty() {
+          let alert = get(/databases/$(database)/documents/sos_alerts/$(alertId)).data;
+          let email = string(request.auth.token.get('email', ''));
+          return alert.get('senderId', '') == request.auth.uid ||
+            alert.get('sender_uid', '') == request.auth.uid ||
+            request.auth.uid in alert.get('recipientUids', []) ||
+            (email != '' && (email in alert.get('recipientEmails', []) ||
+                             email.lower() in alert.get('recipientEmails', [])));
+        }
+        allow read, create: if isAuthenticated() && isAlertParty();
       }
     }
 

@@ -160,9 +160,31 @@ class NotificationService {
     return last != null && now.difference(last) <= sosLiveWindow;
   }
 
+  /// True when [myUid] answered "I'm Responding" for the alert's current ring.
+  ///
+  /// `acknowledgedBy` is never cleared (it halts escalation and lists responders), so on its own it
+  /// would silence the guardian for good. An acknowledgement only covers rings up to the moment it
+  /// was made: when the sender deliberately re-presses later (`ringAt` after my `acknowledgedAt`),
+  /// I am rung again. Both times are server timestamps. If my acknowledgement time is unknown
+  /// while a re-ring exists, the alert rings: the local ring-key dismissal still stops repeats of
+  /// a ring already answered on this device. Same rule in GuardianAlertService.kt.
+  @visibleForTesting
+  static bool acknowledgedCurrentRing(Map<String, dynamic> data, String myUid) {
+    final acknowledgedBy =
+        ((data['acknowledgedBy'] as List<dynamic>?) ?? const []).map((e) => e.toString());
+    if (!acknowledgedBy.contains(myUid)) return false;
+    final ringAt = _parseAlertTime(data['ringAt']);
+    if (ringAt == null) return true; // never re-rung: the acknowledgement covers it
+    final ackTimes = data['acknowledgedAt'];
+    final ackAt = ackTimes is Map ? _parseAlertTime(ackTimes[myUid]) : null;
+    if (ackAt == null) return false;
+    return !ringAt.isAfter(ackAt);
+  }
+
   /// Eligibility rules shared with the native GuardianAlertService. Returns the alert's trigger
   /// time when [data] should alert this device, or null when it must be skipped: not active, sent
-  /// by me, dismissed or acknowledged by me (in the cloud or locally for this ring key), expired,
+  /// by me, dismissed or acknowledged by me for this ring (in the cloud or locally for this ring
+  /// key; see [acknowledgedCurrentRing]), expired,
   /// without a trigger time, older than 3 hours, or not addressed to me.
   @visibleForTesting
   static DateTime? sosAlertTimeIfEligible({
@@ -183,7 +205,7 @@ class NotificationService {
 
     List<String> uids(Object? raw) => ((raw as List<dynamic>?) ?? const []).map((e) => e.toString()).toList();
     if (uids(data['dismissedBy']).contains(myUid)) return null;
-    if (uids(data['acknowledgedBy']).contains(myUid)) return null;
+    if (acknowledgedCurrentRing(data, myUid)) return null;
 
     final expiresAt = _parseAlertTime(data['expiresAt']);
     if (expiresAt != null && expiresAt.isBefore(now)) return null;

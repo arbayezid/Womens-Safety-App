@@ -217,10 +217,10 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
           children: [
             const Icon(Icons.emergency_rounded, color: AppColors.sosRed, size: 28),
             const SizedBox(width: 8),
-            Text(
+            Expanded(child: Text(
               'Dispatch Emergency SOS?',
               style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
-            ),
+            )),
           ],
         ),
         content: Text(
@@ -298,10 +298,10 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
             children: [
               const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 26),
               const SizedBox(width: 8),
-              Text(
+              Expanded(child: Text(
                 'Are you safe now?',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 17),
-              ),
+              )),
             ],
           ),
           content: Text(

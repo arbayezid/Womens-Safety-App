@@ -210,10 +210,10 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
           children: [
             const Icon(Icons.shield_rounded, color: AppColors.actionGreen, size: 28),
             const SizedBox(width: 10),
-            Text(
+            Expanded(child: Text(
               'Security Restored',
               style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
-            ),
+            )),
           ],
         ),
         content: Text(

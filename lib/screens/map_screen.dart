@@ -709,6 +709,9 @@ class _MapScreenState extends State<MapScreen>
             top: 12,
             left: 12,
             child: Container(
+              constraints: BoxConstraints(
+                maxWidth: MediaQuery.sizeOf(context).width * 0.6,
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.92),
@@ -727,14 +730,13 @@ class _MapScreenState extends State<MapScreen>
                   const Icon(Icons.map_rounded,
                       size: 13, color: AppColors.primary),
                   const SizedBox(width: 5),
-                  Text(
+                  Flexible(child: Text(
                     _currentAreaName,
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textPrimary,
-                    ),
-                  ),
+                    ), maxLines: 1, overflow: TextOverflow.ellipsis)),
                 ],
               ),
             ),

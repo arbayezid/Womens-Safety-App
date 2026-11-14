@@ -64,13 +64,27 @@ class AppTheme {
           backgroundColor: AppColors.surface,
           foregroundColor: AppColors.primary,
           shape: const StadiumBorder(),
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          // Horizontal padding is required: without it, buttons that size to
+          // their label (e.g. dialog actions) render text flush against edges.
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          minimumSize: const Size(64, 44),
           textStyle: GoogleFonts.poppins(
-            fontSize: 16,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
           elevation: 0,
         ),
+      ),
+
+      // --- Dialog Defaults ---
+      // Uniform white surface (no Material 3 lavender tint), consistent corner
+      // radius, and balanced action spacing across every AlertDialog.
+      dialogTheme: DialogThemeData(
+        backgroundColor: AppColors.surface,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        actionsPadding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       ),
 
       // --- Bottom Nav Bar Defaults ---

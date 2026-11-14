@@ -657,7 +657,7 @@ class GuardianAlertService : Service() {
                 return@filter false
             }
             if (stringList(doc.get("dismissedBy")).contains(uid)) return@filter false
-            if (stringList(doc.get("acknowledgedBy")).contains(uid)) return@filter false
+            if (acknowledgedCurrentRing(doc, uid)) return@filter false
             val time = alertTimeMillis(doc) ?: return@filter false
             if (now - time > MISSED_ALERT_WINDOW_MS || time - now > STALE_ALERT_MS) return@filter false
             !AlertRegistry.anyRingClaimed(this, doc.id) && !AlertRegistry.isClaimed(this, missedKey(doc.id))
@@ -745,13 +745,27 @@ class GuardianAlertService : Service() {
         return "${doc.id}#$seq"
     }
 
+    /**
+     * True when [uid] answered "I'm Responding" for the alert's current ring. `acknowledgedBy` is
+     * never cleared, so an acknowledgement only covers rings up to its own time: a deliberate
+     * re-press later (`ringAt` after my `acknowledgedAt`) rings again. Unknown acknowledgement time
+     * with a re-ring present rings too (ring keys still stop repeats). Same rule as
+     * NotificationService.acknowledgedCurrentRing on the Dart side.
+     */
+    private fun acknowledgedCurrentRing(doc: DocumentSnapshot, uid: String): Boolean {
+        if (!stringList(doc.get("acknowledgedBy")).contains(uid)) return false
+        val ringAt = millis(doc.get("ringAt")) ?: return true
+        val ackAt = millis((doc.get("acknowledgedAt") as? Map<*, *>)?.get(uid)) ?: return false
+        return ringAt <= ackAt
+    }
+
     /** Same rules as NotificationService.sosAlertTimeIfEligible on the Dart side. */
     private fun isEligible(doc: DocumentSnapshot, uid: String, now: Long): Boolean {
         if (str(doc, "status")?.lowercase() != "active") return false
         val senderId = str(doc, "senderId") ?: str(doc, "sender_uid")
         if (senderId == uid) return false
         if (stringList(doc.get("dismissedBy")).contains(uid)) return false
-        if (stringList(doc.get("acknowledgedBy")).contains(uid)) return false
+        if (acknowledgedCurrentRing(doc, uid)) return false
         val expiresAt = when (val raw = doc.get("expiresAt")) {
             is Timestamp -> raw.toDate().time
             is Date -> raw.time

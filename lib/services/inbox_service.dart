@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'contact_sync_service.dart';
@@ -50,7 +50,7 @@ class InboxItem {
 /// history survives reinstalls. Only the read state is local: [unreadCountNotifier] (the bell
 /// badge) counts new items since the inbox was last opened; an item stays highlighted until it
 /// is tapped.
-class InboxService {
+class InboxService with WidgetsBindingObserver {
   InboxService._internal();
   static final InboxService instance = InboxService._internal();
 
@@ -98,6 +98,15 @@ class InboxService {
       }
     });
     ContactSyncService.instance.incomingRequestsNotifier.addListener(_scheduleRebuild);
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  /// Back in the foreground: pick up read state saved meanwhile by another copy of the app (an
+  /// SOS notification or the lock-screen alert can open a second activity with its own memory),
+  /// so items read there do not stay on this copy's badge until a restart.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_mergeSavedReadState());
   }
 
   Future<void> _start(String uid, String email) async {
@@ -107,11 +116,23 @@ class InboxService {
     if (_uid != uid) return;
 
     final db = FirebaseFirestore.instance;
-    void listen(String source, Query<Map<String, dynamic>> query) {
+    void listen(String source, Query<Map<String, dynamic>> query, {int attempt = 0}) {
       _subs.add(query.snapshots().listen((snap) {
+        attempt = 0;
         _docsBySource[source] = {for (final d in snap.docs) d.id: d.data()};
         _scheduleRebuild();
-      }, onError: (Object e) => debugPrint('[Inbox] $source query failed: $e')));
+      }, onError: (Object e) {
+        // A failed query stops for good. Its last snapshot must not linger (it would override
+        // newer copies of the same documents from the other query until a restart), and it is
+        // re-subscribed with backoff so the inbox heals without restarting the app.
+        debugPrint('[Inbox] $source query failed (attempt ${attempt + 1}): $e');
+        _docsBySource.remove(source);
+        _scheduleRebuild();
+        final delay = Duration(seconds: (15 << attempt.clamp(0, 4)));
+        Timer(delay, () {
+          if (_uid == uid) listen(source, query, attempt: attempt + 1);
+        });
+      }));
     }
 
     listen('sos_uid', db.collection('sos_alerts').where('recipientUids', arrayContains: uid));
@@ -249,11 +270,45 @@ class InboxService {
     }
   }
 
+  /// Adds the read state saved on disk (possibly by another copy of the app) to the in-memory
+  /// one. Union only: an item read or seen anywhere stays read; nothing new is hidden, because a
+  /// new item's key is in no saved set. Returns whether anything changed.
+  Future<bool> _absorbSaved(SharedPreferences prefs, String uid) async {
+    await prefs.reload();
+    if (_uid != uid) return false;
+    final readBefore = _readKeys.length;
+    final seenBefore = _seenKeys.length;
+    final seenAtBefore = _seenAt;
+    _readKeys.addAll(prefs.getStringList(_k('read', uid)) ?? const []);
+    _seenKeys.addAll(prefs.getStringList(_k('seenkeys', uid)) ?? const []);
+    final savedSeenAt = prefs.getInt(_k('seen', uid));
+    if (savedSeenAt != null && savedSeenAt > _seenAt.millisecondsSinceEpoch) {
+      _seenAt = DateTime.fromMillisecondsSinceEpoch(savedSeenAt);
+    }
+    return _readKeys.length != readBefore || _seenKeys.length != seenBefore || _seenAt != seenAtBefore;
+  }
+
+  Future<void> _mergeSavedReadState() async {
+    final uid = _uid;
+    if (uid == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!await _absorbSaved(prefs, uid)) return;
+      _updateBadge();
+      itemsNotifier.value = List.of(itemsNotifier.value); // repaint highlights
+    } catch (e) {
+      debugPrint('[Inbox] Could not merge saved read state: $e');
+    }
+  }
+
   Future<void> _saveReadState() async {
     final uid = _uid;
     if (uid == null) return;
     try {
       final prefs = await SharedPreferences.getInstance();
+      // Merge first so a second copy of the app never overwrites what this one marked read
+      if (await _absorbSaved(prefs, uid)) _updateBadge();
+      if (_uid != uid) return;
       final listed = itemsNotifier.value.map((i) => i.key).toSet();
       await prefs.setStringList(_k('read', uid), trimKeys(_readKeys, keep: listed, max: _maxReadKeys));
       await prefs.setStringList(_k('seenkeys', uid), trimKeys(_seenKeys, keep: listed, max: _maxReadKeys));

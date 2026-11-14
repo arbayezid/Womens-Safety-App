@@ -140,10 +140,10 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             children: [
               const Icon(Icons.warning_amber_rounded, color: AppColors.sosRed, size: 28),
               const SizedBox(width: 8),
-              Text(
+              Expanded(child: Text(
                 'Duress Alert Active',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
-              ),
+              )),
             ],
           ),
           content: Text(
@@ -230,10 +230,10 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             children: [
               const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
               const SizedBox(width: 10),
-              Text(
+              Expanded(child: Text(
                 "Confirm I'm Safe",
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 17),
-              ),
+              )),
             ],
           ),
           content: Text(
@@ -829,7 +829,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
         children: [
           Row(
             children: [
-              Container(
+              Flexible(child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEFF6FF),
@@ -840,17 +840,16 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   children: [
                     const Icon(Icons.bolt_rounded, size: 14, color: AppColors.actionBlue),
                     const SizedBox(width: 4),
-                    Text(
+                    Flexible(child: Text(
                       source,
                       style: GoogleFonts.poppins(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
                         color: AppColors.actionBlue,
-                      ),
-                    ),
+                      ), maxLines: 1, overflow: TextOverflow.ellipsis)),
                   ],
                 ),
-              ),
+              )),
               const Spacer(),
               if (batteryLevel != null)
                 Container(
@@ -918,7 +917,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 color: isActive ? AppColors.sosRed : AppColors.safeGreen,
               ),
               const SizedBox(width: 6),
-              Text(
+              Flexible(child: Text(
                 isActive
                     ? 'Active for: ${_formatElapsed(triggerTime)}'
                     : 'Resolved after: ${_formatElapsed(triggerTime, toTime: resolvedTime)}',
@@ -927,7 +926,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   fontWeight: FontWeight.w600,
                   color: isActive ? AppColors.sosRed : AppColors.safeGreen,
                 ),
-              ),
+              )),
             ],
           ),
         ],
@@ -1377,14 +1376,14 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             children: [
               const Icon(Icons.shield_outlined, color: AppColors.primary, size: 18),
               const SizedBox(width: 8),
-              Text(
+              Expanded(child: Text(
                 panelTitle,
                 style: GoogleFonts.poppins(
                   fontSize: 13.5,
                   fontWeight: FontWeight.w700,
                   color: AppColors.textPrimary,
                 ),
-              ),
+              )),
             ],
           ),
           const SizedBox(height: 12),

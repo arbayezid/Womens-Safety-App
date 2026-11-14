@@ -180,14 +180,14 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                       children: [
                         const Icon(Icons.timer_outlined, size: 14, color: AppColors.sosRed),
                         const SizedBox(width: 6),
-                        Text(
+                        Flexible(child: Text(
                           'Auto-SOS in $seconds seconds if unanswered',
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                             color: AppColors.sosRed,
                           ),
-                        ),
+                        )),
                       ],
                     ),
                   ),
@@ -478,14 +478,14 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                       children: [
                         const Icon(Icons.timer_outlined, size: 14, color: AppColors.sosRed),
                         const SizedBox(width: 6),
-                        Text(
+                        Flexible(child: Text(
                           'Auto-SOS in $seconds seconds if unanswered',
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                             color: AppColors.sosRed,
                           ),
-                        ),
+                        )),
                       ],
                     ),
                   ),

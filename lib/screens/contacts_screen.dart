@@ -739,13 +739,13 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       color: AppColors.sosRed, size: 22),
                 ),
                 const SizedBox(width: 12),
-                Text(
+                Expanded(child: Text(
                   title,
                   style: GoogleFonts.poppins(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
                       color: AppColors.textPrimary),
-                ),
+                )),
               ],
             ),
             content: Text(

@@ -54,6 +54,79 @@ class EmergencyResult {
   }
 }
 
+/// What the last SOS round (first send or a re-send) actually reached, for the home screen's
+/// status line. Counts come from the real dispatch results, never from the contact list alone.
+class SosDispatchStatus {
+  /// SMS confirmed sent / handed to the radio but unconfirmed / attempted.
+  final int smsSent;
+  final int smsPending;
+  final int smsTotal;
+
+  /// Formatted phone numbers whose SMS did not go out automatically.
+  final List<String> smsFailed;
+
+  /// The SMS text of this round, so a retry sends exactly the same message.
+  final String smsBody;
+
+  /// True once the in-app (cloud) alert document exists for this round.
+  final bool cloudSent;
+
+  /// True when the default Messages app was opened for the failed recipients.
+  final bool composerOpened;
+
+  /// True for a re-send of an alert that was already live.
+  final bool isResend;
+  final DateTime at;
+
+  final int _reachedWithCloud;
+  final int _reachedWithoutCloud;
+
+  const SosDispatchStatus({
+    required this.smsSent,
+    required this.smsPending,
+    required this.smsTotal,
+    required this.smsFailed,
+    required this.smsBody,
+    required this.cloudSent,
+    required this.composerOpened,
+    required this.isResend,
+    required this.at,
+    required int reachedWithCloud,
+    required int reachedWithoutCloud,
+  })  : _reachedWithCloud = reachedWithCloud,
+        _reachedWithoutCloud = reachedWithoutCloud;
+
+  /// Distinct contacts reached by at least one channel (in-app alert or SMS sent / sending).
+  int get contactsReached => cloudSent ? _reachedWithCloud : _reachedWithoutCloud;
+
+  /// True when some SMS recipients still have not been sent the alert.
+  bool get smsNeedsAttention => smsFailed.isNotEmpty;
+
+  SosDispatchStatus copyWith({
+    int? smsSent,
+    int? smsPending,
+    List<String>? smsFailed,
+    bool? cloudSent,
+    bool? composerOpened,
+    int? reachedWithoutCloud,
+    int? reachedWithCloud,
+  }) {
+    return SosDispatchStatus(
+      smsSent: smsSent ?? this.smsSent,
+      smsPending: smsPending ?? this.smsPending,
+      smsTotal: smsTotal,
+      smsFailed: smsFailed ?? this.smsFailed,
+      smsBody: smsBody,
+      cloudSent: cloudSent ?? this.cloudSent,
+      composerOpened: composerOpened ?? this.composerOpened,
+      isResend: isResend,
+      at: at,
+      reachedWithCloud: reachedWithCloud ?? _reachedWithCloud,
+      reachedWithoutCloud: reachedWithoutCloud ?? _reachedWithoutCloud,
+    );
+  }
+}
+
 /// Whether an SOS came from a deliberate press (button, pendant, duress PIN) or from an
 /// automatic check that went unanswered (journey, ride, fall, shake countdown).
 enum SosOrigin { manual, automatic }
@@ -75,13 +148,17 @@ class SosGate {
 
   /// Runs [pipeline] through the gate. [pipeline] receives the live alert ID when the SMS round
   /// is re-sent for an existing alert, or null when a new alert must be created.
+  ///
+  /// [liveAlertIdOverride] replaces [liveAlertId] for this run only (used by an explicit
+  /// re-send, which trusts the local alert while offline instead of creating a second one).
   Future<EmergencyResult> run(
     SosOrigin origin,
-    Future<EmergencyResult> Function(String? existingAlertId) pipeline,
-  ) {
+    Future<EmergencyResult> Function(String? existingAlertId) pipeline, {
+    Future<String?> Function(SosOrigin origin)? liveAlertIdOverride,
+  }) {
     final running = _inFlight;
     if (running != null) return running;
-    final future = _guardedTrigger(origin, pipeline);
+    final future = _guardedTrigger(origin, pipeline, liveAlertIdOverride ?? liveAlertId);
     _inFlight = future;
     return future.whenComplete(() => _inFlight = null);
   }
@@ -89,6 +166,7 @@ class SosGate {
   Future<EmergencyResult> _guardedTrigger(
     SosOrigin origin,
     Future<EmergencyResult> Function(String? existingAlertId) pipeline,
+    Future<String?> Function(SosOrigin origin) liveAlertId,
   ) async {
     final existing = await liveAlertId(origin);
     if (existing != null) {
@@ -158,6 +236,48 @@ class EmergencyService {
   /// Synchronous getter for current active alert ID
   String? get activeAlertId => activeAlertIdNotifier.value;
 
+  /// When the active alert was triggered (null when no alert is active). Persisted with the
+  /// alert ID so the home screen's elapsed timer survives an app restart.
+  final ValueNotifier<DateTime?> activeAlertStartedAtNotifier = ValueNotifier<DateTime?>(null);
+
+  /// True while an SOS round is being sent, from any source (home button, ESP32 pendant,
+  /// shake, voice, journey), until its alert document exists or the round has finished.
+  final ValueNotifier<bool> sosInProgressNotifier = ValueNotifier<bool>(false);
+
+  /// Result of the last SOS round for the active alert (null when none, or after a restart).
+  final ValueNotifier<SosDispatchStatus?> lastDispatchNotifier =
+      ValueNotifier<SosDispatchStatus?>(null);
+
+  /// How long the home screen's "Re-send" option stays disabled after any manual SOS press.
+  /// Matches the pendant's hardware cooldown, so guardians are never rung more often than that.
+  static const Duration resendCooldown = Duration(seconds: 30);
+
+  DateTime? _lastManualTriggerAt;
+
+  /// Time left before the home screen offers "Re-send" again (zero when available).
+  Duration get resendCooldownRemaining {
+    final last = _lastManualTriggerAt;
+    if (last == null) return Duration.zero;
+    final left = resendCooldown - DateTime.now().difference(last);
+    return left.isNegative ? Duration.zero : left;
+  }
+
+  static const String _prefKeyActiveAlertId = 'active_sos_alert_id';
+  static const String _prefKeyActiveAlertStartedAt = 'active_sos_started_at';
+
+  bool _gateRunning = false;
+
+  /// Increments with every SOS round, so a late cloud result only updates its own round.
+  int _dispatchRound = 0;
+
+  /// True when the pending cloud document belongs to a duress round, which must stay silent.
+  bool _pendingIsSilent = false;
+
+  void _refreshInProgress() {
+    sosInProgressNotifier.value =
+        _gateRunning || (_pendingCloudAlertId != null && !_pendingIsSilent);
+  }
+
   Future<void> _postDispatchWork = Future<void>.value();
 
   /// The cloud document of the last trigger while it is still being created.
@@ -178,7 +298,7 @@ class EmergencyService {
   Future<void> restoreActiveAlertId() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final savedId = prefs.getString('active_sos_alert_id');
+      final savedId = prefs.getString(_prefKeyActiveAlertId);
       if (savedId != null && savedId.isNotEmpty) {
         final live = await _isAlertLiveInCloud(savedId);
         if (live == false) {
@@ -186,6 +306,10 @@ class EmergencyService {
           await _clearActiveAlertLocally(savedId);
           return;
         }
+        final savedStartMs = prefs.getInt(_prefKeyActiveAlertStartedAt);
+        activeAlertStartedAtNotifier.value = savedStartMs != null
+            ? DateTime.fromMillisecondsSinceEpoch(savedStartMs)
+            : await _fetchTriggeredAt(savedId);
         activeAlertIdNotifier.value = savedId;
         debugPrint('[EmergencyService] 🔄 Restored active SOS alert ID: $savedId');
       }
@@ -198,6 +322,37 @@ class EmergencyService {
     if (data == null || data['status'] != 'active') return false;
     final expiresAt = (data['expiresAt'] as Timestamp?)?.toDate();
     return expiresAt == null || expiresAt.isAfter(now);
+  }
+
+  /// Best-effort read of an alert's `triggeredAt` (for alerts stored before the start time was
+  /// saved locally). Null when offline or missing.
+  Future<DateTime?> _fetchTriggeredAt(String alertId) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collection('sos_alerts')
+          .doc(alertId)
+          .get()
+          .timeout(const Duration(seconds: 3));
+      return (snap.data()?['triggeredAt'] as Timestamp?)?.toDate();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Forgets the active alert's ID, start time and last-round status, in memory and on disk.
+  Future<void> _forgetActiveAlertState({String? onlyIfId}) async {
+    if (onlyIfId == null || activeAlertId == onlyIfId) {
+      activeAlertStartedAtNotifier.value = null;
+      lastDispatchNotifier.value = null;
+      activeAlertIdNotifier.value = null;
+    }
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (onlyIfId == null || prefs.getString(_prefKeyActiveAlertId) == onlyIfId) {
+        await prefs.remove(_prefKeyActiveAlertId);
+        await prefs.remove(_prefKeyActiveAlertStartedAt);
+      }
+    } catch (_) {}
   }
 
   /// Reads [alertId] from Firestore: true = live, false = ended / expired / missing,
@@ -228,12 +383,8 @@ class EmergencyService {
       unawaited(SafetyDeadlineService.instance.clearSosStages(targetId));
     }
 
-    // 2. Clear local active alert ID
-    activeAlertIdNotifier.value = null;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.remove('active_sos_alert_id');
-    } catch (_) {}
+    // 2. Clear local active alert ID, start time and status
+    await _forgetActiveAlertState();
 
     // 3. Stop live tracking, background service, and smart escalation
     SosEscalationService.instance.stopEscalation();
@@ -324,9 +475,10 @@ class EmergencyService {
     bool playSiren = false,
     String? linkedJourneyId,
   }) {
-    return _gate.run(
-      origin,
-      (existingAlertId) => _triggerEmergencyImpl(
+    return _runGate(
+      origin: origin,
+      isDuress: isDuress,
+      pipeline: (existingAlertId) => _triggerEmergencyImpl(
         source: source,
         origin: origin,
         existingAlertId: existingAlertId,
@@ -337,6 +489,96 @@ class EmergencyService {
         linkedJourneyId: linkedJourneyId,
       ),
     );
+  }
+
+  /// Explicit "Re-send" of the active alert from the home screen: re-rings guardians and
+  /// re-sends the SMS round for the same alert document.
+  ///
+  /// Unlike a plain press, it trusts the local alert while offline (Firestore unreachable), so
+  /// an offline re-send goes out as SMS and never creates a second alert document. If Firestore
+  /// says the alert has ended, a new alert is created, as with any manual press.
+  Future<EmergencyResult> resendActiveAlert({String source = 'SOS Button (re-send)'}) {
+    final localId = activeAlertId;
+    if (localId == null) {
+      return triggerEmergency(source: source, origin: SosOrigin.manual);
+    }
+    return _runGate(
+      origin: SosOrigin.manual,
+      isDuress: false,
+      liveAlertIdOverride: (_) async {
+        final live = await _isAlertLiveInCloud(localId);
+        if (live == false) {
+          await _clearActiveAlertLocally(localId);
+          return null;
+        }
+        return localId; // live, or offline (unknown): reuse the local alert
+      },
+      pipeline: (existingAlertId) => _triggerEmergencyImpl(
+        source: source,
+        origin: SosOrigin.manual,
+        existingAlertId: existingAlertId,
+      ),
+    );
+  }
+
+  /// Runs one round through [SosGate] and keeps [sosInProgressNotifier] and the re-send
+  /// cooldown up to date. A duress round stays silent: it never shows the "sending" state.
+  Future<EmergencyResult> _runGate({
+    required SosOrigin origin,
+    required bool isDuress,
+    required Future<EmergencyResult> Function(String? existingAlertId) pipeline,
+    Future<String?> Function(SosOrigin origin)? liveAlertIdOverride,
+  }) {
+    if (origin == SosOrigin.manual) _lastManualTriggerAt = DateTime.now();
+    final future = _gate.run(origin, pipeline, liveAlertIdOverride: liveAlertIdOverride);
+    if (!isDuress && !_gateRunning) {
+      _gateRunning = true;
+      _refreshInProgress();
+      unawaited(future.whenComplete(() {
+        _gateRunning = false;
+        _refreshInProgress();
+      }).then((_) {}, onError: (_) {}));
+    }
+    return future;
+  }
+
+  /// Tries the SMS recipients of the last round that were not reached again: direct send
+  /// first, then the Messages app (pre-filled) for anyone still left. Updates
+  /// [lastDispatchNotifier] and returns the new status (null when there was nothing to retry).
+  Future<SosDispatchStatus?> retryFailedSms() async {
+    final status = lastDispatchNotifier.value;
+    if (status == null || status.smsFailed.isEmpty) return status;
+    final round = _dispatchRound;
+
+    final retry = await _dispatchOfflineSms(recipients: status.smsFailed, smsBody: status.smsBody)
+        .catchError((Object _) => _SmsDispatchResult(
+              sentCount: 0,
+              failedList: status.smsFailed,
+              hasRecipients: true,
+              permissionGranted: true,
+            ));
+    final List<String> remaining = !retry.permissionGranted ? status.smsFailed : retry.failedList;
+
+    bool composerOpened = status.composerOpened;
+    if (remaining.isNotEmpty) {
+      final outcome = await NativeSmsService.instance.openComposer(remaining, status.smsBody);
+      composerOpened = outcome == 'opened' || outcome == 'notified';
+    }
+
+    final newlyReached = retry.sentCount + retry.pendingCount;
+    final updated = status.copyWith(
+      smsSent: status.smsSent + retry.sentCount,
+      smsPending: status.smsPending + retry.pendingCount,
+      smsFailed: remaining,
+      composerOpened: composerOpened,
+      reachedWithoutCloud: status._reachedWithoutCloud + newlyReached,
+      reachedWithCloud: status._reachedWithCloud + newlyReached,
+    );
+    // Only publish if no newer round replaced this one meanwhile.
+    if (round == _dispatchRound && lastDispatchNotifier.value != null) {
+      lastDispatchNotifier.value = updated;
+    }
+    return updated;
   }
 
   /// The locally stored alert ID only counts if Firestore still says it is live.
@@ -362,13 +604,7 @@ class EmergencyService {
   /// its live tracking and escalation.
   Future<void> _clearActiveAlertLocally(String alertId) async {
     debugPrint('[EmergencyService] Clearing stale local SOS state for $alertId');
-    if (activeAlertId == alertId) activeAlertIdNotifier.value = null;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getString('active_sos_alert_id') == alertId) {
-        await prefs.remove('active_sos_alert_id');
-      }
-    } catch (_) {}
+    await _forgetActiveAlertState(onlyIfId: alertId);
     SosEscalationService.instance.stopEscalation();
     unawaited(SafetyDeadlineService.instance.clearSosStages(alertId));
     final tracking = LiveTrackingService.instance;
@@ -391,6 +627,8 @@ class EmergencyService {
     String? linkedJourneyId,
   }) async {
     debugPrint('[EmergencyService] 🚨 Triggering Emergency SOS via source: $source (duress: $isDuress, siren: $playSiren)');
+    final DateTime triggerStartedAt = DateTime.now();
+    final int round = ++_dispatchRound;
 
     if (playSiren) {
       SirenService.instance.startSiren();
@@ -445,52 +683,54 @@ class EmergencyService {
     // alerted exactly as before.
     final List<ContactModel> orderedContacts = ContactService.primaryFirst(localContacts);
 
-    for (final contact in orderedContacts) {
-      // Backup contacts are excluded from the initial SOS dispatch.
-      // They are engaged in Stage 1 escalation if the regular contacts do not acknowledge.
-      if (contact.isBackup) continue;
+    // Per-contact routing record (formatted phone, in-app or not), used only to count how many
+    // distinct people the round actually reached for the home screen's status line.
+    final List<({String? phone, bool inApp})> routedContacts = [];
+
+    void routeContact(ContactModel contact) {
+      String? formattedPhone;
+      bool inApp = false;
 
       // Channel 1: Offline SMS
       if (contact.phone.trim().isNotEmpty) {
         final formatted = formatRecipientPhone(contact.phone);
-        if (formatted.isNotEmpty && !routedSmsRecipients.contains(formatted)) {
-          routedSmsRecipients.add(formatted);
+        if (formatted.isNotEmpty) {
+          formattedPhone = formatted;
+          if (!routedSmsRecipients.contains(formatted)) routedSmsRecipients.add(formatted);
         }
       }
 
       // Channel 2: In-app Cloud SOS
       final normEmail = contact.email.trim().toLowerCase();
-      if (normEmail.isNotEmpty && !routedCloudEmails.contains(normEmail)) {
-        routedCloudEmails.add(normEmail);
+      if (normEmail.isNotEmpty) {
+        inApp = true;
+        if (!routedCloudEmails.contains(normEmail)) routedCloudEmails.add(normEmail);
       }
 
       if (contact.contactUid != null &&
           contact.contactUid!.isNotEmpty &&
-          !contact.contactUid!.startsWith('offline_') &&
-          !routedCloudUids.contains(contact.contactUid)) {
-        routedCloudUids.add(contact.contactUid!);
+          !contact.contactUid!.startsWith('offline_')) {
+        inApp = true;
+        if (!routedCloudUids.contains(contact.contactUid)) routedCloudUids.add(contact.contactUid!);
       }
+
+      if (formattedPhone != null || inApp) {
+        routedContacts.add((phone: formattedPhone, inApp: inApp));
+      }
+    }
+
+    for (final contact in orderedContacts) {
+      // Backup contacts are excluded from the initial SOS dispatch.
+      // They are engaged in Stage 1 escalation if the regular contacts do not acknowledge.
+      if (contact.isBackup) continue;
+      routeContact(contact);
     }
 
     // Safety fallback: if user ONLY has backup contacts, include them immediately so SOS is never empty
     if (routedSmsRecipients.isEmpty && routedCloudEmails.isEmpty && routedCloudUids.isEmpty) {
+      routedContacts.clear();
       for (final contact in orderedContacts) {
-        if (contact.phone.trim().isNotEmpty) {
-          final formatted = formatRecipientPhone(contact.phone);
-          if (formatted.isNotEmpty && !routedSmsRecipients.contains(formatted)) {
-            routedSmsRecipients.add(formatted);
-          }
-        }
-        final normEmail = contact.email.trim().toLowerCase();
-        if (normEmail.isNotEmpty && !routedCloudEmails.contains(normEmail)) {
-          routedCloudEmails.add(normEmail);
-        }
-        if (contact.contactUid != null &&
-            contact.contactUid!.isNotEmpty &&
-            !contact.contactUid!.startsWith('offline_') &&
-            !routedCloudUids.contains(contact.contactUid)) {
-          routedCloudUids.add(contact.contactUid!);
-        }
+        routeContact(contact);
       }
     }
 
@@ -582,12 +822,18 @@ class EmergencyService {
     if (existingAlertId == null) {
       // Hook live tracking and active alert state as soon as Cloud SOS document is created
       _pendingCloudAlertId = cloudFuture;
+      _pendingIsSilent = isDuress;
+      _refreshInProgress();
       _postDispatchWork = cloudFuture.then((alertId) async {
         if (alertId != null && alertId.isNotEmpty) {
+          // Start time first, so the home screen's timer has it when the ID arrives.
+          activeAlertStartedAtNotifier.value = triggerStartedAt;
           activeAlertIdNotifier.value = alertId;
           try {
             final prefs = await SharedPreferences.getInstance();
-            await prefs.setString('active_sos_alert_id', alertId);
+            await prefs.setString(_prefKeyActiveAlertId, alertId);
+            await prefs.setInt(
+                _prefKeyActiveAlertStartedAt, triggerStartedAt.millisecondsSinceEpoch);
           } catch (_) {}
 
           // Start throttled live tracking for active SOS
@@ -614,6 +860,7 @@ class EmergencyService {
       // Registered after the hook above, so the active alert ID is set before this clears.
       unawaited(cloudFuture.whenComplete(() {
         if (identical(_pendingCloudAlertId, cloudFuture)) _pendingCloudAlertId = null;
+        _refreshInProgress();
       }));
     }
 
@@ -725,6 +972,39 @@ class EmergencyService {
       resultSummary = 'No emergency contacts configured. Please add emergency contacts first.';
     } else {
       resultSummary = 'Failed to dispatch emergency alerts.';
+    }
+
+    // Publish what this round really reached, for the home screen's status line.
+    if (overallSuccess) {
+      final Set<String> reachedPhones =
+          recipients.where((r) => !failedList.contains(r)).toSet();
+      int reachedBy(bool withCloud) => routedContacts
+          .where((c) =>
+              (withCloud && c.inApp) ||
+              (c.phone != null && smsResult.permissionGranted && reachedPhones.contains(c.phone)))
+          .length;
+      lastDispatchNotifier.value = SosDispatchStatus(
+        smsSent: sentCount,
+        smsPending: pendingCount,
+        smsTotal: recipients.length,
+        smsFailed: smsResult.permissionGranted ? failedList : recipients,
+        smsBody: smsBody,
+        cloudSent: cloudSent,
+        composerOpened: composerOpened,
+        isResend: existingAlertId != null,
+        at: DateTime.now(),
+        reachedWithCloud: reachedBy(true),
+        reachedWithoutCloud: reachedBy(false),
+      );
+      if (!cloudSent) {
+        // The cloud document can land after the 500 ms wait above: count in-app guardians then.
+        unawaited(cloudFuture.then((id) {
+          final current = lastDispatchNotifier.value;
+          if (id != null && round == _dispatchRound && current != null) {
+            lastDispatchNotifier.value = current.copyWith(cloudSent: true);
+          }
+        }).catchError((Object _) {}));
+      }
     }
 
     // Log the SOS emergency event for profile activity tracking
