@@ -103,17 +103,17 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
       case RideStatus.active:
         bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
-        label = 'ACTIVE';
+        label = 'Active';
         break;
       case RideStatus.arrived:
         bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
-        label = 'ARRIVED';
+        label = 'Arrived';
         break;
       case RideStatus.overdue:
         bg = AppColors.tintRed;
         fg = AppColors.sosRed;
-        label = 'OVERDUE';
+        label = 'Overdue';
         break;
       case RideStatus.sos:
         bg = AppColors.tintRed;
@@ -123,7 +123,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
       case RideStatus.cancelled:
         bg = AppColors.neutralTile;
         fg = AppColors.textSecondary;
-        label = 'CANCELLED';
+        label = 'Cancelled';
         break;
     }
 

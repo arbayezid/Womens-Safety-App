@@ -242,7 +242,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               backgroundColor: AppColors.sosRed,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
             ),
-            child: Text('DISPATCH SOS', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700)),
+            child: Text('Send SOS', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -899,7 +899,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                   )
                 : const Icon(Icons.emergency_rounded, color: Colors.white, size: 24),
             label: Text(
-              _isSosLoading ? 'DISPATCHING SOS...' : 'SEND SOS NOW',
+              _isSosLoading ? 'Sending SOS…' : 'Send SOS now',
               style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.8),
             ),
             style: ElevatedButton.styleFrom(

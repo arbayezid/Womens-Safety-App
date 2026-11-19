@@ -147,7 +147,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content: Text(
         'Call audio unavailable. Install an English text-to-speech voice in phone Settings › Text-to-speech.',
-        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500),
+        style: GoogleFonts.roboto(fontSize: 12, fontWeight: FontWeight.w500),
       ),
       backgroundColor: AppColors.sosRed,
       behavior: SnackBarBehavior.floating,
@@ -220,7 +220,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
               child: Center(
                 child: Text(
                   _avatarLetter,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.roboto(
                     fontSize: 42,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
@@ -231,7 +231,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
             const SizedBox(height: 24),
             Text(
               _callerName,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.roboto(
                 fontSize: 28,
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
@@ -240,7 +240,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
             const SizedBox(height: 8),
             Text(
               _callerPhone,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.roboto(
                 fontSize: 15,
                 color: Colors.white70,
               ),
@@ -254,7 +254,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
               ),
               child: Text(
                 'Incoming call',
-                style: GoogleFonts.poppins(
+                style: GoogleFonts.roboto(
                   fontSize: 13,
                   color: const Color(0xFF53D769),
                   fontWeight: FontWeight.w500,
@@ -290,7 +290,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
                   const SizedBox(height: 10),
                   Text(
                     'Decline',
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.roboto(
                         color: Colors.white70, fontSize: 13),
                   ),
                 ],
@@ -316,7 +316,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
                   const SizedBox(height: 10),
                   Text(
                     'Accept',
-                    style: GoogleFonts.poppins(
+                    style: GoogleFonts.roboto(
                         color: Colors.white70, fontSize: 13),
                   ),
                 ],
@@ -348,7 +348,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
               child: Center(
                 child: Text(
                   _avatarLetter,
-                  style: GoogleFonts.poppins(
+                  style: GoogleFonts.roboto(
                     fontSize: 34,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
@@ -359,7 +359,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
             const SizedBox(height: 18),
             Text(
               _callerName,
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.roboto(
                 fontSize: 24,
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
@@ -368,7 +368,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
             const SizedBox(height: 6),
             Text(
               _formatTimer(_secondsElapsed),
-              style: GoogleFonts.poppins(
+              style: GoogleFonts.roboto(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: const Color(0xFF34C759),
@@ -463,7 +463,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
         const SizedBox(height: 8),
         Text(
           label,
-          style: GoogleFonts.poppins(color: Colors.white70, fontSize: 12),
+          style: GoogleFonts.roboto(color: Colors.white70, fontSize: 12),
         ),
       ],
     );

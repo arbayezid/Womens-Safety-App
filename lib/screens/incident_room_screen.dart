@@ -425,7 +425,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                       const Icon(Icons.check_circle_rounded, color: AppColors.safeGreen, size: 12),
                     const SizedBox(width: 6),
                     Text(
-                      isActive ? 'ACTIVE' : 'RESOLVED',
+                      isActive ? 'Active' : 'Resolved',
                       style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: isActive ? AppColors.sosRed : AppColors.safeGreen, letterSpacing: 0.5),
                     ),
                   ],
@@ -520,9 +520,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
   // UI WIDGET COMPONENTS
-  // ─────────────────────────────────────────────────────────────
 
   Widget _buildDuressWarningBanner() {
     return Container(
@@ -1590,7 +1588,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                             )
                           : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
                       label: Text(
-                        isActive ? "I'M SAFE NOW" : 'ALERT RESOLVED',
+                        isActive ? "I'm safe now" : 'Alert resolved',
                         style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.3),
                       ),
                       style: ElevatedButton.styleFrom(

@@ -122,7 +122,6 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
 
           return Column(
             children: [
-              // ── Map View ──────────────────────────────────────────
               Expanded(
                 child: Stack(
                   children: [
@@ -306,7 +305,6 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                 ),
               ),
 
-              // ── Bottom Information Card ───────────────────────────
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),

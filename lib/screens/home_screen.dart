@@ -46,6 +46,7 @@ import '../core/app_tokens.dart';
 import '../core/app_text.dart';
 import '../widgets/ui/app_snack.dart';
 import '../widgets/ui/ui_tone.dart';
+import '../widgets/ui/status_label.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -91,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       duration: const Duration(milliseconds: 1400),
     )..repeat(reverse: true);
 
-    _pulseAnimation = Tween<double>(begin: 0.93, end: 1.0).animate(
+    _pulseAnimation = Tween<double>(begin: 0.97, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
@@ -750,7 +751,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Scaffold(
       backgroundColor: AppColors.background,
 
-      // ── IndexedStack keeps all screens alive for instant switching ──
       body: IndexedStack(
         index: _selectedIndex,
         children: [
@@ -775,7 +775,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ],
       ),
 
-      // ── Bottom Navigation Bar ──────────────────────────────────────
       bottomNavigationBar: _AppBottomNav(
         currentIndex: _selectedIndex,
         onTap: (i) => setState(() => _selectedIndex = i),
@@ -784,9 +783,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
 //  SAFETY DASHBOARD  (extracted from the old HomeScreen body)
-// ─────────────────────────────────────────────────────────────
 
 /// The Safety tab body — contains the top bar, location card,
 /// SOS button, and quick-actions grid.
@@ -818,10 +815,8 @@ class _SafetyDashboard extends StatelessWidget {
           children: [
             const SizedBox(height: 16),
 
-            // ── 1. Custom Top App Bar ──────────────────────────────
             _TopAppBar(onAvatarTap: onAvatarTap),
 
-            // ── Incoming Guardian Requests Alert Banner ─────────────
             ValueListenableBuilder<List<Map<String, dynamic>>>(
               valueListenable: ContactSyncService.instance.incomingRequestsNotifier,
               builder: (context, requests, _) {
@@ -879,7 +874,6 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
-            // ── Active SOS Emergency Alert Banner ("I'm Safe") ──────
             ValueListenableBuilder<String?>(
               valueListenable: EmergencyService.instance.activeAlertIdNotifier,
               builder: (context, activeAlertId, _) {
@@ -891,7 +885,6 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
-            // ── Active Incoming Guardian SOS Alert Banner ───────────
             ValueListenableBuilder<Map<String, dynamic>?>(
               valueListenable: NotificationService.instance.activeIncomingSosNotifier,
               builder: (context, incomingSos, _) {
@@ -903,7 +896,6 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
-            // ── Active Safe Journey Card ───────────────────────────
             ValueListenableBuilder<JourneyModel?>(
               valueListenable: JourneyService.instance.activeJourneyNotifier,
               builder: (context, activeJourney, _) {
@@ -917,7 +909,6 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
-            // ── Protected Contacts' Live Safe Journeys (Receiver) ──
             ValueListenableBuilder<List<JourneyModel>>(
               valueListenable: NotificationService.instance.incomingActiveJourneysNotifier,
               builder: (context, incomingJourneys, _) {
@@ -934,7 +925,6 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
-            // ── Active Ride Safety Check-in Card (Sender) ─────────
             ValueListenableBuilder<RideCheckinModel?>(
               valueListenable: RideCheckinService.instance.activeRideNotifier,
               builder: (context, activeRide, _) {
@@ -948,7 +938,6 @@ class _SafetyDashboard extends StatelessWidget {
               },
             ),
 
-            // ── Incoming Protected Contacts Active Ride Card (Receiver) ─
             ValueListenableBuilder<List<RideCheckinModel>>(
               valueListenable: NotificationService.instance.incomingActiveRidesNotifier,
               builder: (context, incomingRides, _) {
@@ -965,12 +954,10 @@ class _SafetyDashboard extends StatelessWidget {
 
             const SizedBox(height: 16),
 
-            // ── 2. Current Location Card ───────────────────────────
             const CurrentLocationCard(),
 
             const SizedBox(height: 28),
 
-            // ── 3 + 4. SOS Button and hint pill ──────────────────
             // Driven by EmergencyService state, not by this screen's taps, so an SOS from the
             // ESP32 pendant, shake or voice switches the button to its LIVE look as well.
             ListenableBuilder(
@@ -1010,7 +997,6 @@ class _SafetyDashboard extends StatelessWidget {
 
             const SizedBox(height: 28),
 
-            // ── 5. Quick Actions heading ───────────────────────────
             Text(
               'Quick Actions',
               style: AppText.greeting.copyWith(color: AppColors.textPrimary),
@@ -1018,7 +1004,6 @@ class _SafetyDashboard extends StatelessWidget {
 
             const SizedBox(height: 14),
 
-            // ── 6. Quick Actions 2×2 grid ─────────────────────────
             _QuickActionsGrid(onAction: onQuickAction),
 
             const SizedBox(height: 20),
@@ -1029,9 +1014,7 @@ class _SafetyDashboard extends StatelessWidget {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
 //  SUB-WIDGETS  (private, file-scoped)
-// ─────────────────────────────────────────────────────────────
 
 /// Prominent banner displayed on the Safety dashboard when an emergency SOS alert
 /// is currently active and broadcasting live GPS tracking data.
@@ -1044,30 +1027,9 @@ class _ActiveSosEmergencyBanner extends StatefulWidget {
   State<_ActiveSosEmergencyBanner> createState() => _ActiveSosEmergencyBannerState();
 }
 
-class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseScale;
+class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner> {
   bool _isResolving = false;
   bool _isRetryingSms = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _pulseController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    )..repeat(reverse: true);
-    _pulseScale = Tween<double>(begin: 0.95, end: 1.05).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
-    );
-  }
-
-  @override
-  void dispose() {
-    _pulseController.dispose();
-    super.dispose();
-  }
 
   Future<void> _handleMarkSafe() async {
     final confirmed = await _confirmMarkSafe(context);
@@ -1100,7 +1062,7 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
       decoration: BoxDecoration(
         color: AppColors.dangerSurface,
         borderRadius: BorderRadius.circular(AppRadius.lg),
-        border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.5), width: 1.5),
+        border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.5)),
         boxShadow: [
           BoxShadow(
             color: AppColors.sosRed.withValues(alpha: 0.12),
@@ -1114,25 +1076,23 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
         children: [
           Row(
             children: [
-              ScaleTransition(
-                scale: _pulseScale,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
-                    color: AppColors.sosRed,
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.sensors_rounded, color: Colors.white, size: 20),
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  color: AppColors.sosRed,
+                  shape: BoxShape.circle,
                 ),
+                child: const Icon(Icons.sensors_rounded, color: Colors.white, size: 20),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    StatusLabel(
                       'SOS active',
-                      style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.sosRed, letterSpacing: 0.3),
+                      tone: UiTone.live,
+                      style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700),
                     ),
                     Text(
                       'Sharing your live location with guardians',
@@ -1545,7 +1505,6 @@ class _TopAppBarState extends State<_TopAppBar> {
         return Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // ── Tappable avatar circle (opens Profile) ──────────────────
             GestureDetector(
               onTap: widget.onAvatarTap,
               child: Container(
@@ -1573,7 +1532,6 @@ class _TopAppBarState extends State<_TopAppBar> {
 
             const SizedBox(width: 12),
 
-            // ── Greeting + guardian mode subtitle (triple-tap enters Camouflage) ──
             Expanded(
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
@@ -1607,10 +1565,8 @@ class _TopAppBarState extends State<_TopAppBar> {
               ),
             ),
 
-            // ── Notification inbox bell with unread count ────────────────
             if (isAuthenticated) const _InboxBell(),
 
-            // ── ESP32 status badge ───────────────────────────────────────
             _ESP32Badge(),
           ],
         );
@@ -3282,7 +3238,7 @@ class _ActiveRideCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        isOverdue ? 'RIDE OVERDUE' : 'ACTIVE RIDE CHECK-IN',
+                        isOverdue ? 'Ride overdue' : 'Ride in progress',
                         style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: badgeColor, letterSpacing: 0.5),
                       ),
                       const Spacer(),
@@ -3384,7 +3340,7 @@ class _IncomingProtectedRideCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 5),
                       Text(
-                        isOverdue ? 'PROTECTED RIDE OVERDUE' : 'PROTECTED CONTACT ON RIDE',
+                        isOverdue ? "Contact's ride overdue" : 'Contact on a ride',
                         style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: badgeColor, letterSpacing: 0.5),
                       ),
                       const Spacer(),
@@ -3440,7 +3396,6 @@ class _IncomingProtectedRideCard extends StatelessWidget {
   }
 }
 
-// ── Quick Actions ─────────────────────────────────────────────
 
 /// Immutable data model for a single Quick Action card.
 class _QuickActionItem {
@@ -3463,7 +3418,7 @@ class _QuickActionsGrid extends StatelessWidget {
 
   const _QuickActionsGrid({required this.onAction});
 
-  /// Static list of the four quick actions shown in the mockup.
+  /// Quick Action tiles. [label] is also how _onQuickAction routes the tap, so keep it stable.
   static const List<_QuickActionItem> _items = [
     _QuickActionItem(
       icon: Icons.phone_in_talk_rounded,
@@ -3591,7 +3546,7 @@ class _QuickActionCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
-              child: Icon(item.icon, color: iconColor, size: 28),
+              child: Icon(isSirenActive ? Icons.stop_circle_rounded : item.icon, color: iconColor, size: 28),
             ),
 
             const SizedBox(height: 10),
@@ -3613,7 +3568,6 @@ class _QuickActionCard extends StatelessWidget {
   }
 }
 
-// ── Bottom Navigation Bar ─────────────────────────────────────
 
 /// Bottom nav bar with 4 tabs: Safety · Map · Contacts · Settings
 class _AppBottomNav extends StatelessWidget {

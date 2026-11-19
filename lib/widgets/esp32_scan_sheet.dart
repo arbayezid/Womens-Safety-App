@@ -325,17 +325,14 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
   }
 
   Widget _buildBody(Esp32ConnectionStatus connStatus) {
-    // ── CASE 1: Bluetooth is TURNED OFF ──
     if (_adapterState != BluetoothAdapterState.on && _adapterState != BluetoothAdapterState.unknown) {
       return _buildBluetoothOffView();
     }
 
-    // ── CASE 2: Device is ALREADY CONNECTED ──
     if (connStatus == Esp32ConnectionStatus.connected) {
       return _buildConnectedDeviceView();
     }
 
-    // ── CASE 3: Scanning / Device List View ──
     return _buildDeviceListView();
   }
 

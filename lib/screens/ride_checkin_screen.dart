@@ -629,7 +629,6 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
             ),
             const SizedBox(height: 20),
 
-            // ── STEP 1: RIDE TYPE & APP ───────────────────────────────
             _buildSectionHeader('1. Choose Ride Type', Icons.commute_rounded),
             const SizedBox(height: 10),
             Wrap(
@@ -695,7 +694,6 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
             ),
             const SizedBox(height: 24),
 
-            // ── STEP 2: PHOTO CAPTURE & OCR ────────────────────────────
             _buildSectionHeader('2. Capture Vehicle & Evidence', Icons.camera_alt_rounded),
             const SizedBox(height: 10),
             Row(
@@ -885,7 +883,6 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
             ],
             const SizedBox(height: 20),
 
-            // ── STEP 3: VEHICLE DETAILS & LIVE PLATE PREVIEW ───────────
             _buildSectionHeader('3. Vehicle Details', Icons.directions_car_rounded),
             const SizedBox(height: 10),
 
@@ -1191,7 +1188,6 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
             ),
             const SizedBox(height: 24),
 
-            // ── STEP 4: CHOOSE GUARDIANS ──────────────────────────────
             _buildSectionHeader('4. Notify Guardians', Icons.group_rounded),
             const SizedBox(height: 10),
 
@@ -1250,7 +1246,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppRadius.xs)),
-                              child: Text('PRIMARY', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
+                              child: Text('Primary', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
                             ),
                           ],
                         ],
@@ -1275,7 +1271,6 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
 
             const SizedBox(height: 28),
 
-            // ── PRIMARY ACTION BUTTON ────────────────────────────────
             SizedBox(
               width: double.infinity,
               height: 54,
@@ -1289,7 +1284,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       )
                     : const Icon(Icons.navigation_rounded, color: Colors.white, size: 22),
                 label: Text(
-                  _isStartingRide ? 'NOTIFYING GUARDIANS...' : 'NOTIFY GUARDIANS & START RIDE',
+                  _isStartingRide ? 'Telling your guardians…' : 'Tell guardians and start ride',
                   style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                 ),
                 style: ElevatedButton.styleFrom(

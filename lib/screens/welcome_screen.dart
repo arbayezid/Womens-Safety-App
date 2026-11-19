@@ -5,14 +5,7 @@ import '../core/app_colors.dart';
 import '../services/auth_service.dart';
 import 'home_screen.dart';
 
-/// The first screen users see when they open Smart Safety.
-///
-/// Features:
-/// - Solid primary purple background
-/// - Animated shield + heart logo widget
-/// - App name and subtitle
-/// - "Continue with Google" primary action
-/// - "Explore as Guest" secondary action
+/// First screen: logo, sign in with Google, or continue as a guest.
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
@@ -22,10 +15,8 @@ class WelcomeScreen extends StatefulWidget {
 
 class _WelcomeScreenState extends State<WelcomeScreen>
     with SingleTickerProviderStateMixin {
-  // Fade-in + slide-up animation controller for a polished entrance
   late final AnimationController _fadeController;
   late final Animation<double> _fadeAnimation;
-  late final Animation<Offset> _slideAnimation;
 
   bool _isSigningIn = false;
 
@@ -39,7 +30,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       statusBarIconBrightness: Brightness.light,
     ));
 
-    // Initialize fade + slide-up animation
     _fadeController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 900),
@@ -49,14 +39,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       parent: _fadeController,
       curve: Curves.easeOut,
     );
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.12),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(
-      parent: _fadeController,
-      curve: Curves.easeOut,
-    ));
 
     // Start animation after first frame renders
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -131,19 +113,14 @@ class _WelcomeScreenState extends State<WelcomeScreen>
           padding: const EdgeInsets.symmetric(horizontal: 32.0),
           child: FadeTransition(
             opacity: _fadeAnimation,
-            child: SlideTransition(
-              position: _slideAnimation,
-              child: Column(
+            child: Column(
                 children: [
-                  // ── Spacer: push logo to vertical center ─────────────
                   const Spacer(flex: 3),
 
-                  // ── Shield + Heart Logo ──────────────────────────────
                   const _ShieldLogoWidget(),
 
                   const SizedBox(height: 36),
 
-                  // ── App Title ────────────────────────────────────────
                   Text(
                     'Woman Guard',
                     style: GoogleFonts.poppins(
@@ -156,7 +133,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                   const SizedBox(height: 12),
 
-                  // ── Subtitle ─────────────────────────────────────────
                   Text(
                     'Alert the people you trust in one tap,\nwith or without the pendant.',
                     textAlign: TextAlign.center,
@@ -170,7 +146,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                   const Spacer(flex: 3),
 
-                  // ── Primary "Continue with Google" Button ────────────
                   SizedBox(
                     width: double.infinity,
                     child: ElevatedButton(
@@ -194,17 +169,11 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                           : Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Container(
-                                  padding: const EdgeInsets.all(2),
-                                  decoration: const BoxDecoration(
-                                    color: AppColors.primarySurface,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.g_mobiledata_rounded,
-                                    color: AppColors.primary,
-                                    size: 22,
-                                  ),
+                                Image.asset(
+                                  'assets/images/google_g.png',
+                                  width: 20,
+                                  height: 20,
+                                  semanticLabel: 'Google',
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
@@ -222,7 +191,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                   const SizedBox(height: 12),
 
-                  // ── Secondary "Explore as Guest" Text Button ─────────
                   TextButton(
                     onPressed: _isSigningIn ? null : _onContinueAsGuest,
                     style: TextButton.styleFrom(
@@ -245,7 +213,6 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                   const SizedBox(height: 24),
                 ],
-              ),
             ),
           ),
         ),
@@ -254,8 +221,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
   }
 }
 
-/// Custom stacked widget: white shield icon with the
-/// brand purple heart layered inside — matching the mockup logo.
+/// App logo: a white shield with the brand-purple heart inside.
 class _ShieldLogoWidget extends StatelessWidget {
   const _ShieldLogoWidget();
 
@@ -267,7 +233,6 @@ class _ShieldLogoWidget extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Soft glow halo behind the shield
           Container(
             width: 110,
             height: 110,
@@ -277,14 +242,12 @@ class _ShieldLogoWidget extends StatelessWidget {
             ),
           ),
 
-          // Shield icon — large, white
           const Icon(
             Icons.shield_rounded,
             size: 72,
             color: AppColors.textOnPrimary,
           ),
 
-          // Heart icon positioned over the lower half of the shield
           const Positioned(
             bottom: 22,
             child: Icon(

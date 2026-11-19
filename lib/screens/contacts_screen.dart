@@ -72,7 +72,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
     _loadPrimaryHintState();
   }
 
-  // ── Primary contact ───────────────────────────────────────────────────────
 
   String get _primaryHintKey {
     final uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid : null;
@@ -344,16 +343,12 @@ class _ContactsScreenState extends State<ContactsScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Header ──────────────────────────────────────────────
             _buildHeader(),
 
-            // ── Search bar ──────────────────────────────────────────
             _buildSearchBar(),
 
-            // ── SOS count banner ────────────────────────────────────
             _buildSOSBanner(totalEmergencyCount, primary),
 
-            // ── Contacts list ────────────────────────────────────────
             Expanded(
               child: _isLoading
                   ? const Center(
@@ -367,10 +362,8 @@ class _ContactsScreenState extends State<ContactsScreen> {
                             parent: BouncingScrollPhysics()),
                         padding: const EdgeInsets.fromLTRB(20, 4, 20, 80),
                         children: [
-                          // ── Incoming Guardian Requests (consent) ──────────────────
                           const PendingRequestsSection(),
 
-                          // ── Primary contact, pinned to the top ────────────────────
                           if (shownPrimary != null) ...[
                             const _SectionLabel(label: 'Primary Contact'),
                             const SizedBox(height: 10),
@@ -403,7 +396,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                   : 'No contacts match "$_searchQuery"',
                             ),
 
-                          // ── People I Protect (they chose me as their guardian) ──────
                           // Anyone who is also my contact is shown once, above, with a shield.
                           if (protectedPeople.isNotEmpty &&
                               (shownProtected.isNotEmpty || query.isEmpty))
@@ -539,8 +531,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
-              child: Text('SOS',
-                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1)),
+              child: const Icon(Icons.sos_rounded, color: Colors.white, size: 22),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -798,7 +789,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
     );
   }
 
-  // ── People I Protect actions ───────────────────────────────────────────────
 
   /// Card tap: invite when not yet a contact, otherwise show the options.
   void _onProtectedPersonTap(ProtectedPerson person) {
@@ -1428,7 +1418,6 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 }
 
-// ─── Sub-widgets ────────────────────────────────────────────────────────────
 
 /// A contact who is also someone the current user protects.
 class _ProtectedMatch {

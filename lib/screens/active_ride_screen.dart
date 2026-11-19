@@ -248,7 +248,6 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
 
           return Column(
             children: [
-              // ── LIVE MAP VIEW ──────────────────────────────────────
               Expanded(
                 child: Stack(
                   children: [
@@ -382,7 +381,6 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                 ),
               ),
 
-              // ── BOTTOM VEHICLE & CONTROL PANEL ──────────────────────
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),
@@ -535,7 +533,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                             ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                             : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
                         label: Text(
-                          _isArriving ? 'NOTIFYING GUARDIANS...' : 'ARRIVED SAFELY',
+                          _isArriving ? 'Telling your guardians…' : "I've arrived safely",
                           style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white, letterSpacing: 0.5),
                         ),
                         style: ElevatedButton.styleFrom(

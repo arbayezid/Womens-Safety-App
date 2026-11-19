@@ -35,7 +35,6 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
   Position? _currentPosition;
   List<SafeZone> _suggestedZones = [];
 
-  // ── Road route preview ───────────────────────────────────────────────────
   JourneyTravelMode _travelMode = JourneyTravelMode.walking;
   JourneyRoute? _route;
   LatLng? _routeDest; // destination the route/ETA were computed for
@@ -45,7 +44,6 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
   bool _etaAdjustedByUser = false;
   int _routeRequestId = 0;
 
-  // ── Destination search-as-you-type ──────────────────────────────────────
   PlaceSuggestion? _selectedPlace; // picked from the suggestions
   List<PlaceSuggestion> _suggestions = const [];
   bool _searching = false;
@@ -920,7 +918,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                       )
                     : const Icon(Icons.directions_walk_rounded, color: Colors.white, size: 22),
                 label: Text(
-                  _isStarting ? 'Starting Journey...' : 'START SAFE JOURNEY',
+                  _isStarting ? 'Starting…' : 'Start Safe Journey',
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,

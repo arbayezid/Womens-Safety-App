@@ -123,9 +123,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 [_buildSliverAppBar(context, profile)],
             body: Column(
               children: [
-                // ── Tab bar ─────────────────────────────────────────────
                 _buildTabBar(),
-                // ── Tab views ───────────────────────────────────────────
                 Expanded(
                   child: TabBarView(
                     controller: _tabController,
@@ -235,7 +233,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                           border: Border.all(color: Colors.white, width: 2)),
                       alignment: Alignment.center,
                       child: const Icon(Icons.edit_rounded,
-                          color: Colors.white, size: 14),
+                          color: Colors.white, size: 16),
                     ),
                   ),
                 ],
@@ -329,7 +327,6 @@ class _ProfileScreenState extends State<ProfileScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Dynamic stats row ──────────────────────────────────────────────
           ValueListenableBuilder<List<ActivityItem>>(
             valueListenable: ActivityService.instance.activitiesNotifier,
             builder: (context, activities, _) {
@@ -346,17 +343,14 @@ class _ProfileScreenState extends State<ProfileScreen>
 
           const SizedBox(height: 20),
 
-          // ── Personal info ───────────────────────────────────────────
           _buildInfoSection(profile),
 
           const SizedBox(height: 20),
 
-          // ── Dynamic safety score ────────────────────────────────────
           _buildSafetyScore(safetyScore),
 
           const SizedBox(height: 20),
 
-          // ── Account actions ─────────────────────────────────────────
           _buildAccountActions(),
 
           const SizedBox(height: 20),
@@ -1347,7 +1341,6 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
   }
 }
 
-// ── Shared Profile Sub-Widgets ─────────────────────────────────────
 
 class _StatItem {
   final String value, label;

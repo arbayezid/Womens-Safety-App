@@ -146,15 +146,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // ── Header ──────────────────────────────────────────────
               _buildHeader(),
 
-              // ── Profile mini card ────────────────────────────────────
               _buildProfileMiniCard(context),
 
               const SizedBox(height: 20),
 
-              // ── Section: Device ─────────────────────────────────────
               _buildSection(
                 title: 'Device',
                 items: [
@@ -206,7 +203,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               const SizedBox(height: 16),
 
-              // ── Section: Safety ─────────────────────────────────────
               _buildSection(
                 title: 'Safety features',
                 items: [
@@ -287,7 +283,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               const SizedBox(height: 16),
 
-              // ── Section: Fake Call ──────────────────────────────────
               _buildSection(
                 title: 'Fake call',
                 items: [
@@ -327,7 +322,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               const SizedBox(height: 16),
 
-              // ── Section: Security PIN & Camouflage ──────────────────
               _buildSection(
                 title: 'Security PIN and camouflage',
                 items: [
@@ -450,7 +444,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               const SizedBox(height: 16),
 
-              // ── Section: Notifications ──────────────────────────────
               _buildSection(
                 title: 'Notifications',
                 items: [
@@ -510,7 +503,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               const SizedBox(height: 16),
 
-              // ── Section: App ────────────────────────────────────────
               _buildSection(
                 title: 'App',
                 items: [
@@ -535,7 +527,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               const SizedBox(height: 20),
 
-              // ── Logout / Login button ───────────────────────────────
               _buildLogoutButton(),
 
               const SizedBox(height: 24),
@@ -669,11 +660,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: GoogleFonts.poppins(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.textSecondary)),
+          Text(title, style: AppText.overline.copyWith(color: AppColors.textSecondary)),
           const SizedBox(height: 10),
           Container(
             decoration: BoxDecoration(

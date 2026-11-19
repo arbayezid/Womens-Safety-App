@@ -70,31 +70,31 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       case RideStatus.active:
         bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
-        label = 'ACTIVE RIDE';
+        label = 'Ride in progress';
         icon = Icons.directions_car_rounded;
         break;
       case RideStatus.arrived:
         bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
-        label = 'ARRIVED SAFELY';
+        label = 'Arrived safely';
         icon = Icons.check_circle_rounded;
         break;
       case RideStatus.overdue:
         bg = AppColors.tintRed;
         fg = AppColors.sosRed;
-        label = 'OVERDUE';
+        label = 'Overdue';
         icon = Icons.warning_rounded;
         break;
       case RideStatus.sos:
         bg = AppColors.tintRed;
         fg = AppColors.sosRed;
-        label = 'EMERGENCY SOS';
+        label = 'SOS';
         icon = Icons.notifications_active_rounded;
         break;
       case RideStatus.cancelled:
         bg = AppColors.neutralTile;
         fg = AppColors.textSecondary;
-        label = 'CANCELLED';
+        label = 'Cancelled';
         icon = Icons.cancel_rounded;
         break;
     }
@@ -161,7 +161,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
 
           return Column(
             children: [
-              // ── REAL-TIME MAP VIEW ─────────────────────────────────
               Expanded(
                 child: Stack(
                   children: [
@@ -255,7 +254,6 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                 ),
               ),
 
-              // ── BOTTOM VEHICLE EVIDENCE & ACTION CARD ───────────────
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(20),

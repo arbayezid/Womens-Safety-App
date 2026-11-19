@@ -97,6 +97,8 @@ flutter:
   assets:
     - assets/
     - assets/sounds/
+    # Official Google "G" mark for the sign-in button
+    - assets/images/
     # Fake Call: real human Bangla caller voices (see assets/fake_call/bn/README.md)
     - assets/fake_call/bn/
     - assets/data/

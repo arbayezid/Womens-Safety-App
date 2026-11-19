@@ -111,7 +111,6 @@ class IncomingJourneyCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── "PROTECTED CONTACT …" label with live dot ──
             Row(
               children: [
                 Container(
@@ -132,7 +131,6 @@ class IncomingJourneyCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
 
-            // ── Icon, name + chip, headline, ETA ──
             Row(
               children: [
                 Container(
@@ -204,7 +202,6 @@ class IncomingJourneyCard extends StatelessWidget {
             ),
             const SizedBox(height: 12),
 
-            // ── Actions: Track Live, Call ──
             Row(
               children: [
                 Expanded(

@@ -367,13 +367,10 @@ class _MapScreenState extends State<MapScreen>
       body: SafeArea(
         child: Column(
           children: [
-            // ── Header ────────────────────────────────────────────────
             _buildHeader(),
 
-            // ── Interactive Map View ──────────────────────────────────
             _buildInteractiveMap(),
 
-            // ── Dynamic Bottom Panel ──────────────────────────────────
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
@@ -462,7 +459,6 @@ class _MapScreenState extends State<MapScreen>
       clipBehavior: Clip.antiAlias,
       child: Stack(
         children: [
-          // ── FlutterMap Core Engine ────────────────────────────────
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -694,7 +690,6 @@ class _MapScreenState extends State<MapScreen>
             ],
           ),
 
-          // ── Map Location Pill Overlay (Top Left) ──────────────────
           Positioned(
             top: 12,
             left: 12,
@@ -732,7 +727,6 @@ class _MapScreenState extends State<MapScreen>
             ),
           ),
 
-          // ── Safe Route Active Indicator Pill (Top Right) ──────────
           if (_safeRouteEnabled)
             Positioned(
               top: 12,
@@ -768,7 +762,6 @@ class _MapScreenState extends State<MapScreen>
               ),
             ),
 
-          // ── Heatmap Active Indicator Pill (Top Right) ─────────────
           if (_showHeatmap)
             Positioned(
               top: _safeRouteEnabled ? 40 : 12,
@@ -803,7 +796,6 @@ class _MapScreenState extends State<MapScreen>
               ),
             ),
 
-          // ── Loading GPS Overlay ───────────────────────────────────
           if (_isLoadingLocation)
             Positioned(
               bottom: 12,
@@ -1052,7 +1044,6 @@ class _MapScreenState extends State<MapScreen>
   }
 }
 
-// ─── Sub-widgets ────────────────────────────────────────────────────────────
 
 class _IconBtn extends StatelessWidget {
   final IconData icon;
