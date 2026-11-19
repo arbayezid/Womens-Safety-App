@@ -11,6 +11,8 @@ import 'package:record/record.dart';
 import '../core/app_colors.dart';
 import '../models/fake_caller.dart';
 import '../services/fake_call_settings_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// "Record my own caller voice": one clip per caller, recorded with the microphone and kept on
 /// this phone only. A recording overrides the bundled clip and the voice language for that caller.
@@ -239,7 +241,7 @@ class _FakeCallVoiceScreenState extends State<FakeCallVoiceScreen> {
         foregroundColor: AppColors.textPrimary,
         title: Text(
           'My Caller Voices',
-          style: GoogleFonts.poppins(fontSize: 18, fontWeight: FontWeight.w700),
+          style: AppText.greeting,
         ),
       ),
       body: _loading
@@ -251,7 +253,7 @@ class _FakeCallVoiceScreenState extends State<FakeCallVoiceScreen> {
                   'Record a short clip for each caller in your own (or a family member\'s) voice. '
                   'It plays when you answer a fake call from that caller, instead of the built-in voice. '
                   'Pause 2–4 seconds where you see "…" so you can "reply". Recordings stay on this phone.',
-                  style: GoogleFonts.poppins(fontSize: 12.5, color: AppColors.textSecondary, height: 1.45),
+                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.45),
                 ),
                 const SizedBox(height: 16),
                 for (final preset in FakeCallerPreset.values) ...[
@@ -283,7 +285,7 @@ class _FakeCallVoiceScreenState extends State<FakeCallVoiceScreen> {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(
           color: isRecording ? AppColors.sosRed : Colors.black.withValues(alpha: 0.06),
           width: isRecording ? 1.5 : 1,
@@ -309,21 +311,13 @@ class _FakeCallVoiceScreenState extends State<FakeCallVoiceScreen> {
                   children: [
                     Text(
                       preset.pickerLabel,
-                      style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary,
-                      ),
+                      style: AppText.cardTitle.copyWith(color: AppColors.textPrimary),
                     ),
                     Text(
                       status,
-                      style: GoogleFonts.poppins(
-                        fontSize: 11.5,
-                        color: isRecording
+                      style: GoogleFonts.poppins(fontSize: 11, color: isRecording
                             ? AppColors.sosRed
-                            : (hasClip ? AppColors.successForeground : AppColors.textSecondary),
-                        fontWeight: isRecording || hasClip ? FontWeight.w600 : FontWeight.w400,
-                      ),
+                            : (hasClip ? AppColors.successForeground : AppColors.textSecondary), fontWeight: isRecording || hasClip ? FontWeight.w600 : FontWeight.w400),
                     ),
                   ],
                 ),
@@ -336,7 +330,7 @@ class _FakeCallVoiceScreenState extends State<FakeCallVoiceScreen> {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: AppColors.background,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Text(
               script ?? 'Say anything a caller would say, with pauses so you can reply. '

@@ -5,6 +5,7 @@ import '../core/app_colors.dart';
 import '../services/emergency_service.dart';
 import '../services/pin_security_service.dart';
 import '../widgets/pin_input_dialog.dart';
+import '../core/app_tokens.dart';
 
 /// Full-screen working calculator that serves as the camouflage disguise
 /// during active Duress Mode or when Camouflage Mode is manually engaged.
@@ -205,7 +206,7 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Row(
           children: [
             const Icon(Icons.shield_rounded, color: AppColors.actionGreen, size: 28),
@@ -232,7 +233,7 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.actionGreen,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
             child: Text(
               "I'm Safe Now",
@@ -289,7 +290,7 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                     decoration: BoxDecoration(
                       color: const Color(0xFF2C2C2E),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                       border: Border.all(color: Colors.white24),
                     ),
                     child: Row(
@@ -309,7 +310,7 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                             minimumSize: Size.zero,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                           ),
                           child: Text(
                             'Exit',

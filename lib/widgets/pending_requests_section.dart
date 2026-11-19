@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/contact_sync_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Real-time widget rendering incoming guardian requests (accepting makes the current user
 /// the sender's guardian; it does not make the sender the current user's guardian)
@@ -22,9 +24,9 @@ class PendingRequestsSection extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 14),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFFFF9E6), // Soft amber background
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFFFD56B), width: 1.2),
+            color: AppColors.tintCream, // Soft amber background
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: Border.all(color: AppColors.amberBright, width: 1.2),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -34,8 +36,8 @@ class PendingRequestsSection extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFEDBA),
-                      borderRadius: BorderRadius.circular(8),
+                      color: AppColors.tintButter,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
                     child: const Icon(
                       Icons.mark_email_unread_rounded,
@@ -50,11 +52,7 @@ class PendingRequestsSection extends StatelessWidget {
                       children: [
                         Text(
                           'Consent Requests (${requests.length})',
-                          style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13.5,
-                            color: AppColors.textPrimary,
-                          ),
+                          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textPrimary),
                         ),
                         Text(
                           'Users requesting you as an emergency guardian',
@@ -159,7 +157,7 @@ class _RequestCardState extends State<_RequestCard> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.04),
@@ -191,20 +189,12 @@ class _RequestCardState extends State<_RequestCard> {
                   children: [
                     Text(
                       senderName,
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13.5,
-                        color: AppColors.textPrimary,
-                      ),
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textPrimary),
                     ),
                     if (senderEmail.isNotEmpty)
                       Text(
                         senderEmail,
-                        style: GoogleFonts.poppins(
-                          fontSize: 11.5,
-                          color: AppColors.primaryViolet,
-                          fontWeight: FontWeight.w500,
-                        ),
+                        style: AppText.caption.copyWith(color: AppColors.primary),
                       ),
                     Text(
                       '$relationship${phone.isNotEmpty ? " • $phone" : ""}',
@@ -230,7 +220,7 @@ class _RequestCardState extends State<_RequestCard> {
                 ),
                 child: Text(
                   'Decline',
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12),
+                  style: AppText.label,
                 ),
               ),
               const SizedBox(width: 8),
@@ -238,7 +228,7 @@ class _RequestCardState extends State<_RequestCard> {
                 onPressed: _isProcessing ? null : _handleAccept,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.successForeground,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   elevation: 0,
                   visualDensity: VisualDensity.compact,
@@ -251,11 +241,7 @@ class _RequestCardState extends State<_RequestCard> {
                       )
                     : Text(
                         'Accept & Sync',
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
+                        style: AppText.label.copyWith(color: Colors.white),
                       ),
               ),
             ],

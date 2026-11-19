@@ -9,6 +9,8 @@ import '../services/pin_security_service.dart';
 import '../services/safety_deadline_service.dart';
 import '../services/shake_sos_service.dart';
 import 'pin_input_dialog.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Fullscreen intrusive countdown dialog for the Safe Journey Dead-Man's Switch.
 /// Prompts the user to confirm safety within 60 seconds before automated SOS dispatch.
@@ -123,11 +125,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                           child: Center(
                             child: Text(
                               '$seconds',
-                              style: GoogleFonts.poppins(
-                                fontSize: 34,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                              ),
+                              style: GoogleFonts.poppins(fontSize: 34, fontWeight: FontWeight.w700, color: Colors.white),
                             ),
                           ),
                         ),
@@ -138,12 +136,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
 
                   Text(
                     '⚠️ SAFETY CHECK',
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: isUrgent ? AppColors.sosRed : AppColors.actionOrange,
-                      letterSpacing: 0.5,
-                    ),
+                    style: AppText.greeting.copyWith(color: isUrgent ? AppColors.sosRed : AppColors.actionOrange, letterSpacing: 0.5),
                   ),
                   const SizedBox(height: 6),
 
@@ -161,19 +154,15 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                   Text(
                     liveState.trigger.reason,
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
-                      fontSize: 12.5,
-                      color: AppColors.textSecondary,
-                      height: 1.4,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
                   ),
                   const SizedBox(height: 14),
 
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFEEEE),
-                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.tintRed,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -207,16 +196,11 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                       icon: const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
                       label: Text(
                         safeEndsJourney ? "I'M SAFE, END JOURNEY" : "I'M SAFE (CANCEL SOS)",
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.actionGreen,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         elevation: 0,
                       ),
                     ),
@@ -236,7 +220,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                           },
                           style: OutlinedButton.styleFrom(
                             side: const BorderSide(color: AppColors.primary),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                             padding: const EdgeInsets.symmetric(vertical: 10),
                           ),
                           child: Text(
@@ -263,17 +247,13 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                           },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.sosRed,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                             padding: const EdgeInsets.symmetric(vertical: 10),
                             elevation: 0,
                           ),
                           child: Text(
                             'SOS NOW',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
+                            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
                           ),
                         ),
                       ),
@@ -421,11 +401,7 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                           child: Center(
                             child: Text(
                               '$seconds',
-                              style: GoogleFonts.poppins(
-                                fontSize: 34,
-                                fontWeight: FontWeight.w900,
-                                color: Colors.white,
-                              ),
+                              style: GoogleFonts.poppins(fontSize: 34, fontWeight: FontWeight.w700, color: Colors.white),
                             ),
                           ),
                         ),
@@ -436,12 +412,7 @@ class _FallCheckDialogState extends State<FallCheckDialog>
 
                   Text(
                     '🚨 ARE YOU OK?',
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: isUrgent ? AppColors.sosRed : AppColors.actionOrange,
-                      letterSpacing: 0.5,
-                    ),
+                    style: AppText.greeting.copyWith(color: isUrgent ? AppColors.sosRed : AppColors.actionOrange, letterSpacing: 0.5),
                   ),
                   const SizedBox(height: 6),
 
@@ -459,19 +430,15 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                   Text(
                     'Sudden impact and lack of movement detected.',
                     textAlign: TextAlign.center,
-                    style: GoogleFonts.poppins(
-                      fontSize: 12.5,
-                      color: AppColors.textSecondary,
-                      height: 1.4,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
                   ),
                   const SizedBox(height: 14),
 
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFEEEE),
-                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.tintRed,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
@@ -500,16 +467,11 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                       icon: const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
                       label: Text(
                         "I'M OK (CANCEL ALARM)",
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.actionGreen,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         elevation: 0,
                       ),
                     ),
@@ -530,16 +492,11 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                       icon: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
                       label: Text(
                         'SEND SOS NOW',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.sosRed,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         elevation: 0,
                       ),
                     ),
@@ -611,22 +568,14 @@ class ShakeSosDialog extends StatelessWidget {
                     child: Center(
                       child: Text(
                         '$seconds',
-                        style: GoogleFonts.poppins(
-                          fontSize: 36,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 36, fontWeight: FontWeight.w700, color: Colors.white),
                       ),
                     ),
                   ),
                   const SizedBox(height: 18),
                   Text(
                     'Shake Detected',
-                    style: GoogleFonts.poppins(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.sosRed,
-                    ),
+                    style: AppText.greeting.copyWith(color: AppColors.sosRed),
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -650,16 +599,11 @@ class ShakeSosDialog extends StatelessWidget {
                       icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
                       label: Text(
                         'CANCEL',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.actionGreen,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         elevation: 0,
                       ),
                     ),
@@ -676,16 +620,11 @@ class ShakeSosDialog extends StatelessWidget {
                       icon: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
                       label: Text(
                         'SEND SOS NOW',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: 0.5,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.sosRed,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         elevation: 0,
                       ),
                     ),

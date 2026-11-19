@@ -21,6 +21,8 @@ import '../services/siren_service.dart';
 import '../widgets/fake_call_caller_sheet.dart';
 import '../widgets/fake_call_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Active command interface for "I'm Being Followed" Mode.
 ///
@@ -166,7 +168,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
         ),
         backgroundColor: AppColors.actionPurple,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         duration: const Duration(seconds: 3),
       ),
     );
@@ -202,7 +204,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
         ),
         backgroundColor: isNowPlaying ? AppColors.sosRed : AppColors.textPrimary,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         duration: const Duration(seconds: 2),
       ),
     );
@@ -212,14 +214,14 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Row(
           children: [
             const Icon(Icons.emergency_rounded, color: AppColors.sosRed, size: 28),
             const SizedBox(width: 8),
             Expanded(child: Text(
               'Dispatch Emergency SOS?',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+              style: AppText.sectionTitle,
             )),
           ],
         ),
@@ -236,9 +238,9 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.sosRed,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
             ),
-            child: Text('DISPATCH SOS', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w800)),
+            child: Text('DISPATCH SOS', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700)),
           ),
         ],
       ),
@@ -267,7 +269,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
           ),
           backgroundColor: AppColors.sosRed,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         ),
       );
     } finally {
@@ -293,7 +295,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
           title: Row(
             children: [
               const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 26),
@@ -317,7 +319,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               onPressed: () => Navigator.of(ctx).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.safeGreen,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
               ),
               child: Text('I Am Safe', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700)),
             ),
@@ -343,7 +345,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
           ),
           backgroundColor: AppColors.safeGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         ),
       );
 
@@ -378,7 +380,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
         final startTime = journey?.startedAt ?? DateTime.now();
 
         return Scaffold(
-          backgroundColor: const Color(0xFFF8FAFC),
+          backgroundColor: AppColors.slateSurfaceLight,
           appBar: AppBar(
             backgroundColor: AppColors.surface,
             elevation: 0.5,
@@ -391,19 +393,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               children: [
                 Text(
                   "I'm Being Followed",
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 ),
                 Text(
                   'Active Defense & Live Guardian Tracking',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.actionOrange,
-                  ),
+                  style: AppText.caption.copyWith(color: AppColors.actionOrange),
                 ),
               ],
             ),
@@ -412,8 +406,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                 margin: const EdgeInsets.only(right: 14, top: 12, bottom: 12),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF3E0),
-                  borderRadius: BorderRadius.circular(12),
+                  color: AppColors.tintAmber,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   border: Border.all(color: AppColors.actionOrange.withValues(alpha: 0.5)),
                 ),
                 child: Row(
@@ -433,11 +427,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                     const SizedBox(width: 6),
                     Text(
                       _formatElapsed(startTime),
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.actionOrange,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionOrange),
                     ),
                   ],
                 ),
@@ -457,8 +447,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7ED),
-                  borderRadius: BorderRadius.circular(18),
+                  color: AppColors.tintPeach,
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
                   border: Border.all(color: AppColors.actionOrange.withValues(alpha: 0.4), width: 1.5),
                 ),
                 child: Row(
@@ -478,11 +468,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                         children: [
                           Text(
                             'GUARDIANS ALERTED & TRACKING',
-                            style: GoogleFonts.poppins(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.deepOrange.shade800,
-                            ),
+                            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.deepOrange.shade800),
                           ),
                           Text(
                             'Periodic 10-minute check-ins active. If unanswered, SOS is automatically dispatched.',
@@ -534,7 +520,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: AppColors.actionBlue.withValues(alpha: 0.3), width: 1.5),
         boxShadow: [
           BoxShadow(
@@ -566,27 +552,18 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                       children: [
                         Text(
                           'NEAREST SAFE HAVEN',
-                          style: GoogleFonts.poppins(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.actionBlue,
-                            letterSpacing: 0.5,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionBlue, letterSpacing: 0.5),
                         ),
                         const Spacer(),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFEFF6FF),
-                            borderRadius: BorderRadius.circular(8),
+                            color: AppColors.tintBlueSoft,
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
                           ),
                           child: Text(
                             SafeZone.formatDistance(distance),
-                            style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: AppColors.actionBlue,
-                            ),
+                            style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionBlue),
                           ),
                         ),
                       ],
@@ -610,7 +587,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
             const SizedBox(height: 8),
             Text(
               policeZone.address!,
-              style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+              style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
@@ -628,16 +605,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               icon: const Icon(Icons.navigation_rounded, color: Colors.white, size: 20),
               label: Text(
                 'NAVIGATE TO POLICE STATION',
-                style: GoogleFonts.poppins(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  letterSpacing: 0.5,
-                ),
+                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.actionBlue,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                 elevation: 0,
               ),
             ),
@@ -651,7 +623,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Column(
@@ -673,11 +645,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: AppColors.actionOrange.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
                     child: Text(
                       'Locating...',
-                      style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
                     ),
                   ),
                 ],
@@ -692,7 +664,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
             ),
           ),
           ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
             child: SizedBox(
               height: 220,
               child: FlutterMap(
@@ -722,7 +694,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                             ),
                             child: Container(
                               decoration: BoxDecoration(
-                                color: const Color(0xFFDDEEFD),
+                                color: AppColors.tintSky,
                                 shape: BoxShape.circle,
                                 border: Border.all(color: AppColors.actionBlue, width: 2),
                                 boxShadow: [
@@ -782,12 +754,12 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
       builder: (context, caller, _) {
         return InkWell(
           onTap: () => FakeCallCallerSheet.show(context, pickOnly: true),
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: AppColors.actionPurple.withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Row(
               children: [
@@ -804,11 +776,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                   child: Text(
                     'Caller: ${caller.name}',
                     overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
+                    style: AppText.label.copyWith(color: AppColors.textPrimary),
                   ),
                 ),
                 Text(
@@ -832,7 +800,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Column(
@@ -844,11 +812,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               const SizedBox(width: 8),
               Text(
                 'Deterrence & Escape Tools',
-                style: GoogleFonts.poppins(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
+                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
               ),
             ],
           ),
@@ -867,7 +831,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                   ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: AppColors.actionPurple, width: 1.3),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                 ),
@@ -883,7 +847,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                   ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: AppColors.actionPurple, width: 1.3),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     padding: const EdgeInsets.symmetric(vertical: 12),
                   ),
                 ),
@@ -903,15 +867,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               ),
               label: Text(
                 _isSirenActive ? 'Turn Off Loud Siren' : 'Activate Loud Siren (Deterrent)',
-                style: GoogleFonts.poppins(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: _isSirenActive ? AppColors.textPrimary : AppColors.sosRed,
-                ),
+                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: _isSirenActive ? AppColors.textPrimary : AppColors.sosRed),
               ),
               style: OutlinedButton.styleFrom(
                 side: BorderSide(color: _isSirenActive ? AppColors.textPrimary : AppColors.sosRed, width: 1.3),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
               ),
             ),
           ),
@@ -938,16 +898,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                 : const Icon(Icons.emergency_rounded, color: Colors.white, size: 24),
             label: Text(
               _isSosLoading ? 'DISPATCHING SOS...' : 'SEND SOS NOW',
-              style: GoogleFonts.poppins(
-                fontSize: 15,
-                fontWeight: FontWeight.w900,
-                color: Colors.white,
-                letterSpacing: 0.8,
-              ),
+              style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.8),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.sosRed,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
               elevation: 4,
               shadowColor: AppColors.sosRed.withValues(alpha: 0.4),
             ),
@@ -969,16 +924,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                 : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
             label: Text(
               _isResolving ? 'Resolving...' : "I'M SAFE NOW",
-              style: GoogleFonts.poppins(
-                fontSize: 14,
-                fontWeight: FontWeight.w800,
-                color: Colors.white,
-                letterSpacing: 0.4,
-              ),
+              style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.4),
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.safeGreen,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
               elevation: 0,
             ),
           ),

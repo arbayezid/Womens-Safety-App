@@ -5,6 +5,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/app_permission_service.dart';
 import '../services/esp32_ble_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Bottom sheet dialog for Bluetooth device discovery, connection,
 /// and management for the ESP32 Women's Safety Smart Pendant.
@@ -241,7 +243,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
         height: 5,
         decoration: BoxDecoration(
           color: Colors.grey.shade300,
-          borderRadius: BorderRadius.circular(3),
+          borderRadius: BorderRadius.circular(AppRadius.handle),
         ),
       ),
     );
@@ -255,8 +257,8 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
         Container(
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: isConnected ? const Color(0xFFE8F5E9) : const Color(0xFFEDE9FF),
-            borderRadius: BorderRadius.circular(16),
+            color: isConnected ? AppColors.tintMint : AppColors.primarySurface,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
           ),
           child: Icon(
             isConnected ? Icons.bluetooth_connected_rounded : Icons.bluetooth_searching_rounded,
@@ -271,11 +273,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             children: [
               Text(
                 'ESP32 Safety Device',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
+                style: AppText.greeting.copyWith(color: AppColors.textPrimary),
               ),
               Text(
                 isConnected
@@ -303,8 +301,8 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFEBEE),
-        borderRadius: BorderRadius.circular(12),
+        color: AppColors.dangerSurfaceAlt,
+        borderRadius: BorderRadius.circular(AppRadius.md),
         border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.3)),
       ),
       child: Row(
@@ -351,9 +349,9 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
           Container(
             padding: const EdgeInsets.all(22),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF3E0),
+              color: AppColors.tintAmber,
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFFFB74D), width: 1.5),
+              border: Border.all(color: AppColors.amberSoft, width: 1.5),
             ),
             child: const Icon(
               Icons.bluetooth_disabled_rounded,
@@ -364,11 +362,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
           const SizedBox(height: 20),
           Text(
             'Bluetooth is Turned Off',
-            style: GoogleFonts.poppins(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+            style: AppText.greeting.copyWith(color: AppColors.textPrimary),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
@@ -398,16 +392,12 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                   : const Icon(Icons.bluetooth_rounded, color: Colors.white),
               label: Text(
                 _isTurningOnBt ? 'Turning On...' : 'Turn On Bluetooth',
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
+                style: AppText.cardTitle.copyWith(color: Colors.white),
               ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                 elevation: 0,
               ),
             ),
@@ -429,7 +419,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: AppColors.background,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
               border: Border.all(color: AppColors.successForeground.withValues(alpha: 0.3)),
             ),
             child: Column(
@@ -440,7 +430,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         color: AppColors.successBackground,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: const Icon(Icons.check_circle_rounded,
                           color: AppColors.successForeground, size: 24),
@@ -452,11 +442,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                         children: [
                           Text(
                             state.deviceName,
-                            style: GoogleFonts.poppins(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.textPrimary,
-                            ),
+                            style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                           ),
                           Text(
                             state.deviceAddress,
@@ -472,7 +458,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: AppColors.successBackground,
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: Text(
                         'Active',
@@ -547,7 +533,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.sosRed,
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
               ),
             ),
           ),
@@ -561,7 +547,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                   onPressed: () => _bleService.disconnect(),
                   style: OutlinedButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
                   child: Text('Disconnect', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
                 ),
@@ -576,7 +562,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppColors.sosRed,
                     padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
                   child: Text('Forget Device', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
                 ),
@@ -824,11 +810,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
               ),
               label: Text(
                 _isScanning ? 'Scanning' : 'Rescan',
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: _isScanning ? Colors.grey : AppColors.primary,
-                ),
+                style: AppText.label.copyWith(color: _isScanning ? Colors.grey : AppColors.primary),
               ),
             ),
           ],
@@ -870,11 +852,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
           const SizedBox(height: 12),
           Text(
             _isScanning ? 'Discovering nearby devices...' : 'No Bluetooth Devices Found',
-            style: GoogleFonts.poppins(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppColors.textPrimary,
-            ),
+            style: AppText.cardTitle.copyWith(color: AppColors.textPrimary),
           ),
           const SizedBox(height: 6),
           Text(
@@ -899,7 +877,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isEsp32 ? const Color(0xFFF7F5FF) : AppColors.background,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(
           color: isEsp32 ? AppColors.primary.withValues(alpha: 0.3) : Colors.transparent,
           width: 1.5,
@@ -911,7 +889,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: isEsp32 ? AppColors.primary : Colors.grey.shade300,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             child: Icon(
               Icons.bluetooth_rounded,
@@ -929,11 +907,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                     Flexible(
                       child: Text(
                         name,
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
+                        style: AppText.cardTitle.copyWith(color: AppColors.textPrimary),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -944,15 +918,11 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: AppColors.primary,
-                          borderRadius: BorderRadius.circular(8),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
                         child: Text(
                           'ESP32',
-                          style: GoogleFonts.poppins(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.white,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
                         ),
                       ),
                     ],
@@ -967,11 +937,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                     const SizedBox(width: 8),
                     Text(
                       '• ${result.rssi} dBm',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: _getRssiColor(result.rssi),
-                      ),
+                      style: AppText.caption.copyWith(color: _getRssiColor(result.rssi)),
                     ),
                   ],
                 ),
@@ -984,7 +950,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             style: ElevatedButton.styleFrom(
               backgroundColor: isEsp32 ? AppColors.primary : AppColors.actionBlue,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
               elevation: 0,
             ),
             child: isConnectingThis
@@ -998,11 +964,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                   )
                 : Text(
                     'Connect',
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
+                    style: AppText.label.copyWith(color: Colors.white),
                   ),
           ),
         ],

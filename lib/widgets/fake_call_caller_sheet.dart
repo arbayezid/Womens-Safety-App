@@ -10,6 +10,8 @@ import '../models/fake_caller.dart';
 import '../services/auth_service.dart';
 import '../services/fake_call_settings_service.dart';
 import 'fake_call_dialog.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Runs the "After 10s" fake call. Lives outside any screen, so the call still rings if the
 /// user closes the sheet or switches tabs while waiting (app must stay open, as before).
@@ -153,7 +155,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
         ),
         backgroundColor: AppColors.actionBlue,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         duration: const Duration(seconds: 4),
         action: SnackBarAction(
           label: 'Cancel',
@@ -172,7 +174,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
       child: Container(
         decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
         ),
         child: SafeArea(
           top: false,
@@ -188,18 +190,14 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
                     height: 4,
                     decoration: BoxDecoration(
                       color: Colors.black.withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(2),
+                      borderRadius: BorderRadius.circular(AppRadius.handle),
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
                 Text(
                   widget.pickOnly ? 'Fake Call Caller' : 'Fake Call',
-                  style: GoogleFonts.poppins(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -231,7 +229,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
                         hintText: 'e.g. Nanu, Rina Apu',
                         errorText: _nameError,
                         counterText: '',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
                       onChanged: (_) {
                         if (_nameError != null) setState(() => _nameError = null);
@@ -247,7 +245,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
                         labelText: 'Phone number (optional)',
                         hintText: '+880 1XXX-XXXXXX',
                         counterText: '',
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
                     ),
                   ],
@@ -260,7 +258,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
                         onPressed: () => _submit(delay: null),
                         style: FilledButton.styleFrom(
                           backgroundColor: AppColors.actionBlue,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         ),
                         child: Text('Save', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
                       ),
@@ -278,7 +276,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
                               label: Text('Now', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
                               style: FilledButton.styleFrom(
                                 backgroundColor: AppColors.actionBlue,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                               ),
                             ),
                           ),
@@ -299,7 +297,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
                               ),
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: AppColors.actionBlue, width: 1.3),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                               ),
                             ),
                           ),
@@ -330,7 +328,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
               Expanded(
                 child: Text(
                   'A fake call rings in ${seconds}s',
-                  style: GoogleFonts.poppins(fontSize: 12.5, color: AppColors.textPrimary),
+                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textPrimary),
                 ),
               ),
               TextButton(
@@ -362,14 +360,10 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
         ),
       ),
       label: Text(preset.pickerLabel),
-      labelStyle: GoogleFonts.poppins(
-        fontSize: 12.5,
-        fontWeight: FontWeight.w600,
-        color: selected ? Colors.white : AppColors.textPrimary,
-      ),
+      labelStyle: AppText.label.copyWith(color: selected ? Colors.white : AppColors.textPrimary),
       selectedColor: AppColors.actionBlue,
       backgroundColor: AppColors.background,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
       onSelected: (_) {
         HapticFeedback.selectionClick();
         setState(() {

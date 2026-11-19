@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/pin_security_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Operational mode for [PinInputDialog]
 enum PinDialogMode {
@@ -218,7 +220,7 @@ class _PinInputDialogState extends State<PinInputDialog>
     return PopScope(
       canPop: widget.cancellable,
       child: Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         backgroundColor: Colors.white,
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
         child: ConstrainedBox(
@@ -236,7 +238,7 @@ class _PinInputDialogState extends State<PinInputDialog>
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: isDuressSetup
-                            ? const Color(0xFFFFEEEE)
+                            ? AppColors.tintRed
                             : AppColors.primarySurface,
                         shape: BoxShape.circle,
                       ),
@@ -262,21 +264,13 @@ class _PinInputDialogState extends State<PinInputDialog>
                 // Title & Subtitle
                 Text(
                   _title,
-                  style: GoogleFonts.poppins(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 6),
                 Text(
                   _subtitle,
-                  style: GoogleFonts.poppins(
-                    fontSize: 12.5,
-                    color: AppColors.textSecondary,
-                    height: 1.35,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.35),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 12),
@@ -287,8 +281,8 @@ class _PinInputDialogState extends State<PinInputDialog>
                     margin: const EdgeInsets.only(bottom: 12),
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFFF7ED),
-                      borderRadius: BorderRadius.circular(12),
+                      color: AppColors.tintPeach,
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                       border: Border.all(color: AppColors.actionOrange.withValues(alpha: 0.3)),
                     ),
                     child: Text(
@@ -343,11 +337,7 @@ class _PinInputDialogState extends State<PinInputDialog>
                     padding: const EdgeInsets.only(top: 4, bottom: 4),
                     child: Text(
                       _errorMessage!,
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.sosRed,
-                      ),
+                      style: AppText.label.copyWith(color: AppColors.sosRed),
                       textAlign: TextAlign.center,
                     ),
                   )
@@ -416,7 +406,7 @@ class _PinInputDialogState extends State<PinInputDialog>
           backgroundColor: const Color(0xFFF4F4F6),
           foregroundColor: AppColors.textPrimary,
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
           padding: EdgeInsets.zero,
         ),
         child: Text(

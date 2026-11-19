@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'app_colors.dart';
+import 'app_text.dart';
 
 /// Central app theme configuration using Material 3.
 /// Import this in [main.dart] to apply globally.
 class AppTheme {
   AppTheme._();
 
-  /// The primary light theme for Smart Safety.
+  /// The light theme used across the app.
   static ThemeData get lightTheme {
     return ThemeData(
       useMaterial3: true,
@@ -46,11 +47,7 @@ class AppTheme {
           fontWeight: FontWeight.w400,
           color: AppColors.textPrimary,
         ),
-        bodyMedium: GoogleFonts.poppins(
-          fontSize: 13,
-          fontWeight: FontWeight.w400,
-          color: AppColors.textSecondary,
-        ),
+        bodyMedium: AppText.body.copyWith(color: AppColors.textSecondary),
         labelSmall: GoogleFonts.poppins(
           fontSize: 11,
           fontWeight: FontWeight.w400,

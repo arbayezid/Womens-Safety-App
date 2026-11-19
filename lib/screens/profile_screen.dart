@@ -9,6 +9,8 @@ import '../services/activity_service.dart';
 import '../services/contact_service.dart';
 import '../services/phone_registry_service.dart';
 import '../utils/url_launcher_helper.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Profile screen — user info, stats, dynamic safety score, activity history,
 /// and permanent account options.
@@ -150,8 +152,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         background: _buildProfileHeader(profile),
       ),
       title: Text('Profile',
-          style: GoogleFonts.poppins(
-              fontWeight: FontWeight.w700, color: Colors.white, fontSize: 18)),
+          style: AppText.greeting.copyWith(color: Colors.white)),
       actions: [
         IconButton(
           icon: const Icon(Icons.edit_rounded, color: Colors.white),
@@ -174,7 +175,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          colors: [AppColors.primary, Color(0xFF7B72DB)],
+          colors: [AppColors.primary, AppColors.primaryLight],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -266,7 +267,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
               decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(20)),
+                  borderRadius: BorderRadius.circular(AppRadius.xl)),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -284,10 +285,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       isAuth
                           ? 'Google Account: Active'
                           : 'Guest Mode: Tap to Sign In',
-                      style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white)),
+                      style: AppText.label.copyWith(color: Colors.white)),
                 ],
               ),
             ),
@@ -311,7 +309,7 @@ class _ProfileScreenState extends State<ProfileScreen>
         labelStyle:
             GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
         unselectedLabelStyle:
-            GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w400),
+            AppText.body,
         tabs: const [
           Tab(text: 'Overview'),
           Tab(text: 'Activity'),
@@ -428,12 +426,9 @@ class _ProfileScreenState extends State<ProfileScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 12,
-              offset: const Offset(0, 3))
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        boxShadow: const [
+          AppShadow.card
         ],
       ),
       child: Column(
@@ -450,10 +445,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               GestureDetector(
                 onTap: () => _openEditProfileModal(context, profile),
                 child: Text('Edit',
-                    style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: AppColors.primary,
-                        fontWeight: FontWeight.w600)),
+                    style: AppText.label.copyWith(color: AppColors.primary)),
               ),
             ],
           ),
@@ -509,19 +501,19 @@ class _ProfileScreenState extends State<ProfileScreen>
 
     if (score >= 85) {
       scoreColor = AppColors.successForeground;
-      gradientColors = const [Color(0xFFDFF5E3), Color(0xFFB8E6C4)];
+      gradientColors = const [AppColors.successBackground, Color(0xFFB8E6C4)];
       feedbackTitle = 'Safety Score: Excellent';
       feedbackSubtitle =
           'Outstanding protection! Profile complete, $_contactsCount contacts configured, and safety features ready.';
     } else if (score >= 60) {
       scoreColor = AppColors.actionOrange;
-      gradientColors = const [Color(0xFFFEEDD8), Color(0xFFFDE1BF)];
+      gradientColors = const [AppColors.tintOrange, Color(0xFFFDE1BF)];
       feedbackTitle = 'Safety Score: Good';
       feedbackSubtitle =
           'Good security setup. ${_contactsCount < 3 ? "Add more emergency contacts" : "Complete your medical profile"} to reach 100%.';
     } else {
       scoreColor = AppColors.sosRed;
-      gradientColors = const [Color(0xFFFFE5E5), Color(0xFFFFD4D4)];
+      gradientColors = const [AppColors.tintRedStrong, Color(0xFFFFD4D4)];
       feedbackTitle = 'Safety Score: Attention Needed';
       feedbackSubtitle =
           'Incomplete safety configuration. Please add emergency contacts and save your phone number for full SOS protection.';
@@ -535,7 +527,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
       ),
       child: Row(
         children: [
@@ -594,12 +586,9 @@ class _ProfileScreenState extends State<ProfileScreen>
         Container(
           decoration: BoxDecoration(
               color: AppColors.surface,
-              borderRadius: BorderRadius.circular(18),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.05),
-                    blurRadius: 12,
-                    offset: const Offset(0, 3))
+              borderRadius: BorderRadius.circular(AppRadius.lg),
+              boxShadow: const [
+                AppShadow.card
               ]),
           child: Column(
             children: [
@@ -630,7 +619,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               _AccountAction(
                 icon: Icons.edit_note_rounded,
                 iconColor: AppColors.actionBlue,
-                iconBg: const Color(0xFFDDEEFD),
+                iconBg: AppColors.tintSky,
                 label: 'Edit Safety Details',
                 onTap: () => _openEditProfileModal(
                     context, AuthService.instance.currentProfile),
@@ -641,7 +630,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               _AccountAction(
                 icon: Icons.backup_rounded,
                 iconColor: AppColors.actionPurple,
-                iconBg: const Color(0xFFF0E6F9),
+                iconBg: AppColors.tintViolet,
                 label: 'Backup Data',
                 onTap: () => _showSnack('Backup Data'),
               ),
@@ -652,7 +641,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 _AccountAction(
                   icon: Icons.logout_rounded,
                   iconColor: AppColors.sosRed,
-                  iconBg: const Color(0xFFFFE5E5),
+                  iconBg: AppColors.tintRedStrong,
                   label: 'Log Out',
                   onTap: _confirmLogout,
                 ),
@@ -668,7 +657,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Text('Log Out',
             style: GoogleFonts.poppins(
                 fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
@@ -700,7 +689,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.sosRed,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(AppRadius.md)),
               elevation: 0,
             ),
             child: Text('Log Out',
@@ -734,7 +723,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppColors.primarySurface,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: Text(
                     '${activities.length}',
@@ -753,11 +742,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                         size: 16, color: AppColors.textSecondary),
                     label: Text(
                       'Clear',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: AppText.label.copyWith(color: AppColors.textSecondary),
                     ),
                   ),
               ],
@@ -771,7 +756,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(20),
+                  borderRadius: BorderRadius.circular(AppRadius.xl),
                 ),
                 child: Column(
                   children: [
@@ -779,7 +764,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       width: 60,
                       height: 60,
                       decoration: const BoxDecoration(
-                        color: Color(0xFFDFF5E3),
+                        color: AppColors.successBackground,
                         shape: BoxShape.circle,
                       ),
                       child: const Icon(Icons.shield_rounded,
@@ -824,7 +809,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(22)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Row(
           children: [
             Container(
@@ -832,7 +817,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               height: 36,
               decoration: BoxDecoration(
                 color: item.bgColor,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: Icon(item.icon, color: item.iconColor, size: 18),
             ),
@@ -840,10 +825,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             Expanded(
               child: Text(
                 item.title,
-                style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary),
+                style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
               ),
             ),
           ],
@@ -878,7 +860,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
                     color: AppColors.primarySurface,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -888,11 +870,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                       const SizedBox(width: 6),
                       Text(
                         'View GPS Location',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.primary,
-                        ),
+                        style: AppText.label.copyWith(color: AppColors.primary),
                       ),
                     ],
                   ),
@@ -917,7 +895,7 @@ class _ProfileScreenState extends State<ProfileScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Text('Clear History',
             style: GoogleFonts.poppins(
                 fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
@@ -950,7 +928,7 @@ class _ProfileScreenState extends State<ProfileScreen>
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.sosRed,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(AppRadius.md)),
               elevation: 0,
             ),
             child: Text('Clear All',
@@ -1157,7 +1135,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
       ),
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
       child: Form(
         key: _formKey,
@@ -1175,7 +1153,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
                   margin: const EdgeInsets.only(bottom: 16),
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                 ),
               ),
@@ -1256,9 +1234,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
                           .map((bg) => DropdownMenuItem(
                                 value: bg,
                                 child: Text(bg,
-                                    style: GoogleFonts.poppins(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.w600)),
+                                    style: AppText.cardTitle),
                               ))
                           .toList(),
                       onChanged: (v) {
@@ -1325,7 +1301,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.primary,
                     shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16)),
+                        borderRadius: BorderRadius.circular(AppRadius.lg)),
                     elevation: 0,
                   ),
                   child: _isSaving
@@ -1375,15 +1351,15 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
       contentPadding:
           const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         borderSide: BorderSide.none,
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
       ),
     );
@@ -1416,12 +1392,9 @@ class _StatCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 3))
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          boxShadow: const [
+            AppShadow.card
           ],
         ),
         child: Column(
@@ -1434,8 +1407,7 @@ class _StatCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: AppColors.textPrimary)),
             Text(item.label,
-                style: GoogleFonts.poppins(
-                    fontSize: 10, color: AppColors.textSecondary),
+                style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 textAlign: TextAlign.center),
           ],
         ),
@@ -1470,8 +1442,7 @@ class _InfoRow extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(label,
-                        style: GoogleFonts.poppins(
-                            fontSize: 10, color: AppColors.textSecondary)),
+                        style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
                     Text(value,
                         style: GoogleFonts.poppins(
                             fontSize: 13,
@@ -1516,7 +1487,7 @@ class _AccountAction extends StatelessWidget {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                  color: iconBg, borderRadius: BorderRadius.circular(10)),
+                  color: iconBg, borderRadius: BorderRadius.circular(AppRadius.sm)),
               alignment: Alignment.center,
               child: Icon(icon, color: iconColor, size: 18),
             ),
@@ -1550,12 +1521,9 @@ class _ActivityCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.04),
-                blurRadius: 8,
-                offset: const Offset(0, 2))
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          boxShadow: const [
+            AppShadow.card
           ],
         ),
         child: Row(
@@ -1564,7 +1532,7 @@ class _ActivityCard extends StatelessWidget {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                  color: log.bgColor, borderRadius: BorderRadius.circular(12)),
+                  color: log.bgColor, borderRadius: BorderRadius.circular(AppRadius.md)),
               alignment: Alignment.center,
               child: Icon(log.icon, color: log.iconColor, size: 20),
             ),
@@ -1588,10 +1556,7 @@ class _ActivityCard extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Text(log.timeAgo,
-                style: GoogleFonts.poppins(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w500,
-                    color: AppColors.textSecondary)),
+                style: AppText.caption.copyWith(color: AppColors.textSecondary)),
           ],
         ),
       ),

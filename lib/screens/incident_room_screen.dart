@@ -21,6 +21,8 @@ import '../services/safe_zone_repository.dart';
 import '../services/siren_service.dart';
 import '../widgets/pin_input_dialog.dart';
 import '../models/ride_checkin.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Comprehensive Emergency Incident Room screen coordinating real-time SOS tracking,
 /// breadcrumb history, nearby physical safe zones, multi-guardian acknowledgment state,
@@ -135,14 +137,14 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
           title: Row(
             children: [
               const Icon(Icons.warning_amber_rounded, color: AppColors.sosRed, size: 28),
               const SizedBox(width: 8),
               Expanded(child: Text(
                 'Duress Alert Active',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+                style: AppText.sectionTitle,
               )),
             ],
           ),
@@ -159,7 +161,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               onPressed: () => Navigator.of(ctx).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.sosRed,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
               ),
               child: Text('Call Anyway', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
             ),
@@ -198,7 +200,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
           ),
           backgroundColor: AppColors.actionGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -225,7 +227,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
           title: Row(
             children: [
               const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
@@ -249,7 +251,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               onPressed: () => Navigator.of(ctx).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.safeGreen,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
               ),
               child: Text('I Am Safe', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700)),
             ),
@@ -283,7 +285,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
           ),
           backgroundColor: AppColors.safeGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -372,7 +374,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
         final int escalationLevel = (docData['escalationLevel'] as num?)?.toInt() ?? 0;
 
         return Scaffold(
-          backgroundColor: const Color(0xFFF8FAFC),
+          backgroundColor: AppColors.slateSurfaceLight,
           appBar: AppBar(
             backgroundColor: AppColors.surface,
             elevation: 0.5,
@@ -385,19 +387,11 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               children: [
                 Text(
                   'Emergency Incident Room',
-                  style: GoogleFonts.poppins(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 ),
                 Text(
                   isActive ? 'Live Incident Command' : 'Archived Incident Record',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: isActive ? AppColors.sosRed : AppColors.safeGreen,
-                  ),
+                  style: AppText.caption.copyWith(color: isActive ? AppColors.sosRed : AppColors.safeGreen),
                 ),
               ],
             ),
@@ -406,8 +400,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 margin: const EdgeInsets.only(right: 14, top: 12, bottom: 12),
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                  color: isActive ? const Color(0xFFFFE5E5) : const Color(0xFFE8F5E9),
-                  borderRadius: BorderRadius.circular(12),
+                  color: isActive ? AppColors.tintRedStrong : AppColors.tintMint,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   border: Border.all(
                     color: isActive ? AppColors.sosRed.withValues(alpha: 0.4) : AppColors.safeGreen.withValues(alpha: 0.4),
                   ),
@@ -432,12 +426,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                     const SizedBox(width: 6),
                     Text(
                       isActive ? 'ACTIVE' : 'RESOLVED',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: isActive ? AppColors.sosRed : AppColors.safeGreen,
-                        letterSpacing: 0.5,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: isActive ? AppColors.sosRed : AppColors.safeGreen, letterSpacing: 0.5),
                     ),
                   ],
                 ),
@@ -540,8 +529,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF0F0),
-        borderRadius: BorderRadius.circular(16),
+        color: AppColors.dangerSurface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: AppColors.sosRed, width: 1.5),
         boxShadow: [
           BoxShadow(
@@ -569,22 +558,12 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               children: [
                 Text(
                   '⚠️ SILENT DURESS ALERT ACTIVE',
-                  style: GoogleFonts.poppins(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.sosRed,
-                    letterSpacing: 0.3,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.sosRed, letterSpacing: 0.3),
                 ),
                 const SizedBox(height: 3),
                 Text(
                   'Sender entered a discreet Duress PIN under coercion. DO NOT call them or send noisy messages that could alert an aggressor. Alert 999 or proceed silently.',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11.5,
-                    color: const Color(0xFF8B0000),
-                    fontWeight: FontWeight.w500,
-                    height: 1.35,
-                  ),
+                  style: AppText.caption.copyWith(color: const Color(0xFF8B0000), height: 1.35),
                 ),
               ],
             ),
@@ -624,8 +603,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: const Color(0xFFF0F7FF),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFF90CAF9), width: 1.4),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        border: Border.all(color: AppColors.skyLight, width: 1.4),
         boxShadow: [
           BoxShadow(
             color: const Color(0xFF2196F3).withValues(alpha: 0.08),
@@ -643,7 +622,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 padding: const EdgeInsets.all(7),
                 decoration: BoxDecoration(
                   color: const Color(0xFF1976D2),
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 18),
               ),
@@ -654,12 +633,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   children: [
                     Text(
                       'LINKED VEHICLE DETAILS',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: const Color(0xFF1565C0),
-                        letterSpacing: 0.6,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.blueDeep, letterSpacing: 0.6),
                     ),
                     Text(
                       ride.rideType,
@@ -676,7 +650,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 GestureDetector(
                   onTap: () => _showZoomableImage(context, ride.platePhotoUrl!),
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                     child: Image.network(
                       ride.platePhotoUrl!,
                       width: 44,
@@ -694,21 +668,16 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
               color: const Color(0xFF0D47A1),
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(AppRadius.sm),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                const Icon(Icons.tag_rounded, color: Color(0xFF90CAF9), size: 16),
+                const Icon(Icons.tag_rounded, color: AppColors.skyLight, size: 16),
                 const SizedBox(width: 8),
                 Text(
                   ride.plateFormatted,
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                 ),
               ],
             ),
@@ -724,11 +693,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   child: Text(
                     '${ride.driverName?.isNotEmpty == true ? ride.driverName : "Driver"}'
                     '${ride.driverPhone?.isNotEmpty == true ? " (${ride.driverPhone})" : ""}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textPrimary,
-                    ),
+                    style: AppText.label.copyWith(color: AppColors.textPrimary),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -740,7 +705,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: Colors.green.shade600,
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -812,7 +777,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(
           color: isActive ? AppColors.sosRed.withValues(alpha: 0.3) : Colors.black.withValues(alpha: 0.06),
         ),
@@ -832,8 +797,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               Flexible(child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEFF6FF),
-                  borderRadius: BorderRadius.circular(10),
+                  color: AppColors.tintBlueSoft,
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -842,11 +807,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                     const SizedBox(width: 4),
                     Flexible(child: Text(
                       source,
-                      style: GoogleFonts.poppins(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.actionBlue,
-                      ), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionBlue), maxLines: 1, overflow: TextOverflow.ellipsis)),
                   ],
                 ),
               )),
@@ -855,8 +816,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: batteryLevel <= 10 ? const Color(0xFFFFE5E5) : const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(8),
+                    color: batteryLevel <= 10 ? AppColors.tintRedStrong : AppColors.slateSurface,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
@@ -883,11 +844,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
           const SizedBox(height: 12),
           Text(
             isSender ? 'You triggered an Emergency SOS' : '$senderName is in an Emergency',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+            style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
           ),
           const SizedBox(height: 4),
           Row(
@@ -921,11 +878,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 isActive
                     ? 'Active for: ${_formatElapsed(triggerTime)}'
                     : 'Resolved after: ${_formatElapsed(triggerTime, toTime: resolvedTime)}',
-                style: GoogleFonts.poppins(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: isActive ? AppColors.sosRed : AppColors.safeGreen,
-                ),
+                style: AppText.label.copyWith(color: isActive ? AppColors.sosRed : AppColors.safeGreen),
               )),
             ],
           ),
@@ -963,7 +916,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Column(
@@ -973,11 +926,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             children: [
               Text(
                 'Escalation Progression',
-                style: GoogleFonts.poppins(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
+                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
               ),
               const SizedBox(width: 8),
               // The badge takes the remaining width and ellipsizes instead of overflowing
@@ -988,21 +937,17 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: isAnyGuardianAcknowledged
-                          ? const Color(0xFFE8F5E9)
-                          : (isActive ? const Color(0xFFFFF3CD) : const Color(0xFFF1F5F9)),
-                      borderRadius: BorderRadius.circular(8),
+                          ? AppColors.tintMint
+                          : (isActive ? AppColors.warningBanner : AppColors.slateSurface),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
                     child: Text(
                       countdownText,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        color: isAnyGuardianAcknowledged
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: isAnyGuardianAcknowledged
                             ? AppColors.actionGreen
-                            : (isActive ? Colors.orange.shade800 : AppColors.textSecondary),
-                      ),
+                            : (isActive ? Colors.orange.shade800 : AppColors.textSecondary)),
                     ),
                   ),
                 ),
@@ -1083,11 +1028,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
         ),
         Text(
           sublabel,
-          style: GoogleFonts.poppins(
-            fontSize: 9.5,
-            fontWeight: FontWeight.w500,
-            color: AppColors.textSecondary,
-          ),
+          style: AppText.caption.copyWith(color: AppColors.textSecondary),
         ),
       ],
     );
@@ -1112,7 +1053,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Column(
@@ -1155,7 +1096,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             ),
           ),
           ClipRRect(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
             child: SizedBox(
               height: 260,
               child: FlutterMap(
@@ -1254,11 +1195,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               children: [
                 Text(
                   'Nearest Physical Safe Zones:',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 8),
                 ...nearestZones.map((zone) {
@@ -1267,8 +1204,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                     margin: const EdgeInsets.only(bottom: 6),
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(10),
+                      color: AppColors.slateSurfaceLight,
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
                       border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
                     ),
                     child: Row(
@@ -1278,7 +1215,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                         Expanded(
                           child: Text(
                             zone.name,
-                            style: GoogleFonts.poppins(fontSize: 11.5, fontWeight: FontWeight.w600),
+                            style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1298,7 +1235,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
                               color: AppColors.primary,
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(AppRadius.xs),
                             ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
@@ -1307,7 +1244,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                                 const SizedBox(width: 4),
                                 Text(
                                   'Navigate',
-                                  style: GoogleFonts.poppins(fontSize: 10, color: Colors.white, fontWeight: FontWeight.w700),
+                                  style: GoogleFonts.poppins(fontSize: 11, color: Colors.white, fontWeight: FontWeight.w700),
                                 ),
                               ],
                             ),
@@ -1366,7 +1303,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
         border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Column(
@@ -1378,11 +1315,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               const SizedBox(width: 8),
               Expanded(child: Text(
                 panelTitle,
-                style: GoogleFonts.poppins(
-                  fontSize: 13.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary,
-                ),
+                style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
               )),
             ],
           ),
@@ -1429,8 +1362,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                     CircleAvatar(
                       radius: 14,
                       backgroundColor: isAcknowledged
-                          ? const Color(0xFFE8F5E9)
-                          : const Color(0xFFF1F5F9),
+                          ? AppColors.tintMint
+                          : AppColors.slateSurface,
                       child: Icon(
                         isAcknowledged
                             ? Icons.handshake_rounded
@@ -1445,11 +1378,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                     Expanded(
                       child: Text(
                         displayName,
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
+                        style: AppText.label.copyWith(color: AppColors.textPrimary),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1459,16 +1388,12 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         margin: const EdgeInsets.only(right: 6),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFF3E0),
-                          borderRadius: BorderRadius.circular(6),
+                          color: AppColors.tintAmber,
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Text(
                           '🛡️ Backup',
-                          style: GoogleFonts.poppins(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            color: Colors.deepOrange,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.deepOrange),
                         ),
                       ),
                     ],
@@ -1476,19 +1401,15 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
                         color: isAcknowledged
-                            ? const Color(0xFFE8F5E9)
-                            : (isSeen ? const Color(0xFFEBF5FF) : const Color(0xFFF1F5F9)),
-                        borderRadius: BorderRadius.circular(6),
+                            ? AppColors.tintMint
+                            : (isSeen ? const Color(0xFFEBF5FF) : AppColors.slateSurface),
+                        borderRadius: BorderRadius.circular(AppRadius.xs),
                       ),
                       child: Text(
                         isAcknowledged ? 'Responding' : (isSeen ? 'Seen' : 'Notified'),
-                        style: GoogleFonts.poppins(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: isAcknowledged
+                        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: isAcknowledged
                               ? AppColors.actionGreen
-                              : (isSeen ? AppColors.actionBlue : AppColors.textSecondary),
-                        ),
+                              : (isSeen ? AppColors.actionBlue : AppColors.textSecondary)),
                       ),
                     ),
                   ],
@@ -1529,7 +1450,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: AppColors.surface,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(AppRadius.xl),
             border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
           ),
           child: Column(
@@ -1541,11 +1462,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   const SizedBox(width: 8),
                   Text(
                     'Incident Timeline (${unifiedTimeline.length})',
-                    style: GoogleFonts.poppins(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                   ),
                 ],
               ),
@@ -1599,20 +1516,12 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                                     Expanded(
                                       child: Text(
                                         evt.title,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppColors.textPrimary,
-                                        ),
+                                        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                                       ),
                                     ),
                                     Text(
                                       _formatClockTime(evt.timestamp),
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppColors.textSecondary,
-                                      ),
+                                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                                     ),
                                   ],
                                 ),
@@ -1620,11 +1529,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                                   const SizedBox(height: 2),
                                   Text(
                                     evt.description,
-                                    style: GoogleFonts.poppins(
-                                      fontSize: 11.5,
-                                      color: AppColors.textSecondary,
-                                      height: 1.35,
-                                    ),
+                                    style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary, height: 1.35),
                                   ),
                                 ],
                               ],
@@ -1666,12 +1571,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       decoration: BoxDecoration(
         color: AppColors.surface,
         border: Border(top: BorderSide(color: Colors.black.withValues(alpha: 0.08))),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, -3),
-          ),
+        boxShadow: const [
+          AppShadow.navBar,
         ],
       ),
       child: SafeArea(
@@ -1692,17 +1593,12 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                           : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
                       label: Text(
                         isActive ? "I'M SAFE NOW" : 'ALERT RESOLVED',
-                        style: GoogleFonts.poppins(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                          letterSpacing: 0.3,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.3),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.safeGreen,
                         disabledBackgroundColor: AppColors.textSecondary.withValues(alpha: 0.3),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         elevation: 0,
                       ),
@@ -1716,15 +1612,11 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                       icon: const Icon(Icons.call_rounded, color: Colors.white, size: 18),
                       label: Text(
                         'CALL 999',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.sosRed,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         padding: const EdgeInsets.symmetric(vertical: 14),
                         elevation: 0,
                       ),
@@ -1750,16 +1642,11 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                             : const Icon(Icons.handshake_rounded, color: Colors.white, size: 20),
                         label: Text(
                           "I'M RESPONDING",
-                          style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.actionGreen,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                           elevation: 0,
                         ),
                       ),
@@ -1787,7 +1674,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                             ),
                             style: OutlinedButton.styleFrom(
                               side: BorderSide(color: isDuress ? AppColors.sosRed : AppColors.actionGreen),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                               padding: const EdgeInsets.symmetric(vertical: 11),
                             ),
                           ),
@@ -1808,7 +1695,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                           ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primary,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                             padding: const EdgeInsets.symmetric(vertical: 11),
                             elevation: 0,
                           ),

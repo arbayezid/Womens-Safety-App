@@ -8,6 +8,8 @@ import '../models/ride_checkin.dart';
 import 'active_ride_screen.dart';
 import 'ride_details_screen.dart';
 import 'sos_history_screen.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Screen displaying the complete history of Ride Check-ins
 /// (sent by current traveler, received as trusted guardian, and all).
@@ -99,27 +101,27 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
 
     switch (status) {
       case RideStatus.active:
-        bg = const Color(0xFFDFF5E3);
+        bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
         label = 'ACTIVE';
         break;
       case RideStatus.arrived:
-        bg = const Color(0xFFDFF5E3);
+        bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
         label = 'ARRIVED';
         break;
       case RideStatus.overdue:
-        bg = const Color(0xFFFFEEEE);
+        bg = AppColors.tintRed;
         fg = AppColors.sosRed;
         label = 'OVERDUE';
         break;
       case RideStatus.sos:
-        bg = const Color(0xFFFFEEEE);
+        bg = AppColors.tintRed;
         fg = AppColors.sosRed;
         label = 'SOS';
         break;
       case RideStatus.cancelled:
-        bg = const Color(0xFFEEEEF2);
+        bg = AppColors.neutralTile;
         fg = AppColors.textSecondary;
         label = 'CANCELLED';
         break;
@@ -127,10 +129,10 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(AppRadius.sm)),
       child: Text(
         label,
-        style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w800, color: fg),
+        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: fg),
       ),
     );
   }
@@ -179,14 +181,10 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
               color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(AppRadius.lg),
               border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
+              boxShadow: const [
+                AppShadow.card,
               ],
             ),
             child: Row(
@@ -196,7 +194,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
                   height: 48,
                   decoration: BoxDecoration(
                     color: AppColors.primarySurface,
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
                   child: const Icon(Icons.local_taxi_rounded, color: AppColors.primary, size: 24),
                 ),
@@ -211,7 +209,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
                           Expanded(
                             child: Text(
                               ride.plateFormatted,
-                              style: GoogleFonts.poppins(fontSize: 14.5, fontWeight: FontWeight.w800),
+                              style: GoogleFonts.poppins(fontSize: 14.5, fontWeight: FontWeight.w700),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
@@ -250,7 +248,7 @@ class _RideHistoryScreenState extends State<RideHistoryScreen>
       appBar: AppBar(
         title: Text(
           'Ride History',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+          style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
         elevation: 0.5,

@@ -7,6 +7,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../core/app_colors.dart';
 import '../models/ride_checkin.dart';
 import '../services/navigation_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Guardian View screen showing real-time vehicle details, live GPS map tracking,
 /// zoomable plate photo evidence, "Call", and "Navigate" actions.
@@ -33,7 +35,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           children: [
             InteractiveViewer(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
                 child: Image.network(imageUrl, fit: BoxFit.contain),
               ),
             ),
@@ -65,31 +67,31 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
 
     switch (status) {
       case RideStatus.active:
-        bg = const Color(0xFFDFF5E3);
+        bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
         label = 'ACTIVE RIDE';
         icon = Icons.directions_car_rounded;
         break;
       case RideStatus.arrived:
-        bg = const Color(0xFFDFF5E3);
+        bg = AppColors.successBackground;
         fg = AppColors.actionGreen;
         label = 'ARRIVED SAFELY';
         icon = Icons.check_circle_rounded;
         break;
       case RideStatus.overdue:
-        bg = const Color(0xFFFFEEEE);
+        bg = AppColors.tintRed;
         fg = AppColors.sosRed;
         label = 'OVERDUE';
         icon = Icons.warning_rounded;
         break;
       case RideStatus.sos:
-        bg = const Color(0xFFFFEEEE);
+        bg = AppColors.tintRed;
         fg = AppColors.sosRed;
         label = 'EMERGENCY SOS';
         icon = Icons.notifications_active_rounded;
         break;
       case RideStatus.cancelled:
-        bg = const Color(0xFFEEEEF2);
+        bg = AppColors.neutralTile;
         fg = AppColors.textSecondary;
         label = 'CANCELLED';
         icon = Icons.cancel_rounded;
@@ -100,7 +102,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
         color: bg,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -109,11 +111,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
           const SizedBox(width: 5),
           Text(
             label,
-            style: GoogleFonts.poppins(
-              fontSize: 11,
-              fontWeight: FontWeight.w800,
-              color: fg,
-            ),
+            style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: fg),
           ),
         ],
       ),
@@ -127,7 +125,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       appBar: AppBar(
         title: Text(
           'Ride Details (Guardian View)',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+          style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
         elevation: 0.5,
@@ -243,7 +241,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: AppColors.surface.withValues(alpha: 0.95),
-                            borderRadius: BorderRadius.circular(10),
+                            borderRadius: BorderRadius.circular(AppRadius.sm),
                           ),
                           child: Text(
                             '🔋 ${ride.batteryLevel}% Battery',
@@ -261,13 +259,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: const BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
                   boxShadow: [
-                    BoxShadow(
-                      color: Color(0x0F000000),
-                      blurRadius: 16,
-                      offset: Offset(0, -4),
-                    ),
+                    AppShadow.navBar,
                   ],
                 ),
                 child: Column(
@@ -284,7 +278,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                             child: Stack(
                               children: [
                                 ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(AppRadius.md),
                                   child: Image.network(
                                     ride.platePhotoUrl!,
                                     width: 60,
@@ -313,7 +307,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                             height: 56,
                             decoration: BoxDecoration(
                               color: AppColors.primarySurface,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                             child: const Icon(Icons.local_taxi_rounded, color: AppColors.primary, size: 28),
                           ),
@@ -324,19 +318,11 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                             children: [
                               Text(
                                 ride.plateFormatted,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textPrimary,
-                                ),
+                                style: GoogleFonts.poppins(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                               ),
                               Text(
                                 '${ride.userName} • ${ride.rideType}${ride.appName != null ? " (${ride.appName})" : ""}',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 12.5,
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                ),
+                                style: AppText.label.copyWith(color: AppColors.textSecondary),
                               ),
                               if (ride.destination != null && ride.destination!['label'] != null)
                                 Padding(
@@ -368,7 +354,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         decoration: BoxDecoration(
                           color: AppColors.background,
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                         child: Row(
                           children: [
@@ -377,7 +363,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                             Expanded(
                               child: Text(
                                 'Driver: ${ride.driverName ?? "Driver"} ${ride.driverPhone != null ? "(${ride.driverPhone})" : ""}',
-                                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+                                style: AppText.label,
                               ),
                             ),
                             if (ride.driverPhone != null)
@@ -399,14 +385,14 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFDDEEFD),
-                            borderRadius: BorderRadius.circular(12),
+                            color: AppColors.tintSky,
+                            borderRadius: BorderRadius.circular(AppRadius.md),
                           ),
                           child: Row(
                             children: [
                               const Icon(Icons.image_rounded, size: 16, color: AppColors.actionBlue),
                               const SizedBox(width: 8),
-                              Text('View Shared Ride App Screenshot', style: GoogleFonts.poppins(fontSize: 12, color: AppColors.actionBlue, fontWeight: FontWeight.w600)),
+                              Text('View Shared Ride App Screenshot', style: AppText.label.copyWith(color: AppColors.actionBlue)),
                               const Spacer(),
                               const Icon(Icons.open_in_new_rounded, size: 14, color: AppColors.actionBlue),
                             ],
@@ -428,7 +414,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                               label: Text('Call', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: AppColors.actionGreen)),
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: AppColors.actionGreen),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
                             ),
@@ -448,7 +434,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                             label: Text('Navigate', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white)),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                               padding: const EdgeInsets.symmetric(vertical: 12),
                               elevation: 0,
                             ),

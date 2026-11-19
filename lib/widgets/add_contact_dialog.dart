@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/contact_sync_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Modal dialog for adding emergency contacts via Email-based sync
 /// with optional mobile phone number for offline SMS fallback.
@@ -111,7 +113,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
               ),
               backgroundColor: AppColors.actionGreen,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
           );
           Navigator.pop(context, true);
@@ -145,7 +147,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
               ),
               backgroundColor: AppColors.actionGreen,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
           );
           Navigator.pop(context, true);
@@ -183,14 +185,14 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   Expanded(
                     child: Text(
                       'Contact saved! (Offline SMS alerts active; sync will retry when online).$primaryNote',
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12.5),
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12),
                     ),
                   ),
                 ],
               ),
-              backgroundColor: AppColors.primaryViolet,
+              backgroundColor: AppColors.primary,
               behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
           );
           Navigator.pop(context, true);
@@ -234,7 +236,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   height: 4.5,
                   decoration: BoxDecoration(
                     color: AppColors.divider,
-                    borderRadius: BorderRadius.circular(3),
+                    borderRadius: BorderRadius.circular(AppRadius.handle),
                   ),
                 ),
               ),
@@ -246,11 +248,11 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: AppColors.primaryViolet.withValues(alpha: 0.12),
+                      color: AppColors.primary.withValues(alpha: 0.12),
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(Icons.person_add_alt_1_rounded,
-                        color: AppColors.primaryViolet, size: 24),
+                        color: AppColors.primary, size: 24),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -259,11 +261,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                       children: [
                         Text(
                           'Add Emergency Contact',
-                          style: GoogleFonts.poppins(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
+                          style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                         ),
                         Text(
                           'Sync via email & set offline SMS backup',
@@ -284,8 +282,8 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFEEEE),
-                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.tintRed,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     border: Border.all(color: const Color(0xFFFFC0C0)),
                   ),
                   child: Row(
@@ -295,11 +293,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                       Expanded(
                         child: Text(
                           _errorMessage!,
-                          style: GoogleFonts.poppins(
-                            color: Colors.red.shade900,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          style: GoogleFonts.poppins(color: Colors.red.shade900, fontSize: 12, fontWeight: FontWeight.w500),
                         ),
                       ),
                     ],
@@ -323,11 +317,11 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 textCapitalization: TextCapitalization.words,
                 decoration: InputDecoration(
                   hintText: 'e.g. Fatima Rahman',
-                  prefixIcon: const Icon(Icons.person_outline_rounded, color: AppColors.primaryViolet),
+                  prefixIcon: const Icon(Icons.person_outline_rounded, color: AppColors.primary),
                   filled: true,
                   fillColor: AppColors.background,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     borderSide: BorderSide.none,
                   ),
                 ),
@@ -355,16 +349,12 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppColors.primaryViolet.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
                     child: Text(
                       'App Sync',
-                      style: GoogleFonts.poppins(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.primaryViolet,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
                     ),
                   ),
                 ],
@@ -375,11 +365,11 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 keyboardType: TextInputType.emailAddress,
                 decoration: InputDecoration(
                   hintText: 'e.g. fatima@example.com',
-                  prefixIcon: const Icon(Icons.email_outlined, color: AppColors.primaryViolet),
+                  prefixIcon: const Icon(Icons.email_outlined, color: AppColors.primary),
                   filled: true,
                   fillColor: AppColors.background,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     borderSide: BorderSide.none,
                   ),
                 ),
@@ -412,15 +402,11 @@ class _AddContactDialogState extends State<AddContactDialog> {
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
                       color: AppColors.actionGreen.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(6),
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
                     child: Text(
                       'Offline SMS Fallback',
-                      style: GoogleFonts.poppins(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.actionGreen,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionGreen),
                     ),
                   ),
                 ],
@@ -435,16 +421,12 @@ class _AddContactDialogState extends State<AddContactDialog> {
                       ? '⚠️ Recommended: Without a phone number, emergency SMS cannot be dispatched to this person.'
                       : '✅ Configured for direct emergency SMS with live GPS location.',
                   helperMaxLines: 3,
-                  helperStyle: GoogleFonts.poppins(
-                    fontSize: 11,
-                    color: _phoneCtrl.text.trim().isEmpty ? Colors.orange.shade800 : AppColors.actionGreen,
-                    fontWeight: FontWeight.w500,
-                  ),
+                  helperStyle: AppText.caption.copyWith(color: _phoneCtrl.text.trim().isEmpty ? Colors.orange.shade800 : AppColors.actionGreen),
                   prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.actionGreen),
                   filled: true,
                   fillColor: AppColors.background,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     borderSide: BorderSide.none,
                   ),
                 ),
@@ -467,7 +449,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   filled: true,
                   fillColor: AppColors.background,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     borderSide: BorderSide.none,
                   ),
                   prefixIcon: const Icon(Icons.people_outline_rounded, color: AppColors.primary),
@@ -503,7 +485,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 ),
                 subtitle: Text(
                   'Gets your SOS alert and text first. Everyone else is still alerted. Only one contact can be primary.',
-                  style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 ),
                 onChanged: (val) => setState(() => _isPrimary = val),
               ),
@@ -524,7 +506,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 ),
                 subtitle: Text(
                   'Excluded from initial SOS; notified in escalation Stage 1 if guardians do not acknowledge within 3 minutes',
-                  style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 ),
                 onChanged: (val) => setState(() => _isBackup = val),
               ),
@@ -537,9 +519,9 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 child: ElevatedButton(
                   onPressed: _isSubmitting ? null : _handleSubmit,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryViolet,
+                    backgroundColor: AppColors.primary,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
                     ),
                     elevation: 2,
                   ),

@@ -6,6 +6,8 @@ import '../models/journey_model.dart';
 import '../screens/journey_tracking_screen.dart';
 import '../utils/duration_format.dart';
 import '../utils/url_launcher_helper.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Home-screen card for a guardian: a contact they protect is on a Safe Journey (or in
 /// Followed Mode) right now. It stays until the journey ends, so the live map is always one tap
@@ -51,7 +53,7 @@ class IncomingJourneyCard extends StatelessWidget {
     if (isAlert) {
       accent = AppColors.sosRed;
       background = const Color(0xFFFFF1F0);
-      chipBackground = const Color(0xFFFFDDDB);
+      chipBackground = AppColors.sosOuterRing;
       icon = Icons.warning_amber_rounded;
       label = 'PROTECTED CONTACT NEEDS CHECKING';
       chip = 'Alert';
@@ -59,8 +61,8 @@ class IncomingJourneyCard extends StatelessWidget {
       detail = 'Track their live location now';
     } else if (isFollowed) {
       accent = AppColors.actionOrange;
-      background = const Color(0xFFFFF7ED);
-      chipBackground = const Color(0xFFFFEDD5);
+      background = AppColors.tintPeach;
+      chipBackground = AppColors.tintPeachStrong;
       icon = Icons.radar_rounded;
       label = 'PROTECTED CONTACT FEELS FOLLOWED';
       chip = 'Followed';
@@ -68,8 +70,8 @@ class IncomingJourneyCard extends StatelessWidget {
       detail = 'Live location shared since ${_clock(journey.startedAt)}';
     } else {
       accent = isDelayed ? AppColors.actionOrange : AppColors.actionGreen;
-      background = isDelayed ? const Color(0xFFFFF7ED) : const Color(0xFFF0FDF4);
-      chipBackground = isDelayed ? const Color(0xFFFFEDD5) : const Color(0xFFDCFCE7);
+      background = isDelayed ? AppColors.tintPeach : AppColors.tintGreenSoft;
+      chipBackground = isDelayed ? AppColors.tintPeachStrong : AppColors.tintGreenMid;
       icon = Icons.directions_walk_rounded;
       label = 'PROTECTED CONTACT ON A SAFE JOURNEY';
       chip = isDelayed ? 'Delayed' : 'Live';
@@ -93,7 +95,7 @@ class IncomingJourneyCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: background,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           border: Border.all(
             color: isAlert || isFollowed ? accent : accent.withValues(alpha: 0.5),
             width: isAlert || isFollowed ? 1.8 : 1.5,
@@ -123,12 +125,7 @@ class IncomingJourneyCard extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: accent,
-                      letterSpacing: 0.5,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: accent, letterSpacing: 0.5),
                   ),
                 ),
               ],
@@ -155,11 +152,7 @@ class IncomingJourneyCard extends StatelessWidget {
                               journey.ownerName,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: GoogleFonts.poppins(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textPrimary,
-                              ),
+                              style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                             ),
                           ),
                           const SizedBox(width: 6),
@@ -167,15 +160,11 @@ class IncomingJourneyCard extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: chipBackground,
-                              borderRadius: BorderRadius.circular(6),
+                              borderRadius: BorderRadius.circular(AppRadius.xs),
                             ),
                             child: Text(
                               chip,
-                              style: GoogleFonts.poppins(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w700,
-                                color: accent,
-                              ),
+                              style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: accent),
                             ),
                           ),
                         ],
@@ -184,11 +173,7 @@ class IncomingJourneyCard extends StatelessWidget {
                         headline,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary,
-                        ),
+                        style: AppText.label.copyWith(color: AppColors.textPrimary),
                       ),
                       const SizedBox(height: 1),
                       Text(
@@ -214,7 +199,7 @@ class IncomingJourneyCard extends StatelessWidget {
                 status,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSecondary),
+                style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
               ),
             ),
             const SizedBox(height: 12),
@@ -237,7 +222,7 @@ class IncomingJourneyCard extends StatelessWidget {
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: accent,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       elevation: 0,
                     ),
@@ -260,7 +245,7 @@ class IncomingJourneyCard extends StatelessWidget {
                       ),
                       style: OutlinedButton.styleFrom(
                         side: BorderSide(color: Colors.black.withValues(alpha: 0.15)),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                         padding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                     ),

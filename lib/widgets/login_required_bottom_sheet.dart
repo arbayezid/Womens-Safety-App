@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/auth_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Modal bottom sheet presented when a Guest user attempts a protected action
 /// (e.g. triggering SOS, managing contacts, editing profile).
@@ -72,7 +74,7 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.black.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(AppRadius.handle),
               ),
             ),
             const SizedBox(height: 24),
@@ -85,11 +87,7 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
                 shape: BoxShape.circle,
                 color: AppColors.primarySurface,
                 boxShadow: [
-                  BoxShadow(
-                    color: AppColors.primary.withValues(alpha: 0.2),
-                    blurRadius: 16,
-                    offset: const Offset(0, 4),
-                  ),
+                  AppShadow.tinted(AppColors.primary),
                 ],
               ),
               alignment: Alignment.center,
@@ -130,7 +128,7 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: AppColors.background,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
               ),
               child: const Column(
                 children: [
@@ -166,7 +164,7 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
                   backgroundColor: AppColors.primary,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(AppRadius.lg),
                   ),
                   elevation: 2,
                 ),
@@ -252,11 +250,7 @@ class _FeatureRow extends StatelessWidget {
         Expanded(
           child: Text(
             text,
-            style: GoogleFonts.poppins(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w500,
-              color: AppColors.textPrimary,
-            ),
+            style: AppText.caption.copyWith(color: AppColors.textPrimary),
           ),
         ),
       ],

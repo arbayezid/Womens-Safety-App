@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../core/app_colors.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Lets the user box the number plate in a photo before OCR. A tight crop is the single
 /// biggest accuracy gain: background signs and stickers no longer confuse the reader.
@@ -121,7 +123,7 @@ class _PlateCropScreenState extends State<PlateCropScreen> {
         foregroundColor: Colors.white,
         title: Text(
           'Select the number plate',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+          style: AppText.sectionTitle,
         ),
       ),
       body: SafeArea(
@@ -175,9 +177,9 @@ class _PlateCropScreenState extends State<PlateCropScreen> {
                         foregroundColor: Colors.white,
                         side: const BorderSide(color: Colors.white38),
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
-                      child: Text('Use whole photo', style: GoogleFonts.poppins(fontSize: 12.5, fontWeight: FontWeight.w600)),
+                      child: Text('Use whole photo', style: AppText.label),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -194,7 +196,7 @@ class _PlateCropScreenState extends State<PlateCropScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       ),
                     ),
                   ),

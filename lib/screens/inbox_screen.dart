@@ -7,6 +7,8 @@ import 'contacts_screen.dart';
 import 'incident_room_screen.dart';
 import 'journey_tracking_screen.dart';
 import 'ride_details_screen.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Notification inbox (bell): every SOS alert, Safe Journey update, ride check-in and guardian
 /// request from the people this user protects. Opening it clears the bell badge; an entry stays
@@ -51,7 +53,7 @@ class _InboxScreenState extends State<InboxScreen> {
         elevation: 0,
         title: Text(
           'Notifications',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold, fontSize: 18, color: AppColors.textPrimary),
+          style: AppText.greeting.copyWith(color: AppColors.textPrimary),
         ),
         iconTheme: const IconThemeData(color: AppColors.textPrimary),
         actions: [
@@ -178,7 +180,7 @@ class _InboxTile extends StatelessWidget {
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(color: chipBg, borderRadius: BorderRadius.circular(8)),
+                          decoration: BoxDecoration(color: chipBg, borderRadius: BorderRadius.circular(AppRadius.sm)),
                           child: Text(
                             item.status,
                             style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: chipFg),

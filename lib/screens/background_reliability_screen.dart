@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../core/app_colors.dart';
 import '../services/safety_deadline_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Phone settings that safety timers and guardian alerts need to work while Woman Guard is
 /// closed: notifications, exact alarms, battery-optimisation exemption, full-screen alerts and the
@@ -175,7 +177,7 @@ class _InfoCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: color.withValues(alpha: 0.3)),
       ),
       child: Row(
@@ -189,7 +191,7 @@ class _InfoCard extends StatelessWidget {
                   ? 'All set. Safety timers and guardian alerts can work while Woman Guard is closed or your phone is locked.'
                   : 'Some phone settings can stop Woman Guard from working while it is closed. If a safety timer runs out, '
                       'the app must still be able to send your SOS, and guardians must still receive alerts. Fix the items below.',
-              style: GoogleFonts.poppins(fontSize: 12.5, height: 1.45, color: AppColors.textPrimary),
+              style: GoogleFonts.poppins(fontSize: 12, height: 1.45, color: AppColors.textPrimary),
             ),
           ),
         ],
@@ -218,7 +220,7 @@ class _StatusTile extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(AppRadius.lg)),
       child: Row(
         children: [
           Icon(icon, color: ok ? AppColors.actionGreen : AppColors.sosRed),
@@ -228,10 +230,10 @@ class _StatusTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(title,
-                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                    style: AppText.cardTitle.copyWith(color: AppColors.textPrimary)),
                 const SizedBox(height: 2),
                 Text(description,
-                    style: GoogleFonts.poppins(fontSize: 11.5, height: 1.4, color: AppColors.textSecondary)),
+                    style: GoogleFonts.poppins(fontSize: 11, height: 1.4, color: AppColors.textSecondary)),
               ],
             ),
           ),
@@ -299,7 +301,7 @@ class _AutoStartGuide extends StatelessWidget {
     final ordered = [detected, ..._guides.keys.where((k) => k != detected)];
     return Container(
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(color: AppColors.surface, borderRadius: BorderRadius.circular(AppRadius.lg)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -309,14 +311,14 @@ class _AutoStartGuide extends StatelessWidget {
               const SizedBox(width: 12),
               Expanded(
                 child: Text('Auto-start (phone brand settings)',
-                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                    style: AppText.cardTitle.copyWith(color: AppColors.textPrimary)),
               ),
             ],
           ),
           const SizedBox(height: 6),
           Text(
             'Many phones stop apps that are closed from Recent apps. Allow Woman Guard to start and run in the background:',
-            style: GoogleFonts.poppins(fontSize: 11.5, height: 1.4, color: AppColors.textSecondary),
+            style: GoogleFonts.poppins(fontSize: 11, height: 1.4, color: AppColors.textSecondary),
           ),
           const SizedBox(height: 8),
           for (final brand in ordered)
@@ -336,7 +338,7 @@ class _AutoStartGuide extends StatelessWidget {
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('${i + 1}. ', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                          Text('${i + 1}. ', style: AppText.label),
                           Expanded(child: Text(step, style: GoogleFonts.poppins(fontSize: 12, height: 1.4))),
                         ],
                       ),

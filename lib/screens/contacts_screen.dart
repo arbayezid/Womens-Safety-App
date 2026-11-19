@@ -15,6 +15,8 @@ import '../utils/auth_guard.dart';
 import '../widgets/add_contact_dialog.dart';
 import '../widgets/pending_requests_section.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Contacts screen — manage emergency and trusted contacts.
 ///
@@ -131,7 +133,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       ),
       backgroundColor: success ? AppColors.primary : AppColors.sosRed,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
       margin: const EdgeInsets.all(16),
       duration: Duration(seconds: success ? 2 : 4),
     ));
@@ -146,7 +148,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       context: context,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
@@ -160,7 +162,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(AppRadius.handle),
                   ),
                 ),
               ),
@@ -169,8 +171,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 child: Text(
                   contact.name,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                      fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 ),
               ),
               ListTile(
@@ -178,19 +179,18 @@ class _ContactsScreenState extends State<ContactsScreen> {
                     color: AppColors.primary),
                 title: Text(
                   isPrimary ? 'Remove as primary contact' : 'Set as primary contact',
-                  style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600),
+                  style: AppText.cardTitle,
                 ),
                 subtitle: isPrimary
                     ? null
                     : Text('Gets your SOS alert and text first',
-                        style: GoogleFonts.poppins(
-                            fontSize: 11.5, color: AppColors.textSecondary)),
+                        style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
                 onTap: () => Navigator.pop(ctx, 'primary'),
               ),
               ListTile(
                 leading: const Icon(Icons.edit_outlined, color: AppColors.primary),
                 title: Text('Edit contact',
-                    style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w600)),
+                    style: AppText.cardTitle),
                 onTap: () => Navigator.pop(ctx, 'edit'),
               ),
               if (protectedPerson != null)
@@ -457,10 +457,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         children: [
           Text(
             'Contacts',
-            style: GoogleFonts.poppins(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary),
+            style: AppText.pageTitle.copyWith(color: AppColors.textPrimary),
           ),
           const Spacer(),
           IconButton(
@@ -480,12 +477,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 10,
-                offset: const Offset(0, 3))
+          borderRadius: BorderRadius.circular(AppRadius.lg),
+          boxShadow: const [
+            AppShadow.card
           ],
         ),
         child: TextField(
@@ -527,12 +521,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           boxShadow: [
-            BoxShadow(
-                color: AppColors.primary.withValues(alpha: 0.3),
-                blurRadius: 12,
-                offset: const Offset(0, 4))
+            AppShadow.tinted(AppColors.primary)
           ],
         ),
         child: Row(
@@ -542,15 +533,11 @@ class _ContactsScreenState extends State<ContactsScreen> {
               height: 42,
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
               child: Text('SOS',
-                  style: GoogleFonts.poppins(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: 1)),
+                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1)),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -566,9 +553,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ),
                   Text(
                     'Alerted instantly with GPS location when SOS is triggered',
-                    style: GoogleFonts.poppins(
-                        fontSize: 10,
-                        color: Colors.white.withValues(alpha: 0.85)),
+                    style: GoogleFonts.poppins(fontSize: 11, color: Colors.white.withValues(alpha: 0.85)),
                   ),
                   if (_contacts.isNotEmpty) ...[
                     const SizedBox(height: 3),
@@ -583,10 +568,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                                 ? 'Primary: ${primary.name} (alerted first)'
                                 : 'No primary contact yet. Tap the star on a contact.',
                             overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.poppins(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white),
+                            style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white),
                           ),
                         ),
                       ],
@@ -691,7 +673,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         ),
         backgroundColor: AppColors.sosRed,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         margin: const EdgeInsets.all(16),
         duration: const Duration(seconds: 3),
       ),
@@ -725,15 +707,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
             backgroundColor: AppColors.surface,
             title: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFE5E5),
-                    borderRadius: BorderRadius.circular(10),
+                    color: AppColors.tintRedStrong,
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: const Icon(Icons.delete_outline_rounded,
                       color: AppColors.sosRed, size: 22),
@@ -741,10 +723,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 const SizedBox(width: 12),
                 Expanded(child: Text(
                   title,
-                  style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary),
+                  style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 )),
               ],
             ),
@@ -768,7 +747,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   backgroundColor: AppColors.sosRed,
                   elevation: 0,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10)),
+                      borderRadius: BorderRadius.circular(AppRadius.sm)),
                 ),
                 child: Text(confirmLabel,
                     style: GoogleFonts.poppins(
@@ -852,7 +831,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       ),
       backgroundColor: success ? AppColors.actionGreen : AppColors.sosRed,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
       margin: const EdgeInsets.all(16),
       duration: Duration(seconds: success ? 3 : 4),
     ));
@@ -867,7 +846,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
           backgroundColor: AppColors.surface,
           titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
           contentPadding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
@@ -877,7 +856,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
                   color: AppColors.primarySurface,
-                  borderRadius: BorderRadius.circular(10),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: const Icon(Icons.person_add_alt_1_rounded,
                     color: AppColors.primary, size: 22),
@@ -886,8 +865,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
               Expanded(
                 child: Text(
                   'Add as Emergency Contact?',
-                  style: GoogleFonts.poppins(
-                      fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 ),
               ),
             ],
@@ -917,8 +895,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 const SizedBox(height: 14),
                 Text(
                   '${person.name.split(' ').first} is your…',
-                  style: GoogleFonts.poppins(
-                      fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                  style: AppText.label.copyWith(color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 6),
                 Wrap(
@@ -931,18 +908,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       selected: selected,
                       showCheckmark: false,
                       visualDensity: VisualDensity.compact,
-                      labelStyle: GoogleFonts.poppins(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
-                        color: selected ? Colors.white : AppColors.textPrimary,
-                      ),
+                      labelStyle: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: selected ? Colors.white : AppColors.textPrimary),
                       selectedColor: AppColors.primary,
                       backgroundColor: AppColors.background,
                       side: BorderSide(
                           color: selected
                               ? AppColors.primary
                               : AppColors.textSecondary.withValues(alpha: 0.25)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                       onSelected: (_) => setDialogState(() => relationship = rel),
                     );
                   }).toList(),
@@ -968,7 +941,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primary,
                 elevation: 0,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
               ),
               child: Text('Yes, add',
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
@@ -1005,7 +978,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       context: context,
       backgroundColor: AppColors.surface,
       shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(8, 12, 8, 8),
@@ -1019,7 +992,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   height: 4,
                   decoration: BoxDecoration(
                     color: Colors.grey.shade300,
-                    borderRadius: BorderRadius.circular(2),
+                    borderRadius: BorderRadius.circular(AppRadius.handle),
                   ),
                 ),
               ),
@@ -1028,8 +1001,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                 child: Text(
                   person.name,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                      fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                  style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 ),
               ),
               if (link.state == ProtectedLinkState.notAdded)
@@ -1094,12 +1066,9 @@ class _ContactsScreenState extends State<ContactsScreen> {
     return ListTile(
       leading: Icon(icon, color: color),
       title: Text(title,
-          style: GoogleFonts.poppins(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: color == AppColors.sosRed ? AppColors.sosRed : AppColors.textPrimary)),
+          style: AppText.cardTitle.copyWith(color: color == AppColors.sosRed ? AppColors.sosRed : AppColors.textPrimary)),
       subtitle: Text(subtitle,
-          style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary)),
+          style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
       onTap: () => Navigator.pop(ctx, value),
     );
   }
@@ -1111,15 +1080,15 @@ class _ContactsScreenState extends State<ContactsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         backgroundColor: AppColors.surface,
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFE5E5),
-                borderRadius: BorderRadius.circular(10),
+                color: AppColors.tintRedStrong,
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.remove_moderator_outlined,
                   color: AppColors.sosRed, size: 22),
@@ -1128,8 +1097,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             Expanded(
               child: Text(
                 'Stop Protecting?',
-                style: GoogleFonts.poppins(
-                    fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
               ),
             ),
           ],
@@ -1153,7 +1121,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.sosRed,
               elevation: 0,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
             ),
             child: Text('Stop protecting',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white)),
@@ -1247,7 +1215,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
             decoration: const BoxDecoration(
               color: AppColors.surface,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
             ),
             child: Form(
               key: formKey,
@@ -1261,7 +1229,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       height: 4,
                       decoration: BoxDecoration(
                         color: Colors.grey.shade300,
-                        borderRadius: BorderRadius.circular(2),
+                        borderRadius: BorderRadius.circular(AppRadius.handle),
                       ),
                     ),
                   ),
@@ -1272,7 +1240,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           color: AppColors.successBackground,
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
                         child: const Icon(Icons.phone_rounded,
                             color: AppColors.actionGreen, size: 22),
@@ -1284,11 +1252,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                           children: [
                             Text(
                               'Set Emergency Phone',
-                              style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.textPrimary,
-                              ),
+                              style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                             ),
                             Text(
                               'for ${contact.name}',
@@ -1325,7 +1289,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       prefixIcon: const Icon(Icons.phone_outlined,
                           color: AppColors.actionGreen, size: 20),
                       border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       filled: true,
                       fillColor: const Color(0xFFF8F9FA),
@@ -1362,8 +1326,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       ),
                       subtitle: Text(
                         'Gets your SOS alert and text first. Only one contact can be primary.',
-                        style: GoogleFonts.poppins(
-                            fontSize: 11.5, color: AppColors.textSecondary),
+                        style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                       ),
                       onChanged: (val) => setSwitchState(() => wantPrimary = val),
                     ),
@@ -1376,7 +1339,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppColors.primary,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
+                          borderRadius: BorderRadius.circular(AppRadius.md),
                         ),
                         elevation: 0,
                       ),
@@ -1441,18 +1404,14 @@ class _ContactsScreenState extends State<ContactsScreen> {
                             backgroundColor: AppColors.actionGreen,
                             behavior: SnackBarBehavior.floating,
                             shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
+                                borderRadius: BorderRadius.circular(AppRadius.md)),
                           ),
                         );
                         _loadContacts();
                       },
                       child: Text(
                         'Save',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
+                        style: AppText.cardTitle.copyWith(color: Colors.white),
                       ),
                     ),
                   ),
@@ -1565,15 +1524,15 @@ class _ProtectedPersonCard extends StatelessWidget {
     final bool added = link.state == ProtectedLinkState.added;
     return Material(
       color: AppColors.surface,
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(AppRadius.lg),
       child: InkWell(
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         onTap: busy ? null : onTap,
         onLongPress: busy ? null : onMenu,
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(AppRadius.lg),
             border: Border.all(
               color: added
                   ? AppColors.actionGreen.withValues(alpha: 0.35)
@@ -1589,14 +1548,11 @@ class _ProtectedPersonCard extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration:
-                        const BoxDecoration(color: Color(0xFFEDE7F6), shape: BoxShape.circle),
+                        const BoxDecoration(color: AppColors.tintLavender, shape: BoxShape.circle),
                     alignment: Alignment.center,
                     child: Text(
                       person.initial,
-                      style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primaryViolet),
+                      style: AppText.sectionTitle.copyWith(color: AppColors.primary),
                     ),
                   ),
                   Positioned(
@@ -1606,7 +1562,7 @@ class _ProtectedPersonCard extends StatelessWidget {
                       width: 17,
                       height: 17,
                       decoration: BoxDecoration(
-                          color: AppColors.primaryViolet,
+                          color: AppColors.primary,
                           shape: BoxShape.circle,
                           border: Border.all(color: AppColors.surface, width: 2)),
                       alignment: Alignment.center,
@@ -1623,21 +1579,20 @@ class _ProtectedPersonCard extends StatelessWidget {
                     Text(
                       person.name,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(
-                          fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                      style: AppText.cardTitle.copyWith(color: AppColors.textPrimary),
                     ),
                     if (person.email.isNotEmpty && person.email != person.name)
                       Text(
                         person.email,
                         overflow: TextOverflow.ellipsis,
                         style:
-                            GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                            GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                       ),
                     if (person.relationship.isNotEmpty)
                       Text(
                         'Added you as: ${person.relationship}',
                         overflow: TextOverflow.ellipsis,
-                        style: GoogleFonts.poppins(fontSize: 11, color: AppColors.primaryViolet),
+                        style: GoogleFonts.poppins(fontSize: 11, color: AppColors.primary),
                       ),
                   ],
                 ),
@@ -1707,7 +1662,7 @@ class _ShieldLegend extends StatelessWidget {
             Icon(Icons.shield_rounded, size: 13, color: _ProtectShieldBadge.colorFor(state)),
             const SizedBox(width: 4),
             Text(label,
-                style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSecondary)),
+                style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
           ],
         );
     return Wrap(
@@ -1775,15 +1730,12 @@ class _ContactCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: isPrimary
             ? Border.all(color: AppColors.primary.withValues(alpha: 0.55), width: 1.5)
             : null,
-        boxShadow: [
-          BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 10,
-              offset: const Offset(0, 3))
+        boxShadow: const [
+          AppShadow.card
         ],
       ),
       child: Row(
@@ -1800,10 +1752,7 @@ class _ContactCard extends StatelessWidget {
                 alignment: Alignment.center,
                 child: Text(
                   contact.initial,
-                  style: GoogleFonts.poppins(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: colorStyle.text),
+                  style: AppText.sectionTitle.copyWith(color: colorStyle.text),
                 ),
               ),
               if (isPrimary)
@@ -1841,10 +1790,7 @@ class _ContactCard extends StatelessWidget {
                     Flexible(
                       child: Text(
                         contact.name,
-                        style: GoogleFonts.poppins(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.textPrimary),
+                        style: AppText.cardTitle.copyWith(color: AppColors.textPrimary),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -1855,14 +1801,10 @@ class _ContactCard extends StatelessWidget {
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                             color: AppColors.primarySurface,
-                            borderRadius: BorderRadius.circular(6)),
+                            borderRadius: BorderRadius.circular(AppRadius.xs)),
                         child: Text(
                           'PRIMARY',
-                          style: GoogleFonts.poppins(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0.4,
-                              color: AppColors.primary),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.4, color: AppColors.primary),
                         ),
                       ),
                     ],
@@ -1872,14 +1814,11 @@ class _ContactCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                            color: const Color(0xFFFEEDD8),
-                            borderRadius: BorderRadius.circular(6)),
+                            color: AppColors.tintOrange,
+                            borderRadius: BorderRadius.circular(AppRadius.xs)),
                         child: Text(
                           'BACKUP',
-                          style: GoogleFonts.poppins(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.actionOrange),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionOrange),
                         ),
                       ),
                     ],
@@ -1889,17 +1828,13 @@ class _ContactCard extends StatelessWidget {
                 if (contact.email.isNotEmpty)
                   Text(
                     contact.email,
-                    style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.primaryViolet),
+                    style: AppText.caption.copyWith(color: AppColors.primary),
                     overflow: TextOverflow.ellipsis,
                   ),
                 if (contact.hasPhone)
                   Text(
                     contact.phone,
-                    style: GoogleFonts.poppins(
-                        fontSize: 10.5, color: AppColors.textSecondary),
+                    style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                   )
                 else if (onEditPhone != null)
                   GestureDetector(
@@ -1913,12 +1848,7 @@ class _ContactCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Text(
                             '+ Add phone for SMS',
-                            style: GoogleFonts.poppins(
-                              fontSize: 10.5,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.actionOrange,
-                              decoration: TextDecoration.underline,
-                            ),
+                            style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange, decoration: TextDecoration.underline),
                           ),
                         ],
                       ),
@@ -1932,10 +1862,7 @@ class _ContactCard extends StatelessWidget {
                   children: [
                     Text(
                       contact.relationship,
-                      style: GoogleFonts.poppins(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: colorStyle.text),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: colorStyle.text),
                     ),
                     // Alert Channel Badges
                     if (contact.hasPhone)
@@ -1943,71 +1870,55 @@ class _ContactCard extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                         decoration: BoxDecoration(
                           color: AppColors.successBackground,
-                          borderRadius: BorderRadius.circular(4),
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Text(
                           '📱 SMS',
-                          style: GoogleFonts.poppins(
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.actionGreen,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionGreen),
                         ),
                       ),
                     if (contact.isSynced)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFEDE7F6),
-                          borderRadius: BorderRadius.circular(4),
+                          color: AppColors.tintLavender,
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Text(
                           '🔔 App',
-                          style: GoogleFonts.poppins(
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.primaryViolet,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
                         ),
                       ),
                     if (contact.isBackup)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFEEDD8),
-                          borderRadius: BorderRadius.circular(4),
+                          color: AppColors.tintOrange,
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Text(
                           '🛡️ Backup',
-                          style: GoogleFonts.poppins(
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.actionOrange,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
                         ),
                       ),
                     if (!contact.hasPhone && !contact.isSynced)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFEEEE),
-                          borderRadius: BorderRadius.circular(4),
+                          color: AppColors.tintRed,
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Text(
                           '⚠️ No alert channel',
-                          style: GoogleFonts.poppins(
-                            fontSize: 8.5,
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.sosRed,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.sosRed),
                         ),
                       ),
                     if (contact.isPending)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFF9E6),
-                          borderRadius: BorderRadius.circular(4),
+                          color: AppColors.tintCream,
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -2016,11 +1927,7 @@ class _ContactCard extends StatelessWidget {
                             const SizedBox(width: 3),
                             Text(
                               'Sync Pending',
-                              style: GoogleFonts.poppins(
-                                fontSize: 8.5,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.actionOrange,
-                              ),
+                              style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
                             ),
                           ],
                         ),
@@ -2042,8 +1949,8 @@ class _ContactCard extends StatelessWidget {
               if (!contact.isSynced && !contact.isPending && contact.email.isNotEmpty && onUpgrade != null) ...[
                 _ActionIconBtn(
                   icon: Icons.sync_rounded,
-                  color: AppColors.primaryViolet,
-                  bg: const Color(0xFFEDE7F6),
+                  color: AppColors.primary,
+                  bg: AppColors.tintLavender,
                   onTap: onUpgrade!,
                 ),
                 const SizedBox(width: 4),
@@ -2059,7 +1966,7 @@ class _ContactCard extends StatelessWidget {
                 _ActionIconBtn(
                   icon: Icons.message_rounded,
                   color: AppColors.actionBlue,
-                  bg: const Color(0xFFDDEEFD),
+                  bg: AppColors.tintSky,
                   onTap: onMessage,
                 ),
                 const SizedBox(width: 4),
@@ -2068,7 +1975,7 @@ class _ContactCard extends StatelessWidget {
                 _ActionIconBtn(
                   icon: Icons.edit_outlined,
                   color: AppColors.primary,
-                  bg: const Color(0xFFEDE7F6),
+                  bg: AppColors.tintLavender,
                   onTap: onEditPhone!,
                 ),
                 const SizedBox(width: 4),
@@ -2076,7 +1983,7 @@ class _ContactCard extends StatelessWidget {
               _ActionIconBtn(
                 icon: Icons.delete_outline_rounded,
                 color: AppColors.sosRed,
-                bg: const Color(0xFFFFE5E5),
+                bg: AppColors.tintRedStrong,
                 onTap: onDelete,
               ),
             ],
@@ -2127,7 +2034,7 @@ class _PrimaryHint extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
           decoration: BoxDecoration(
             color: AppColors.primarySurface,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(AppRadius.md),
             border: Border.all(color: AppColors.primary.withValues(alpha: 0.25)),
           ),
           child: Row(
@@ -2149,8 +2056,7 @@ class _PrimaryHint extends StatelessWidget {
                     Text(
                       'Tap the star on a contact. Your primary contact gets your SOS alert and '
                       'text first. Everyone else is still alerted.',
-                      style: GoogleFonts.poppins(
-                          fontSize: 11.5, height: 1.35, color: AppColors.textSecondary),
+                      style: GoogleFonts.poppins(fontSize: 11, height: 1.35, color: AppColors.textSecondary),
                     ),
                   ],
                 ),
@@ -2197,7 +2103,7 @@ class _ActionIconBtn extends StatelessWidget {
         width: 30,
         height: 30,
         decoration:
-            BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
+            BoxDecoration(color: bg, borderRadius: BorderRadius.circular(AppRadius.sm)),
         alignment: Alignment.center,
         child: Icon(icon, color: color, size: 15),
       ),
@@ -2243,11 +2149,11 @@ class _AvatarColorPair {
 }
 
 const List<_AvatarColorPair> _avatarPalette = [
-  _AvatarColorPair(Color(0xFFFFB3AE), AppColors.sosRed),
-  _AvatarColorPair(Color(0xFFDDEEFD), AppColors.actionBlue),
-  _AvatarColorPair(Color(0xFFDFF5E3), AppColors.actionGreen),
-  _AvatarColorPair(Color(0xFFF0E6F9), AppColors.actionPurple),
-  _AvatarColorPair(Color(0xFFFEEDD8), AppColors.actionOrange),
+  _AvatarColorPair(AppColors.sosMediumRing, AppColors.sosRed),
+  _AvatarColorPair(AppColors.tintSky, AppColors.actionBlue),
+  _AvatarColorPair(AppColors.successBackground, AppColors.actionGreen),
+  _AvatarColorPair(AppColors.tintViolet, AppColors.actionPurple),
+  _AvatarColorPair(AppColors.tintOrange, AppColors.actionOrange),
 ];
 
 _AvatarColorPair _getColorForContact(ContactModel contact, {required bool isPrimary}) {

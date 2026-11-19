@@ -3,6 +3,8 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/phone_verification_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Modal bottom sheet enforcing phone verification before accessing
 /// sensitive contact additions or guardian synchronization.
@@ -144,7 +146,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
             ),
           ),
@@ -157,7 +159,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: AppColors.primarySurface,
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: const Icon(Icons.verified_user_rounded, color: AppColors.primary, size: 26),
               ),
@@ -176,10 +178,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                     ),
                     Text(
                       'Required for mutual emergency guardian consent',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11.5,
-                        color: AppColors.textSecondary,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                     ),
                   ],
                 ),
@@ -195,7 +194,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
                 color: AppColors.sosOuterRing,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               child: Row(
                 children: [
@@ -243,7 +242,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                 filled: true,
                 fillColor: AppColors.background,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   borderSide: BorderSide.none,
                 ),
               ),
@@ -257,7 +256,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                 onPressed: _isLoading ? null : _handleSendOtp,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   elevation: 0,
                 ),
                 child: _isLoading
@@ -268,11 +267,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                       )
                     : Text(
                         'Send OTP Code',
-                        style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white,
-                        ),
+                        style: AppText.cardTitle.copyWith(color: Colors.white),
                       ),
               ),
             ),
@@ -293,11 +288,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
               maxLength: 6,
               textAlign: TextAlign.center,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-              style: GoogleFonts.poppins(
-                fontSize: 22,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 8,
-              ),
+              style: AppText.pageTitle.copyWith(letterSpacing: 8),
               decoration: InputDecoration(
                 counterText: '',
                 hintText: '000000',
@@ -309,7 +300,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                 filled: true,
                 fillColor: AppColors.background,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   borderSide: BorderSide.none,
                 ),
               ),
@@ -324,7 +315,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                         ? null
                         : () => setState(() => _step = PhoneVerificationStep.enterPhone),
                     style: OutlinedButton.styleFrom(
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       side: const BorderSide(color: AppColors.primary),
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
@@ -344,7 +335,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                     onPressed: _isLoading ? null : _handleVerifyOtp,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),

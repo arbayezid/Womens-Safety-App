@@ -5,6 +5,8 @@ import '../core/app_colors.dart';
 import '../models/safety_report_model.dart';
 import '../services/location_service.dart';
 import '../services/safety_report_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Modal bottom sheet for submitting a new community safety report.
 class ReportUnsafeSpotSheet extends StatefulWidget {
@@ -143,7 +145,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
             ),
             backgroundColor: AppColors.safeGreen,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
           ),
         );
       } else {
@@ -171,7 +173,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
       ),
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -185,7 +187,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(AppRadius.handle),
                 ),
               ),
             ),
@@ -209,11 +211,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
                     children: [
                       Text(
                         'Report Safety Concern',
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
+                        style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                       ),
                       Text(
                         'Alert women in this area to stay vigilant',
@@ -231,7 +229,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFFF3F4F6),
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               child: Row(
                 children: [
@@ -312,13 +310,13 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
                 hintText: 'e.g. Streetlights off near the grocery store, secluded alleyway...',
                 hintStyle: GoogleFonts.poppins(fontSize: 12, color: Colors.grey.shade400),
                 filled: true,
-                fillColor: const Color(0xFFF9FAFB),
+                fillColor: AppColors.greySurface,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   borderSide: BorderSide(color: Colors.grey.shade300),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
                 ),
                 contentPadding: const EdgeInsets.all(12),
@@ -346,7 +344,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   elevation: 0,
                 ),
               ),

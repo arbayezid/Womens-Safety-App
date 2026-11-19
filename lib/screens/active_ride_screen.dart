@@ -10,6 +10,8 @@ import '../models/ride_checkin.dart';
 import '../services/emergency_service.dart';
 import '../services/ride_checkin_service.dart';
 import '../utils/duration_format.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Active Ride tracking screen for the traveler.
 /// Displays live GPS location, elapsed duration vs expected ETA, plate card with zoomable photo,
@@ -63,7 +65,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
           children: [
             InteractiveViewer(
               child: ClipRRect(
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
                 child: Image.network(imageUrl, fit: BoxFit.contain),
               ),
             ),
@@ -82,7 +84,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Row(
           children: [
             const Icon(Icons.check_circle_rounded, color: AppColors.actionGreen, size: 28),
@@ -103,7 +105,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
             onPressed: () => Navigator.of(ctx).pop(true),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.actionGreen,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
             child: Text('Confirm Arrival', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white)),
           ),
@@ -142,7 +144,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Text('Cancel Ride?', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 17)),
         content: Text(
           'Are you sure you want to cancel this ride check-in session?',
@@ -186,7 +188,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       appBar: AppBar(
         title: Text(
           'Active Ride Tracking',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+          style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
         elevation: 0.5,
@@ -317,13 +319,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
                           color: AppColors.surface.withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
+                          borderRadius: BorderRadius.circular(AppRadius.xl),
+                          boxShadow: const [
+                            AppShadow.card,
                           ],
                         ),
                         child: Row(
@@ -355,10 +353,10 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(6),
+                                  color: AppColors.slateSurface,
+                                  borderRadius: BorderRadius.circular(AppRadius.xs),
                                 ),
-                                child: Text('🔋 ${ride.batteryLevel}%', style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700)),
+                                child: Text('🔋 ${ride.batteryLevel}%', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700)),
                               ),
                           ],
                         ),
@@ -374,7 +372,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                         onPressed: _handleEmergencySos,
                         backgroundColor: AppColors.sosRed,
                         icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),
-                        label: Text('SOS', style: GoogleFonts.poppins(fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: 1)),
+                        label: Text('SOS', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 1)),
                       ),
                     ),
                   ],
@@ -387,13 +385,9 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: const BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
                   boxShadow: [
-                    BoxShadow(
-                      color: Color(0x0F000000),
-                      blurRadius: 16,
-                      offset: Offset(0, -4),
-                    ),
+                    AppShadow.navBar,
                   ],
                 ),
                 child: Column(
@@ -410,7 +404,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                             child: Stack(
                               children: [
                                 ClipRRect(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius: BorderRadius.circular(AppRadius.md),
                                   child: Image.network(
                                     ride.platePhotoUrl!,
                                     width: 54,
@@ -439,7 +433,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                             height: 50,
                             decoration: BoxDecoration(
                               color: AppColors.primarySurface,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                             child: const Icon(Icons.local_taxi_rounded, color: AppColors.primary, size: 26),
                           ),
@@ -450,11 +444,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                             children: [
                               Text(
                                 ride.plateFormatted,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textPrimary,
-                                ),
+                                style: GoogleFonts.poppins(fontSize: 16.5, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                               ),
                               Text(
                                 '${ride.rideType}${ride.appName != null ? " • ${ride.appName}" : ""}',
@@ -477,14 +467,14 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                           if (ride.driverName != null) ...[
                             const Icon(Icons.person_rounded, size: 14, color: AppColors.textSecondary),
                             const SizedBox(width: 4),
-                            Text(ride.driverName!, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                            Text(ride.driverName!, style: AppText.label),
                           ],
                           if (ride.driverName != null && ride.driverPhone != null)
                             const Text(' • ', style: TextStyle(color: Colors.grey)),
                           if (ride.driverPhone != null) ...[
                             const Icon(Icons.phone_rounded, size: 14, color: AppColors.textSecondary),
                             const SizedBox(width: 4),
-                            Text(ride.driverPhone!, style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
+                            Text(ride.driverPhone!, style: AppText.label),
                           ],
                         ],
                       ),
@@ -500,12 +490,12 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               color: AppColors.background,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Elapsed Time', style: GoogleFonts.poppins(fontSize: 10, color: AppColors.textSecondary)),
+                                Text('Elapsed Time', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
                                 Text(_formatDuration(elapsed), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700)),
                               ],
                             ),
@@ -516,13 +506,13 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: isOverdue ? const Color(0xFFFFEEEE) : AppColors.background,
-                              borderRadius: BorderRadius.circular(12),
+                              color: isOverdue ? AppColors.tintRed : AppColors.background,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Expected Duration', style: GoogleFonts.poppins(fontSize: 10, color: isOverdue ? AppColors.sosRed : AppColors.textSecondary)),
+                                Text('Expected Duration', style: GoogleFonts.poppins(fontSize: 11, color: isOverdue ? AppColors.sosRed : AppColors.textSecondary)),
                                 Text(formatMinutes(ride.expectedMinutes ?? 30, suffix: ' mins'), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: isOverdue ? AppColors.sosRed : AppColors.textPrimary)),
                               ],
                             ),
@@ -543,16 +533,11 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                             : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 22),
                         label: Text(
                           _isArriving ? 'NOTIFYING GUARDIANS...' : 'ARRIVED SAFELY',
-                          style: GoogleFonts.poppins(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14,
-                            color: Colors.white,
-                            letterSpacing: 0.5,
-                          ),
+                          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 14, color: Colors.white, letterSpacing: 0.5),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppColors.actionGreen,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                           elevation: 0,
                         ),
                       ),
@@ -565,11 +550,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                         onPressed: _handleCancelRide,
                         child: Text(
                           'Cancel Ride',
-                          style: GoogleFonts.poppins(
-                            color: AppColors.textSecondary,
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: AppText.label.copyWith(color: AppColors.textSecondary),
                         ),
                       ),
                     ),

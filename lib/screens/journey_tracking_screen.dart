@@ -9,6 +9,8 @@ import '../core/app_colors.dart';
 import '../models/journey_model.dart';
 import '../services/journey_service.dart';
 import '../services/route_service.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Screen allowing travelers and trusted guardians to track an active Safe Journey in real-time.
 class JourneyTrackingScreen extends StatefulWidget {
@@ -74,7 +76,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
       appBar: AppBar(
         title: Text(
           'Safe Journey Tracking',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+          style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
         elevation: 0.5,
@@ -242,13 +244,9 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
                           color: AppColors.surface.withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.08),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
+                          borderRadius: BorderRadius.circular(AppRadius.xl),
+                          boxShadow: const [
+                            AppShadow.card,
                           ],
                         ),
                         child: Row(
@@ -291,12 +289,12 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFF1F5F9),
-                                  borderRadius: BorderRadius.circular(6),
+                                  color: AppColors.slateSurface,
+                                  borderRadius: BorderRadius.circular(AppRadius.xs),
                                 ),
                                 child: Text(
                                   '🔋 ${journey.batteryLevel}%',
-                                  style: GoogleFonts.poppins(fontSize: 10, fontWeight: FontWeight.w700),
+                                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700),
                                 ),
                               ),
                           ],
@@ -313,13 +311,9 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                 padding: const EdgeInsets.all(20),
                 decoration: const BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
                   boxShadow: [
-                    BoxShadow(
-                      color: Color(0x0F000000),
-                      blurRadius: 16,
-                      offset: Offset(0, -4),
-                    ),
+                    AppShadow.navBar,
                   ],
                 ),
                 child: Column(
@@ -334,7 +328,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
                             color: AppColors.primarySurface,
-                            borderRadius: BorderRadius.circular(14),
+                            borderRadius: BorderRadius.circular(AppRadius.md),
                           ),
                           child: const Icon(Icons.place_rounded, color: AppColors.primary, size: 24),
                         ),
@@ -345,11 +339,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                             children: [
                               Text(
                                 journey.destinationLabel,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textPrimary,
-                                ),
+                                style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                               ),
                               Text(
                                 hasDest
@@ -376,12 +366,12 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
                               color: AppColors.background,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Started At', style: GoogleFonts.poppins(fontSize: 10, color: AppColors.textSecondary)),
+                                Text('Started At', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
                                 Text(_formatClockTime(journey.startedAt), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700)),
                               ],
                             ),
@@ -392,13 +382,13 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: isDelayed ? const Color(0xFFFFEDD5) : AppColors.background,
-                              borderRadius: BorderRadius.circular(12),
+                              color: isDelayed ? AppColors.tintPeachStrong : AppColors.background,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(isDelayed ? 'Delayed Past' : 'Expected Arrival', style: GoogleFonts.poppins(fontSize: 10, color: isDelayed ? AppColors.actionOrange : AppColors.textSecondary)),
+                                Text(isDelayed ? 'Delayed Past' : 'Expected Arrival', style: GoogleFonts.poppins(fontSize: 11, color: isDelayed ? AppColors.actionOrange : AppColors.textSecondary)),
                                 Text(_formatClockTime(journey.expectedArrivalAt), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: isDelayed ? AppColors.actionOrange : AppColors.textPrimary)),
                               ],
                             ),
@@ -420,7 +410,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                               },
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.actionGreen,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
                               child: Text("I'VE ARRIVED", style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white)),
@@ -434,7 +424,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                               },
                               style: OutlinedButton.styleFrom(
                                 side: const BorderSide(color: AppColors.primary),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
                               child: Text('+15m EXTEND', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: AppColors.primary)),
@@ -453,7 +443,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                 label: Text('Call', style: GoogleFonts.poppins(color: AppColors.actionGreen, fontWeight: FontWeight.w700)),
                                 style: OutlinedButton.styleFrom(
                                   side: const BorderSide(color: AppColors.actionGreen),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                                   padding: const EdgeInsets.symmetric(vertical: 12),
                                 ),
                               ),
@@ -467,7 +457,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                               label: Text('Google Maps', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700)),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppColors.primary,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                                 padding: const EdgeInsets.symmetric(vertical: 12),
                               ),
                             ),

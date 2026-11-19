@@ -15,6 +15,8 @@ import 'active_ride_screen.dart';
 import 'contacts_screen.dart';
 import 'plate_crop_screen.dart';
 import '../utils/duration_format.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Screen guiding the user through recording ride details, vehicle plate capture/OCR,
 /// driver info, expected ETA, and notifying trusted guardians.
@@ -161,7 +163,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
   Future<void> _choosePlateSource() async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl))),
       builder: (ctx) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -169,13 +171,13 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
             const SizedBox(height: 8),
             ListTile(
               leading: const Icon(Icons.photo_camera_rounded, color: AppColors.primary),
-              title: Text('Take a photo of the plate', style: GoogleFonts.poppins(fontSize: 13.5, fontWeight: FontWeight.w600)),
+              title: Text('Take a photo of the plate', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
               subtitle: Text('Stand close, plate straight and in focus', style: GoogleFonts.poppins(fontSize: 11)),
               onTap: () => Navigator.of(ctx).pop(ImageSource.camera),
             ),
             ListTile(
               leading: const Icon(Icons.photo_library_rounded, color: AppColors.actionBlue),
-              title: Text('Upload a plate photo', style: GoogleFonts.poppins(fontSize: 13.5, fontWeight: FontWeight.w600)),
+              title: Text('Upload a plate photo', style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600)),
               onTap: () => Navigator.of(ctx).pop(ImageSource.gallery),
             ),
             const SizedBox(height: 8),
@@ -414,13 +416,13 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
       labelText: label,
       hintText: hint,
       filled: true,
-      fillColor: warn ? const Color(0xFFFFF4E5) : AppColors.surface,
+      fillColor: warn ? AppColors.tintApricot : AppColors.surface,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       helperText: warn ? 'Please check' : null,
-      helperStyle: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.actionOrange, fontWeight: FontWeight.w600),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+      helperStyle: GoogleFonts.poppins(fontSize: 11, color: AppColors.actionOrange, fontWeight: FontWeight.w600),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md), borderSide: BorderSide.none),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         borderSide: warn ? const BorderSide(color: AppColors.actionOrange, width: 1.5) : BorderSide.none,
       ),
     );
@@ -573,7 +575,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
       appBar: AppBar(
         title: Text(
           'Ride Safety Check-in',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+          style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
         elevation: 0.5,
@@ -589,7 +591,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: AppColors.primarySurface,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
                 border: Border.all(color: AppColors.primary.withValues(alpha: 0.2)),
               ),
               child: Row(
@@ -598,7 +600,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: AppColors.primary,
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                     ),
                     child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 24),
                   ),
@@ -617,11 +619,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                         ),
                         Text(
                           'Vehicle number, live location & plate photo broadcast to trusted guardians.',
-                          style: GoogleFonts.poppins(
-                            fontSize: 11.5,
-                            color: AppColors.textSecondary,
-                            height: 1.35,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary, height: 1.35),
                         ),
                       ],
                     ),
@@ -640,13 +638,13 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               children: BdPlateConstants.rideTypes.map((type) {
                 final isSelected = _selectedRideType == type;
                 return ChoiceChip(
-                  label: Text(type, style: GoogleFonts.poppins(fontSize: 12.5, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500)),
+                  label: Text(type, style: GoogleFonts.poppins(fontSize: 12, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500)),
                   selected: isSelected,
                   selectedColor: AppColors.primarySurface,
                   backgroundColor: AppColors.surface,
                   labelStyle: TextStyle(color: isSelected ? AppColors.primary : AppColors.textPrimary),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     side: BorderSide(color: isSelected ? AppColors.primary : Colors.black.withValues(alpha: 0.1)),
                   ),
                   onSelected: (val) {
@@ -672,7 +670,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
             ),
             const SizedBox(height: 14),
 
-            Text('Ride Hailing App (Optional)', style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+            Text('Ride Hailing App (Optional)', style: AppText.label.copyWith(color: AppColors.textSecondary)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -680,13 +678,13 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               children: BdPlateConstants.appOptions.map((app) {
                 final isSelected = _selectedApp == app;
                 return ChoiceChip(
-                  label: Text(app, style: GoogleFonts.poppins(fontSize: 11.5, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500)),
+                  label: Text(app, style: GoogleFonts.poppins(fontSize: 11, fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500)),
                   selected: isSelected,
-                  selectedColor: const Color(0xFFDDEEFD),
+                  selectedColor: AppColors.tintSky,
                   backgroundColor: AppColors.surface,
                   labelStyle: TextStyle(color: isSelected ? AppColors.actionBlue : AppColors.textSecondary),
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     side: BorderSide(color: isSelected ? AppColors.actionBlue : Colors.black.withValues(alpha: 0.08)),
                   ),
                   onSelected: (val) {
@@ -708,13 +706,13 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     icon: Icon(_platePhoto != null ? Icons.check_circle_rounded : Icons.photo_camera_rounded, size: 20),
                     label: Text(
                       _platePhoto != null ? 'New Plate Photo' : 'Plate Photo',
-                      style: GoogleFonts.poppins(fontSize: 12.5, fontWeight: FontWeight.w700),
+                      style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700),
                     ),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       side: BorderSide(color: _platePhoto != null ? AppColors.actionGreen : AppColors.primary),
                       foregroundColor: _platePhoto != null ? AppColors.actionGreen : AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     ),
                   ),
                 ),
@@ -725,13 +723,13 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     icon: Icon(_screenshotPhoto != null ? Icons.image_rounded : Icons.add_photo_alternate_rounded, size: 20),
                     label: Text(
                       _screenshotPhoto != null ? 'Change Shot' : 'Add App Shot',
-                      style: GoogleFonts.poppins(fontSize: 12.5, fontWeight: FontWeight.w700),
+                      style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700),
                     ),
                     style: OutlinedButton.styleFrom(
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       side: BorderSide(color: _screenshotPhoto != null ? AppColors.actionBlue : Colors.grey.shade400),
                       foregroundColor: _screenshotPhoto != null ? AppColors.actionBlue : AppColors.textPrimary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     ),
                   ),
                 ),
@@ -743,9 +741,9 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF9E6),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFFFD56B)),
+                  color: AppColors.tintCream,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  border: Border.all(color: AppColors.amberBright),
                 ),
                 child: Row(
                   children: [
@@ -758,7 +756,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     Expanded(
                       child: Text(
                         _ocrFeedbackMessage ?? 'Reading vehicle number…',
-                        style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
+                        style: AppText.label.copyWith(color: AppColors.actionOrange),
                       ),
                     ),
                   ],
@@ -769,8 +767,8 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: _ocrSuccess ? const Color(0xFFDFF5E3) : const Color(0xFFFEEDD8),
-                  borderRadius: BorderRadius.circular(12),
+                  color: _ocrSuccess ? AppColors.successBackground : AppColors.tintOrange,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Row(
                   children: [
@@ -783,11 +781,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     Expanded(
                       child: Text(
                         _ocrFeedbackMessage!,
-                        style: GoogleFonts.poppins(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: _ocrSuccess ? AppColors.actionGreen : AppColors.actionOrange,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: _ocrSuccess ? AppColors.actionGreen : AppColors.actionOrange),
                       ),
                     ),
                   ],
@@ -803,7 +797,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                   icon: const Icon(Icons.crop_rounded, size: 18),
                   label: Text(
                     'Select plate area',
-                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600),
+                    style: AppText.label,
                   ),
                   style: TextButton.styleFrom(foregroundColor: AppColors.primary),
                 ),
@@ -814,7 +808,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
                   'When online, plate photos are read by Google Gemini AI for better accuracy.',
-                  style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSecondary),
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 ),
               ),
 
@@ -827,7 +821,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     Stack(
                       children: [
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                           child: Image.file(_platePhoto!, width: 72, height: 72, fit: BoxFit.cover),
                         ),
                         Positioned(
@@ -837,7 +831,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: BorderRadius.circular(AppRadius.xs),
                             ),
                             child: const Text('Plate', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
                           ),
@@ -850,7 +844,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     Stack(
                       children: [
                         ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
+                          borderRadius: BorderRadius.circular(AppRadius.sm),
                           child: Image.file(_screenshotPhoto!, width: 72, height: 72, fit: BoxFit.cover),
                         ),
                         Positioned(
@@ -860,7 +854,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
                             decoration: BoxDecoration(
                               color: Colors.black.withValues(alpha: 0.6),
-                              borderRadius: BorderRadius.circular(4),
+                              borderRadius: BorderRadius.circular(AppRadius.xs),
                             ),
                             child: const Text('App', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.bold)),
                           ),
@@ -884,7 +878,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                 ),
                 subtitle: Text(
                   'Off by default (may contain personal account info)',
-                  style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSecondary),
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 ),
                 controlAffinity: ListTileControlAffinity.leading,
               ),
@@ -907,7 +901,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                 height: 96,
                 decoration: BoxDecoration(
                   color: Colors.black,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: Image.file(_plateCropPhoto!, fit: BoxFit.contain),
@@ -921,26 +915,17 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(AppRadius.md),
                 border: Border.all(color: Colors.black, width: 2.5),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.08),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
+                boxShadow: const [
+                  AppShadow.card,
                 ],
               ),
               child: Column(
                 children: [
                   Text(
                     'BANGLADESH',
-                    style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.actionGreen,
-                      letterSpacing: 2,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionGreen, letterSpacing: 2),
                   ),
                   const SizedBox(height: 2),
                   // Same text as printed on the vehicle, so it can be compared with the photo
@@ -978,7 +963,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                   onPressed: () => setState(() => _isCustomPlateFormat = !_isCustomPlateFormat),
                   child: Text(
                     _isCustomPlateFormat ? 'Switch to Standard BD Plate Format' : 'Enter in another format',
-                    style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.primary),
+                    style: AppText.label.copyWith(color: AppColors.primary),
                   ),
                 ),
               ],
@@ -993,7 +978,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                   hintText: 'e.g. DHAKA METRO-THA 11-2233',
                   filled: true,
                   fillColor: AppColors.surface,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md), borderSide: BorderSide.none),
                 ),
                 style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700),
                 onChanged: (_) => setState(() {}),
@@ -1012,7 +997,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       initialValue: _selectedCity,
                       isExpanded: true,
                       decoration: _plateFieldDecoration('City / Metro', needsCheck: _checkCity),
-                      style: GoogleFonts.poppins(fontSize: 12.5, color: AppColors.textPrimary, fontWeight: FontWeight.w600),
+                      style: AppText.label.copyWith(color: AppColors.textPrimary),
                       items: BdPlateConstants.metroCities.map((city) {
                         return DropdownMenuItem(value: city, child: Text(city, overflow: TextOverflow.ellipsis));
                       }).toList(),
@@ -1036,7 +1021,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       initialValue: _selectedSeries,
                       isExpanded: true,
                       decoration: _plateFieldDecoration('Series', needsCheck: _checkSeries || _seriesMismatchesRideType),
-                      style: GoogleFonts.poppins(fontSize: 12.5, color: AppColors.textPrimary, fontWeight: FontWeight.w700),
+                      style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textPrimary, fontWeight: FontWeight.w700),
                       items: BdPlateConstants.seriesList.map((series) {
                         return DropdownMenuItem(
                           value: series.english,
@@ -1096,8 +1081,8 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                 const SizedBox(height: 10),
                 Container(
                   decoration: BoxDecoration(
-                    color: _plateConfirmed ? const Color(0xFFDFF5E3) : const Color(0xFFFFF4E5),
-                    borderRadius: BorderRadius.circular(14),
+                    color: _plateConfirmed ? AppColors.successBackground : AppColors.tintApricot,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     border: Border.all(
                       color: _plateConfirmed ? AppColors.actionGreen : AppColors.actionOrange,
                       width: 1.2,
@@ -1111,12 +1096,12 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     onChanged: (v) => setState(() => _plateConfirmed = v ?? false),
                     title: Text(
                       'Number matches the plate',
-                      style: GoogleFonts.poppins(fontSize: 12.5, fontWeight: FontWeight.w700),
+                      style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700),
                     ),
                     subtitle: Text(
                       'I compared every letter and digit with the photo. '
                       'নম্বরটি ছবির সাথে মিলিয়ে দেখেছি।',
-                      style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSecondary),
+                      style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                     ),
                   ),
                 ),
@@ -1135,7 +1120,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       prefixIcon: const Icon(Icons.person_outline_rounded, size: 20),
                       filled: true,
                       fillColor: AppColors.surface,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md), borderSide: BorderSide.none),
                     ),
                     style: GoogleFonts.poppins(fontSize: 13),
                   ),
@@ -1150,7 +1135,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       prefixIcon: const Icon(Icons.phone_outlined, size: 20),
                       filled: true,
                       fillColor: AppColors.surface,
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md), borderSide: BorderSide.none),
                     ),
                     style: GoogleFonts.poppins(fontSize: 13),
                   ),
@@ -1166,7 +1151,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                 prefixIcon: const Icon(Icons.place_outlined, size: 20, color: AppColors.primary),
                 filled: true,
                 fillColor: AppColors.surface,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md), borderSide: BorderSide.none),
               ),
               style: GoogleFonts.poppins(fontSize: 13),
             ),
@@ -1177,7 +1162,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: AppColors.surface,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
                 border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
               ),
               child: Row(
@@ -1189,7 +1174,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Expected Ride Duration', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w600)),
-                        Text(formatMinutes(_expectedMinutes, suffix: ' mins'), style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.textPrimary)),
+                        Text(formatMinutes(_expectedMinutes, suffix: ' mins'), style: GoogleFonts.poppins(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
                       ],
                     ),
                   ),
@@ -1216,8 +1201,8 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFEEEE),
-                  borderRadius: BorderRadius.circular(14),
+                  color: AppColors.tintRed,
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.3)),
                 ),
                 child: Column(
@@ -1225,7 +1210,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                   children: [
                     Text('No emergency contacts added yet', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.sosRed)),
                     const SizedBox(height: 4),
-                    Text('To send ride check-in alerts and live location, please add contacts first.', style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary)),
+                    Text('To send ride check-in alerts and live location, please add contacts first.', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
                     const SizedBox(height: 8),
                     ElevatedButton(
                       onPressed: () {
@@ -1243,7 +1228,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               Container(
                 decoration: BoxDecoration(
                   color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
                   border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
                 ),
                 child: ListView.separated(
@@ -1259,13 +1244,13 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       activeColor: AppColors.primary,
                       title: Row(
                         children: [
-                          Flexible(child: Text(contact.name, style: GoogleFonts.poppins(fontSize: 13.5, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                          Flexible(child: Text(contact.name, style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700), maxLines: 1, overflow: TextOverflow.ellipsis)),
                           if (contact.isPrimary) ...[
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(6)),
-                              child: Text('PRIMARY', style: GoogleFonts.poppins(fontSize: 9.5, fontWeight: FontWeight.w800, color: AppColors.primary)),
+                              decoration: BoxDecoration(color: AppColors.primarySurface, borderRadius: BorderRadius.circular(AppRadius.xs)),
+                              child: Text('PRIMARY', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary)),
                             ),
                           ],
                         ],
@@ -1305,16 +1290,11 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                     : const Icon(Icons.navigation_rounded, color: Colors.white, size: 22),
                 label: Text(
                   _isStartingRide ? 'NOTIFYING GUARDIANS...' : 'NOTIFY GUARDIANS & START RIDE',
-                  style: GoogleFonts.poppins(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.white,
-                    letterSpacing: 0.5,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.primary,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
                   elevation: 0,
                 ),
               ),
@@ -1332,11 +1312,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
         const SizedBox(width: 8),
         Flexible(child: Text(
           title,
-          style: GoogleFonts.poppins(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            color: AppColors.textPrimary,
-          ),
+          style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
         )),
       ],
     );

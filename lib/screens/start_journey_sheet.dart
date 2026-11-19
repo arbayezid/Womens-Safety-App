@@ -14,6 +14,8 @@ import '../services/place_search_service.dart';
 import '../services/route_service.dart';
 import '../services/safe_zone_repository.dart';
 import '../utils/duration_format.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Modal bottom sheet for configuring and starting a new Safe Journey session.
 class StartJourneySheet extends StatefulWidget {
@@ -393,7 +395,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
           ),
           backgroundColor: AppColors.actionGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
           margin: const EdgeInsets.all(16),
           duration: const Duration(seconds: 4),
         ),
@@ -426,10 +428,10 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
       margin: const EdgeInsets.only(top: 6),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.06), blurRadius: 12, offset: const Offset(0, 4)),
+        boxShadow: const [
+          AppShadow.card,
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -447,7 +449,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                       width: 34,
                       height: 34,
                       decoration: BoxDecoration(
-                        color: _suggestions[i].isSafeZone ? const Color(0xFFDFF5E3) : AppColors.background,
+                        color: _suggestions[i].isSafeZone ? AppColors.successBackground : AppColors.background,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -509,7 +511,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
         backgroundColor: AppColors.background,
         labelStyle: TextStyle(color: selected ? AppColors.primary : AppColors.textPrimary),
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           side: BorderSide(color: selected ? AppColors.primary : Colors.black.withValues(alpha: 0.08)),
         ),
       ),
@@ -527,7 +529,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
         alignment: Alignment.center,
         decoration: BoxDecoration(
           color: AppColors.background,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -551,8 +553,8 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: const Color(0xFFFFF7ED),
-          borderRadius: BorderRadius.circular(14),
+          color: AppColors.tintPeach,
+          borderRadius: BorderRadius.circular(AppRadius.md),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -560,7 +562,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
             const Icon(Icons.info_outline_rounded, size: 18, color: AppColors.actionOrange),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(notice, style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textPrimary, height: 1.4)),
+              child: Text(notice, style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textPrimary, height: 1.4)),
             ),
           ],
         ),
@@ -573,7 +575,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       clipBehavior: Clip.antiAlias,
@@ -646,7 +648,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                     style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700),
                   ),
                 ),
-                Text('© OpenStreetMap', style: GoogleFonts.poppins(fontSize: 9, color: AppColors.textSecondary)),
+                Text('© OpenStreetMap', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
               ],
             ),
           ),
@@ -680,7 +682,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: Colors.black.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(AppRadius.handle),
                 ),
               ),
             ),
@@ -692,8 +694,8 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFDFF5E3),
-                    borderRadius: BorderRadius.circular(14),
+                    color: AppColors.successBackground,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
                   child: const Icon(Icons.shield_rounded, color: AppColors.actionGreen, size: 24),
                 ),
@@ -704,11 +706,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                     children: [
                       Text(
                         'Start Safe Journey',
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
-                        ),
+                        style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                       ),
                       Text(
                         'Live route tracking with Dead-Man\'s Switch',
@@ -754,7 +752,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                       color: isSelected ? AppColors.primary : AppColors.textPrimary,
                     ),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(AppRadius.md),
                       side: BorderSide(
                         color: isSelected ? AppColors.primary : Colors.black.withValues(alpha: 0.08),
                       ),
@@ -792,7 +790,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                 filled: true,
                 fillColor: AppColors.background,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                   borderSide: BorderSide.none,
                 ),
               ),
@@ -819,7 +817,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
                 color: AppColors.background,
-                borderRadius: BorderRadius.circular(16),
+                borderRadius: BorderRadius.circular(AppRadius.lg),
                 border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
               ),
               child: Row(
@@ -854,11 +852,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                               )
                             : Text(
                                 formatMinutes(_estimatedMinutes, suffix: ' mins'),
-                                style: GoogleFonts.poppins(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.textPrimary,
-                                ),
+                                style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                               ),
                         if (!_loadingRoute && _route != null)
                           Text(
@@ -867,7 +861,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                                 : _travelMode == JourneyTravelMode.vehicle
                                     ? 'By road, with traffic allowance'
                                     : 'By road',
-                            style: GoogleFonts.poppins(fontSize: 10.5, color: AppColors.textSecondary),
+                            style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                           ),
                       ],
                     ),
@@ -936,7 +930,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.actionGreen,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
                   elevation: 0,
                 ),
               ),

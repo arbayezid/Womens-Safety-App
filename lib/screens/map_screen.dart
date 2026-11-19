@@ -12,6 +12,8 @@ import '../services/safe_zone_repository.dart';
 import '../services/safety_report_service.dart';
 import '../widgets/report_unsafe_spot_sheet.dart';
 import '../utils/auth_guard.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Available map tile styling presets.
 enum MapTileTheme {
@@ -294,7 +296,7 @@ class _MapScreenState extends State<MapScreen>
         ),
         duration: const Duration(seconds: 2),
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
       ),
     );
   }
@@ -403,11 +405,7 @@ class _MapScreenState extends State<MapScreen>
         children: [
           Text(
             'Live Map',
-            style: GoogleFonts.poppins(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+            style: AppText.pageTitle.copyWith(color: AppColors.textPrimary),
           ),
           const Spacer(),
           // Recenter / GPS Refresh Button
@@ -456,13 +454,9 @@ class _MapScreenState extends State<MapScreen>
       height: 270,
       margin: const EdgeInsets.fromLTRB(20, 14, 20, 0),
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(22),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
+        borderRadius: BorderRadius.circular(AppRadius.xl),
+        boxShadow: const [
+          AppShadow.card,
         ],
       ),
       clipBehavior: Clip.antiAlias,
@@ -596,7 +590,7 @@ class _MapScreenState extends State<MapScreen>
                                 color: isSelected
                                     ? AppColors.primary
                                     : Colors.white,
-                                borderRadius: BorderRadius.circular(8),
+                                borderRadius: BorderRadius.circular(AppRadius.sm),
                                 boxShadow: [
                                   BoxShadow(
                                     color: Colors.black.withValues(alpha: 0.15),
@@ -611,13 +605,9 @@ class _MapScreenState extends State<MapScreen>
                                     : zone.name,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: GoogleFonts.poppins(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: isSelected
+                                style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: isSelected
                                       ? Colors.white
-                                      : AppColors.textPrimary,
-                                ),
+                                      : AppColors.textPrimary),
                               ),
                             ),
                             const SizedBox(height: 2),
@@ -715,7 +705,7 @@ class _MapScreenState extends State<MapScreen>
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.92),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
                 boxShadow: [
                   BoxShadow(
                     color: Colors.black.withValues(alpha: 0.08),
@@ -752,7 +742,7 @@ class _MapScreenState extends State<MapScreen>
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppColors.successBackground.withValues(alpha: 0.95),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                   border: Border.all(
                     color: AppColors.successForeground.withValues(alpha: 0.3),
                   ),
@@ -771,11 +761,7 @@ class _MapScreenState extends State<MapScreen>
                     const SizedBox(width: 5),
                     Text(
                       'Safe Corridor Active',
-                      style: GoogleFonts.poppins(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.successForeground,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.successForeground),
                     ),
                   ],
                 ),
@@ -790,8 +776,8 @@ class _MapScreenState extends State<MapScreen>
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFF7ED).withValues(alpha: 0.95),
-                  borderRadius: BorderRadius.circular(8),
+                  color: AppColors.tintPeach.withValues(alpha: 0.95),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                   border: Border.all(
                     color: AppColors.actionOrange.withValues(alpha: 0.4),
                   ),
@@ -810,11 +796,7 @@ class _MapScreenState extends State<MapScreen>
                     const SizedBox(width: 5),
                     Text(
                       'Safety Heatmap Active',
-                      style: GoogleFonts.poppins(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.actionOrange,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
                     ),
                   ],
                 ),
@@ -831,7 +813,7 @@ class _MapScreenState extends State<MapScreen>
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: Colors.white.withValues(alpha: 0.9),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -847,11 +829,7 @@ class _MapScreenState extends State<MapScreen>
                     const SizedBox(width: 6),
                     Text(
                       'Updating GPS...',
-                      style: GoogleFonts.poppins(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.textSecondary,
-                      ),
+                      style: AppText.caption.copyWith(color: AppColors.textSecondary),
                     ),
                   ],
                 ),
@@ -867,13 +845,9 @@ class _MapScreenState extends State<MapScreen>
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        boxShadow: const [
+          AppShadow.card,
         ],
       ),
       child: Row(
@@ -883,7 +857,7 @@ class _MapScreenState extends State<MapScreen>
             height: 44,
             decoration: BoxDecoration(
               color: AppColors.primarySurface,
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(AppRadius.md),
             ),
             alignment: Alignment.center,
             child: const Icon(
@@ -909,11 +883,7 @@ class _MapScreenState extends State<MapScreen>
                   _currentAddress,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                 ),
               ],
             ),
@@ -926,24 +896,17 @@ class _MapScreenState extends State<MapScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: AppColors.successBackground,
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
                 child: Text(
                   'Safe Zone',
-                  style: GoogleFonts.poppins(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.successForeground,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.successForeground),
                 ),
               ),
               const SizedBox(height: 4),
               Text(
                 _formattedCoords,
-                style: GoogleFonts.poppins(
-                  fontSize: 10,
-                  color: AppColors.textSecondary,
-                ),
+                style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
               ),
             ],
           ),
@@ -959,18 +922,14 @@ class _MapScreenState extends State<MapScreen>
         gradient: LinearGradient(
           colors: _safeRouteEnabled
               ? [AppColors.primary, AppColors.primaryLight]
-              : [const Color(0xFFEEEEF2), const Color(0xFFE5E5EA)],
+              : [AppColors.neutralTile, AppColors.divider],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         boxShadow: _safeRouteEnabled
             ? [
-                BoxShadow(
-                  color: AppColors.primary.withValues(alpha: 0.35),
-                  blurRadius: 14,
-                  offset: const Offset(0, 5),
-                ),
+                AppShadow.tinted(AppColors.primary),
               ]
             : [],
       ),
@@ -988,13 +947,9 @@ class _MapScreenState extends State<MapScreen>
               children: [
                 Text(
                   'Safe Route Mode',
-                  style: GoogleFonts.poppins(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: _safeRouteEnabled
+                  style: AppText.cardTitle.copyWith(color: _safeRouteEnabled
                         ? Colors.white
-                        : AppColors.textPrimary,
-                  ),
+                        : AppColors.textPrimary),
                 ),
                 Text(
                   _safeRouteEnabled
@@ -1038,26 +993,18 @@ class _MapScreenState extends State<MapScreen>
           children: [
             Text(
               'Nearby Safe Zones',
-              style: GoogleFonts.poppins(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
+              style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
             ),
             const Spacer(),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
                 color: AppColors.primarySurface,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: Text(
                 '${zonesToDisplay.length} Available',
-                style: GoogleFonts.poppins(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w600,
-                  color: AppColors.primary,
-                ),
+                style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
               ),
             ),
           ],
@@ -1127,13 +1074,9 @@ class _IconBtn extends StatelessWidget {
         height: 40,
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.07),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          boxShadow: const [
+            AppShadow.card,
           ],
         ),
         alignment: Alignment.center,
@@ -1167,7 +1110,7 @@ class _SafeZoneCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           border: isSelected
               ? Border.all(color: AppColors.primary, width: 1.5)
               : Border.all(color: Colors.transparent, width: 1.5),
@@ -1188,7 +1131,7 @@ class _SafeZoneCard extends StatelessWidget {
               height: 44,
               decoration: BoxDecoration(
                 color: zone.bgColor,
-                borderRadius: BorderRadius.circular(12),
+                borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
               child: Icon(zone.icon, color: zone.iconColor, size: 22),
@@ -1226,15 +1169,11 @@ class _SafeZoneCard extends StatelessWidget {
                               horizontal: 5, vertical: 1),
                           decoration: BoxDecoration(
                             color: AppColors.successBackground,
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius: BorderRadius.circular(AppRadius.xs),
                           ),
                           child: Text(
                             '24/7 Patrol',
-                            style: GoogleFonts.poppins(
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
-                              color: AppColors.successForeground,
-                            ),
+                            style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.successForeground),
                           ),
                         ),
                       ],
@@ -1249,11 +1188,7 @@ class _SafeZoneCard extends StatelessWidget {
               children: [
                 Text(
                   distanceStr,
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.primary,
-                  ),
+                  style: AppText.label.copyWith(color: AppColors.primary),
                 ),
                 const SizedBox(height: 4),
                 GestureDetector(
@@ -1263,12 +1198,7 @@ class _SafeZoneCard extends StatelessWidget {
                     padding: const EdgeInsets.symmetric(vertical: 2),
                     child: Text(
                       'Navigate',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500,
-                        color: AppColors.actionBlue,
-                        decoration: TextDecoration.underline,
-                      ),
+                      style: AppText.caption.copyWith(color: AppColors.actionBlue, decoration: TextDecoration.underline),
                     ),
                   ),
                 ),
@@ -1311,7 +1241,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1323,7 +1253,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
               height: 4,
               decoration: BoxDecoration(
                 color: Colors.grey.shade300,
-                borderRadius: BorderRadius.circular(2),
+                borderRadius: BorderRadius.circular(AppRadius.handle),
               ),
             ),
           ),
@@ -1351,11 +1281,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
                       isDanger
                           ? 'High-Risk Safety Zone'
                           : (isWarning ? 'Moderate Caution Zone' : 'Community Hazard Zone'),
-                      style: GoogleFonts.poppins(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textPrimary,
-                      ),
+                      style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                     ),
                     Text(
                       '${cluster.reports.length} report(s) • Decayed risk score: ${cluster.totalRiskScore.toStringAsFixed(1)}',
@@ -1393,8 +1319,8 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
                 return Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF9FAFB),
-                    borderRadius: BorderRadius.circular(14),
+                    color: AppColors.greySurface,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     border: Border.all(color: Colors.grey.shade200),
                   ),
                   child: Column(
@@ -1406,11 +1332,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
                           const SizedBox(width: 6),
                           Text(
                             r.incidentType.label,
-                            style: GoogleFonts.poppins(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: r.incidentType.color,
-                            ),
+                            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: r.incidentType.color),
                           ),
                           const Spacer(),
                           Text(
@@ -1436,11 +1358,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
                         children: [
                           Text(
                             '🛡️ Verified by ${r.verifiedCount} women',
-                            style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              color: AppColors.textSecondary,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            style: AppText.caption.copyWith(color: AppColors.textSecondary),
                           ),
                           const Spacer(),
                           TextButton.icon(

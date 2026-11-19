@@ -10,6 +10,8 @@ import '../services/activity_service.dart';
 import '../services/notification_service.dart';
 import 'incident_room_screen.dart';
 import '../utils/duration_format.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Screen displaying the complete chronological history of all SOS emergency alerts
 /// (both received as a trusted guardian and dispatched by the current user).
@@ -183,7 +185,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Text('Mark as false alarm?',
             style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 17)),
         content: Text(
@@ -282,11 +284,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
       appBar: AppBar(
         title: Text(
           'SOS Alert History',
-          style: GoogleFonts.poppins(
-            fontSize: 18,
-            fontWeight: FontWeight.w700,
-            color: AppColors.textPrimary,
-          ),
+          style: AppText.greeting.copyWith(color: AppColors.textPrimary),
         ),
         backgroundColor: AppColors.surface,
         elevation: 0,
@@ -489,7 +487,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
             width: 72,
             height: 72,
             decoration: const BoxDecoration(
-              color: Color(0xFFF1F5F9),
+              color: AppColors.slateSurface,
               shape: BoxShape.circle,
             ),
             child: const Icon(
@@ -505,11 +503,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                 : tabType == 'received'
                     ? 'No Incoming Guardian Alerts'
                     : 'No SOS Alerts Recorded',
-            style: GoogleFonts.poppins(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.textPrimary,
-            ),
+            style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
           ),
           const SizedBox(height: 6),
           Text(
@@ -517,11 +511,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                 ? 'When you activate emergency SOS, your dispatched GPS alerts will appear here.'
                 : 'When contacts in your guardian network trigger emergency SOS, their alerts with live GPS will appear here.',
             textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(
-              fontSize: 12.5,
-              color: AppColors.textSecondary,
-              height: 1.4,
-            ),
+            style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
           ),
         ],
       ),
@@ -533,8 +523,8 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF7ED),
-        borderRadius: BorderRadius.circular(12),
+        color: AppColors.tintPeach,
+        borderRadius: BorderRadius.circular(AppRadius.md),
         border: Border.all(color: Colors.orange.withValues(alpha: 0.35)),
       ),
       child: Row(
@@ -544,7 +534,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           Expanded(
             child: Text(
               'Some alerts could not be loaded. Check your connection.',
-              style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textPrimary),
+              style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textPrimary),
             ),
           ),
           TextButton(onPressed: _retry, child: const Text('Retry')),
@@ -559,7 +549,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: const Color(0xFFF5F3FF),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         border: Border.all(color: AppColors.primary.withValues(alpha: 0.18)),
       ),
       child: Row(
@@ -572,7 +562,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
               'Alert records are saved to your account. Audio recordings are saved only on '
               'this phone and are lost if the app is uninstalled or its data is cleared. '
               'Use Export / Share to keep a copy.',
-              style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textPrimary, height: 1.4),
+              style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textPrimary, height: 1.4),
             ),
           ),
         ],
@@ -589,7 +579,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
       ),
       child: Row(
@@ -610,7 +600,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                 ),
                 Text(
                   _formatFullDate(item.timestamp),
-                  style: GoogleFonts.poppins(fontSize: 11.5, color: AppColors.textSecondary),
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 ),
                 Text(
                   item.subtitle,
@@ -671,7 +661,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(
           color: isActive ? AppColors.sosRed.withValues(alpha: 0.35) : Colors.black.withValues(alpha: 0.06),
           width: isActive ? 1.5 : 1.0,
@@ -686,9 +676,9 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
       ),
       child: Material(
         color: Colors.transparent,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
@@ -709,7 +699,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: isActive ? const Color(0xFFFFE5E5) : const Color(0xFFF1F5F9),
+                    color: isActive ? AppColors.tintRedStrong : AppColors.slateSurface,
                     shape: BoxShape.circle,
                   ),
                   alignment: Alignment.center,
@@ -742,16 +732,12 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFEDE7F6),
-                                borderRadius: BorderRadius.circular(6),
+                                color: AppColors.tintLavender,
+                                borderRadius: BorderRadius.circular(AppRadius.xs),
                               ),
                               child: Text(
                                 'You',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppColors.primary,
-                                ),
+                                style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.primary),
                               ),
                             ),
                         ],
@@ -760,11 +746,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                         const SizedBox(height: 1),
                         Text(
                           senderEmail,
-                          style: GoogleFonts.poppins(
-                            fontSize: 11,
-                            color: AppColors.primaryViolet,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          style: AppText.caption.copyWith(color: AppColors.primary),
                           overflow: TextOverflow.ellipsis,
                         ),
                       ],
@@ -781,11 +763,11 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                         color: isFalseAlarm
                             ? const Color(0xFFFEF3C7)
                             : isActive
-                                ? const Color(0xFFFFE5E5)
+                                ? AppColors.tintRedStrong
                                 : isAcknowledged
                                     ? AppColors.successBackground
                                     : const Color(0xFFEEF2F6),
-                        borderRadius: BorderRadius.circular(8),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                       child: Text(
                         isFalseAlarm
@@ -795,17 +777,13 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                                 : isAcknowledged
                                     ? '✅ Responded'
                                     : 'Resolved',
-                        style: GoogleFonts.poppins(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: isFalseAlarm
+                        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: isFalseAlarm
                               ? const Color(0xFFB45309)
                               : isActive
                                   ? AppColors.sosRed
                                   : isAcknowledged
                                       ? AppColors.actionGreen
-                                      : AppColors.textSecondary,
-                        ),
+                                      : AppColors.textSecondary),
                       ),
                     ),
                     if (isTrackingActive && isActive) ...[
@@ -813,16 +791,12 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFFFEAEA),
-                          borderRadius: BorderRadius.circular(6),
+                          color: AppColors.tintRose,
+                          borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
                         child: Text(
                           liveUpdatedText != null ? '🔴 $liveUpdatedText' : '🔴 Live',
-                          style: GoogleFonts.poppins(
-                            fontSize: 9.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.sosRed,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.sosRed),
                         ),
                       ),
                     ],
@@ -839,11 +813,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                 const SizedBox(width: 5),
                 Text(
                   _formatFullDate(dateTime),
-                  style: GoogleFonts.poppins(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
                 ),
                 const Spacer(),
                 if (batteryLevel != null) ...[
@@ -851,32 +821,24 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     margin: const EdgeInsets.only(right: 6),
                     decoration: BoxDecoration(
-                      color: batteryLevel <= 10 ? const Color(0xFFFFE5E5) : const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(6),
+                      color: batteryLevel <= 10 ? AppColors.tintRedStrong : AppColors.slateSurface,
+                      borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
                     child: Text(
                       '🔋 $batteryLevel%',
-                      style: GoogleFonts.poppins(
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w700,
-                        color: batteryLevel <= 10 ? AppColors.sosRed : AppColors.textSecondary,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: batteryLevel <= 10 ? AppColors.sosRed : AppColors.textSecondary),
                     ),
                   ),
                 ],
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(6),
+                    color: AppColors.slateSurface,
+                    borderRadius: BorderRadius.circular(AppRadius.xs),
                   ),
                   child: Text(
                     _formatTimeAgo(dateTime),
-                    style: GoogleFonts.poppins(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                   ),
                 ),
               ],
@@ -891,11 +853,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                 Flexible(
                   child: Text(
                     'Type: ${sosAlertTypeLabel(data)}',
-                    style: GoogleFonts.poppins(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: AppColors.textSecondary,
-                    ),
+                    style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
@@ -908,8 +866,8 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: BorderRadius.circular(12),
+                color: AppColors.slateSurfaceLight,
+                borderRadius: BorderRadius.circular(AppRadius.md),
                 border: Border.all(color: Colors.black.withValues(alpha: 0.04)),
               ),
               child: Row(
@@ -928,11 +886,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                         if (isTrackingActive && isActive)
                           Text(
                             'Live Location Broadcast:',
-                            style: GoogleFonts.poppins(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.sosRed,
-                            ),
+                            style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.sosRed),
                           ),
                         Text(
                           effectiveAddress,
@@ -968,15 +922,11 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     icon: const Icon(Icons.meeting_room_rounded, size: 15, color: AppColors.sosRed),
                     label: Text(
                       'Incident Room',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.sosRed,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.sosRed),
                     ),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: AppColors.sosRed, width: 1.2),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                       padding: const EdgeInsets.symmetric(vertical: 8),
                     ),
                   ),
@@ -988,15 +938,11 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     icon: const Icon(Icons.call_rounded, size: 15, color: AppColors.actionGreen),
                     label: Text(
                       'Call',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.actionGreen,
-                      ),
+                      style: AppText.label.copyWith(color: AppColors.actionGreen),
                     ),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: AppColors.actionGreen),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                     ),
                   ),
@@ -1008,15 +954,11 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     icon: const Icon(Icons.map_rounded, size: 15, color: Colors.white),
                     label: Text(
                       isTrackingActive && isActive ? 'Live' : 'Map',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
+                      style: AppText.label.copyWith(color: Colors.white),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isTrackingActive && isActive ? AppColors.sosRed : AppColors.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                       elevation: 0,
                     ),
@@ -1037,7 +979,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                             style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w500),
                           ),
                           behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                           duration: const Duration(seconds: 2),
                         ),
                       );

@@ -11,6 +11,8 @@ import '../services/navigation_service.dart';
 import '../services/notification_service.dart';
 import '../services/siren_service.dart';
 import '../utils/duration_format.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Fullscreen-style intrusive dialog displayed when an incoming high-priority
 /// SOS Alert push notification is received while the app is active.
@@ -158,14 +160,14 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
       final proceed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
           title: Row(
             children: [
               const Icon(Icons.warning_amber_rounded, color: AppColors.sosRed, size: 26),
               const SizedBox(width: 8),
               Expanded(child: Text(
                 'Duress Warning',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 16),
+                style: AppText.sectionTitle,
               )),
             ],
           ),
@@ -182,7 +184,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
               onPressed: () => Navigator.of(ctx).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.sosRed,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
               ),
               child: Text(
                 'Call Anyway',
@@ -211,7 +213,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
         padding: const EdgeInsets.all(24),
         decoration: const BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
         ),
         child: SafeArea(
           child: Column(
@@ -235,11 +237,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       children: [
                         Text(
                           'No Phone Number Listed',
-                          style: GoogleFonts.poppins(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary,
-                          ),
+                          style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                         ),
                         Text(
                           '$senderName registered with email only.',
@@ -259,14 +257,14 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   leading: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.primaryViolet.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(10),
+                      color: AppColors.primary.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(AppRadius.sm),
                     ),
-                    child: const Icon(Icons.email_rounded, color: AppColors.primaryViolet),
+                    child: const Icon(Icons.email_rounded, color: AppColors.primary),
                   ),
                   title: Text(
                     'Send Email',
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
+                    style: AppText.cardTitle,
                   ),
                   subtitle: Text(
                     senderEmail,
@@ -292,13 +290,13 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: AppColors.sosRed.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: const Icon(Icons.meeting_room_rounded, color: AppColors.sosRed),
                 ),
                 title: Text(
                   'Open Incident Room',
-                  style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
+                  style: AppText.cardTitle,
                 ),
                 subtitle: Text(
                   'Live command, dispatch backup & chat with responders',
@@ -331,7 +329,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: AppColors.sosRed.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
                   ),
                   child: const Icon(Icons.local_police_rounded, color: AppColors.sosRed),
                 ),
@@ -520,12 +518,12 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     builder: (context, isPlaying, _) {
                       return InkWell(
                         onTap: () => SirenService.instance.toggleSiren(),
-                        borderRadius: BorderRadius.circular(16),
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                           decoration: BoxDecoration(
-                            color: isPlaying ? const Color(0xFFFFEEEE) : const Color(0xFFF1F5F9),
-                            borderRadius: BorderRadius.circular(16),
+                            color: isPlaying ? AppColors.tintRed : AppColors.slateSurface,
+                            borderRadius: BorderRadius.circular(AppRadius.lg),
                             border: Border.all(
                               color: isPlaying
                                   ? AppColors.sosRed.withValues(alpha: 0.3)
@@ -604,12 +602,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     : isDuress
                         ? '🚨 SILENT SOS ALERT'
                         : '🚨 INCOMING SOS ALERT',
-                style: GoogleFonts.poppins(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                  color: isResolved ? AppColors.safeGreen : AppColors.sosRed,
-                  letterSpacing: 0.6,
-                ),
+                style: AppText.greeting.copyWith(color: isResolved ? AppColors.safeGreen : AppColors.sosRed, letterSpacing: 0.6),
               ),
               const SizedBox(height: 6),
 
@@ -618,11 +611,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     ? '$senderName has marked themselves safe.'
                     : '$senderName has triggered an emergency alarm!',
                 textAlign: TextAlign.center,
-                style: GoogleFonts.poppins(
-                  fontSize: 14,
-                  color: AppColors.textPrimary,
-                  fontWeight: FontWeight.w600,
-                ),
+                style: AppText.cardTitle.copyWith(color: AppColors.textPrimary),
               ),
               // Lets guardians tell an unanswered automatic check from a button press
               if (isAutomatic && !isResolved) ...[
@@ -630,11 +619,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 Text(
                   NotificationService.automaticAlertLabel(source),
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(
-                    fontSize: 11.5,
-                    color: AppColors.actionOrange,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 11, color: AppColors.actionOrange, fontWeight: FontWeight.w700),
                 ),
               ],
               if (senderEmail.isNotEmpty) ...[
@@ -643,7 +628,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   senderEmail,
                   style: GoogleFonts.poppins(
                     fontSize: 12,
-                    color: AppColors.primaryViolet,
+                    color: AppColors.primary,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -659,8 +644,8 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                     decoration: BoxDecoration(
-                      color: isResolved ? const Color(0xFFE8F8EE) : const Color(0xFFFFEEEE),
-                      borderRadius: BorderRadius.circular(16),
+                      color: isResolved ? const Color(0xFFE8F8EE) : AppColors.tintRed,
+                      borderRadius: BorderRadius.circular(AppRadius.lg),
                       border: Border.all(
                         color: (isResolved ? AppColors.safeGreen : AppColors.sosRed)
                             .withValues(alpha: 0.2),
@@ -691,11 +676,11 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                       decoration: BoxDecoration(
                         color: batteryLevel <= 10
-                            ? const Color(0xFFFFE5E5)
+                            ? AppColors.tintRedStrong
                             : batteryLevel <= 20
-                                ? const Color(0xFFFFF3CD)
-                                : const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(16),
+                                ? AppColors.warningBanner
+                                : AppColors.slateSurface,
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -731,8 +716,8 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFEAEA),
-                        borderRadius: BorderRadius.circular(16),
+                        color: AppColors.tintRose,
+                        borderRadius: BorderRadius.circular(AppRadius.lg),
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
@@ -755,15 +740,11 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
                       decoration: BoxDecoration(
                         color: AppColors.sosRed,
-                        borderRadius: BorderRadius.circular(10),
+                        borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                       child: Text(
                         'Update #$totalPresses',
-                        style: GoogleFonts.poppins(
-                          fontSize: 9.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
                       ),
                     ),
                 ],
@@ -776,24 +757,19 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   width: double.infinity,
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFFFF3CD),
-                    borderRadius: BorderRadius.circular(12),
+                    color: AppColors.warningBanner,
+                    borderRadius: BorderRadius.circular(AppRadius.md),
                     border: Border.all(color: const Color(0xFFFFC107), width: 1.2),
                   ),
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.warning_amber_rounded, color: Color(0xFF856404), size: 20),
+                      const Icon(Icons.warning_amber_rounded, color: AppColors.warningBannerText, size: 20),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           'Silent duress alert — do NOT call. Use location tracking.',
-                          style: GoogleFonts.poppins(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF856404),
-                            height: 1.3,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.warningBannerText, height: 1.3),
                         ),
                       ),
                     ],
@@ -806,11 +782,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 Text(
                   '"$message"',
                   textAlign: TextAlign.center,
-                  style: GoogleFonts.poppins(
-                    fontSize: 11.5,
-                    fontStyle: FontStyle.italic,
-                    color: AppColors.textSecondary,
-                  ),
+                  style: GoogleFonts.poppins(fontSize: 11, fontStyle: FontStyle.italic, color: AppColors.textSecondary),
                 ),
               ],
               const SizedBox(height: 14),
@@ -821,7 +793,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
                   color: AppColors.background,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(AppRadius.lg),
                   border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
                 ),
                 child: Column(
@@ -892,7 +864,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                           color: isDuress ? AppColors.actionOrange : AppColors.successForeground,
                           width: 1.5,
                         ),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                     ),
@@ -918,7 +890,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       ),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: isResolved ? AppColors.safeGreen : AppColors.sosRed,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         elevation: 0,
                       ),
@@ -964,23 +936,18 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                             ),
                             backgroundColor: AppColors.actionGreen,
                             behavior: SnackBarBehavior.floating,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                           ),
                         );
                       },
                       icon: const Icon(Icons.handshake_rounded, color: Colors.white, size: 20),
                     label: Text(
                       "I'M RESPONDING",
-                      style: GoogleFonts.poppins(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14,
-                        letterSpacing: 0.5,
-                      ),
+                      style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 14, letterSpacing: 0.5),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.actionGreen,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       elevation: 0,
                     ),
                   ),
@@ -1021,7 +988,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   ),
                   style: OutlinedButton.styleFrom(
                     side: const BorderSide(color: AppColors.sosRed, width: 1.5),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
                 ),
               ),
@@ -1047,11 +1014,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   },
                   child: Text(
                     isResolved ? 'Close Alert' : 'Dismiss (Not Responding)',
-                    style: GoogleFonts.poppins(
-                      color: isResolved ? AppColors.safeGreen : AppColors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontSize: 12.5,
-                    ),
+                    style: AppText.label.copyWith(color: isResolved ? AppColors.safeGreen : AppColors.textSecondary),
                   ),
                 ),
               ),
@@ -1085,12 +1048,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       const SizedBox(width: 4),
                       Text(
                         'View Alert History',
-                        style: GoogleFonts.poppins(
-                          color: AppColors.primary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                          decoration: TextDecoration.underline,
-                        ),
+                        style: AppText.label.copyWith(color: AppColors.primary, decoration: TextDecoration.underline),
                       ),
                     ],
                   ),

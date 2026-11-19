@@ -24,6 +24,8 @@ import 'fake_call_voice_screen.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
 import 'ride_history_screen.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Settings screen — app preferences, security, notifications,
 /// device setup, alert history and logout.
@@ -93,7 +95,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (ctx) => SimpleDialog(
         title: Text('Caller Voice Language',
-            style: GoogleFonts.poppins(fontSize: 16, fontWeight: FontWeight.w700)),
+            style: AppText.sectionTitle),
         children: [
           for (final lang in FakeCallVoiceLanguage.values)
             SimpleDialogOption(
@@ -113,7 +115,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       lang == FakeCallVoiceLanguage.bangla
                           ? 'Bangla (default) — real recorded voices'
                           : 'English — original voice',
-                      style: GoogleFonts.poppins(fontSize: 13.5),
+                      style: GoogleFonts.poppins(fontSize: 13),
                     ),
                   ),
                 ],
@@ -166,14 +168,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       return _buildNavItem(
                         icon: Icons.bluetooth_rounded,
                         iconColor: AppColors.actionBlue,
-                        iconBg: const Color(0xFFDDEEFD),
+                        iconBg: AppColors.tintSky,
                         label: 'Device Setup',
                         subtitle: subtitle,
                         trailing: _StatusDot(
                           color: isConn
                               ? AppColors.successForeground
                               : (status == Esp32ConnectionStatus.connecting
-                                  ? const Color(0xFFFFA000)
+                                  ? AppColors.warningForeground
                                   : AppColors.sosRed),
                         ),
                         onTap: _showDeviceSetupModal,
@@ -190,7 +192,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       return _buildNavItem(
                         icon: Icons.history_rounded,
                         iconColor: AppColors.actionPurple,
-                        iconBg: const Color(0xFFF0E6F9),
+                        iconBg: AppColors.tintViolet,
                         label: 'Alert History',
                         subtitle: subtitle,
                         onTap: _showAlertHistoryModal,
@@ -209,7 +211,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildToggleItem(
                     icon: Icons.vibration_rounded,
                     iconColor: AppColors.sosRed,
-                    iconBg: const Color(0xFFFFE5E5),
+                    iconBg: AppColors.tintRedStrong,
                     label: 'Shake to SOS',
                     subtitle: 'Shake phone hard 3× to alert (5s to cancel)',
                     value: _shakeToSOS,
@@ -221,7 +223,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildToggleItem(
                     icon: Icons.location_on_rounded,
                     iconColor: AppColors.actionGreen,
-                    iconBg: const Color(0xFFDFF5E3),
+                    iconBg: AppColors.successBackground,
                     label: 'Live Location Sharing',
                     subtitle: 'Share with emergency contacts',
                     value: _locationSharing,
@@ -233,7 +235,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildToggleItem(
                     icon: Icons.battery_alert_rounded,
                     iconColor: AppColors.sosRed,
-                    iconBg: const Color(0xFFFFE5E5),
+                    iconBg: AppColors.tintRedStrong,
                     label: 'Critical Battery Alert',
                     subtitle: 'Auto-SMS location when battery ≤ 10%',
                     value: _criticalBatteryAlert,
@@ -245,7 +247,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildToggleItem(
                     icon: Icons.volume_up_rounded,
                     iconColor: AppColors.actionOrange,
-                    iconBg: const Color(0xFFFEEDD8),
+                    iconBg: AppColors.tintOrange,
                     label: 'Siren on automatic SOS',
                     subtitle: 'Sound loud alarm on dead-man switch expiry',
                     value: _sirenOnAutoSos,
@@ -257,7 +259,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildToggleItem(
                     icon: Icons.personal_injury_rounded,
                     iconColor: AppColors.sosRed,
-                    iconBg: const Color(0xFFFFE5E5),
+                    iconBg: AppColors.tintRedStrong,
                     label: 'Fall Detection',
                     subtitle: 'Auto-checks safety if impact & stillness detected',
                     value: _fallDetection,
@@ -268,8 +270,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   _buildToggleItem(
                     icon: Icons.trending_up_rounded,
-                    iconColor: AppColors.primaryViolet,
-                    iconBg: const Color(0xFFEDE7F6),
+                    iconColor: AppColors.primary,
+                    iconBg: AppColors.tintLavender,
                     label: 'Smart SOS Escalation',
                     subtitle: 'Alerts backup contacts at 3m; prompts 999 at 8m if unanswered',
                     value: _smartEscalation,
@@ -292,7 +294,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     builder: (context, caller, _) => _buildNavItem(
                       icon: Icons.phone_in_talk_rounded,
                       iconColor: AppColors.actionBlue,
-                      iconBg: const Color(0xFFDDEEFD),
+                      iconBg: AppColors.tintSky,
                       label: 'Default Caller',
                       subtitle: caller.phone.isEmpty ? caller.name : '${caller.name} • ${caller.phone}',
                       onTap: () => FakeCallCallerSheet.show(context, pickOnly: true),
@@ -301,7 +303,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.translate_rounded,
                     iconColor: AppColors.actionGreen,
-                    iconBg: const Color(0xFFDFF5E3),
+                    iconBg: AppColors.successBackground,
                     label: 'Caller Voice Language',
                     subtitle: _fakeCallLanguage == FakeCallVoiceLanguage.bangla
                         ? 'Bangla (default)'
@@ -311,7 +313,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.record_voice_over_rounded,
                     iconColor: AppColors.actionOrange,
-                    iconBg: const Color(0xFFFEEDD8),
+                    iconBg: AppColors.tintOrange,
                     label: 'Record My Own Caller Voice',
                     subtitle: 'One clip per caller; overrides the built-in voice',
                     onTap: () => Navigator.of(context).push(
@@ -353,7 +355,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.pin_rounded,
                     iconColor: AppColors.actionGreen,
-                    iconBg: const Color(0xFFDFF5E3),
+                    iconBg: AppColors.successBackground,
                     label: 'Real Security PIN',
                     subtitle: _hasRealPin ? 'Configured • Tap to change' : 'Tap to configure 4-digit PIN',
                     onTap: () async {
@@ -376,7 +378,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.warning_amber_rounded,
                     iconColor: AppColors.sosRed,
-                    iconBg: const Color(0xFFFFEEEE),
+                    iconBg: AppColors.tintRed,
                     label: 'Duress Emergency PIN',
                     subtitle: _hasDuressPin ? 'Configured • Silent panic & camouflage' : 'Tap to configure silent emergency PIN',
                     onTap: () async {
@@ -399,7 +401,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildToggleItem(
                     icon: Icons.lock_outline_rounded,
                     iconColor: AppColors.actionPurple,
-                    iconBg: const Color(0xFFF0E6F9),
+                    iconBg: AppColors.tintViolet,
                     label: 'Require PIN to open app',
                     subtitle: 'Lock application on startup',
                     value: _requirePinOnOpen,
@@ -422,7 +424,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.calculate_rounded,
                     iconColor: AppColors.textPrimary,
-                    iconBg: const Color(0xFFEEEEF2),
+                    iconBg: AppColors.neutralTile,
                     label: 'Camouflage Calculator Preview',
                     subtitle: 'Test disguised calculator screen (Exit: Real PIN + =)',
                     onTap: () async {
@@ -465,7 +467,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.history_rounded,
                     iconColor: AppColors.sosRed,
-                    iconBg: const Color(0xFFFFEEEE),
+                    iconBg: AppColors.tintRed,
                     label: 'SOS Alert History',
                     subtitle: 'View all past emergency alerts and responses',
                     onTap: () {
@@ -478,7 +480,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.directions_car_rounded,
                     iconColor: AppColors.actionBlue,
-                    iconBg: const Color(0xFFE3F2FD),
+                    iconBg: AppColors.tintBlue,
                     label: 'Ride Check-in History',
                     subtitle: 'View past vehicle check-ins, license plates & routes',
                     onTap: () {
@@ -504,7 +506,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.do_not_disturb_on_rounded,
                     iconColor: AppColors.textSecondary,
-                    iconBg: const Color(0xFFEEEEF2),
+                    iconBg: AppColors.neutralTile,
                     label: 'Do Not Disturb',
                     subtitle: 'Emergency override enabled',
                     onTap: _showDndModal,
@@ -521,7 +523,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.lock_rounded,
                     iconColor: AppColors.actionBlue,
-                    iconBg: const Color(0xFFDDEEFD),
+                    iconBg: AppColors.tintSky,
                     label: 'Privacy & Security',
                     subtitle: 'Local encryption & zero tracking',
                     onTap: _showPrivacyModal,
@@ -529,7 +531,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _buildNavItem(
                     icon: Icons.info_outline_rounded,
                     iconColor: AppColors.textSecondary,
-                    iconBg: const Color(0xFFEEEEF2),
+                    iconBg: AppColors.neutralTile,
                     label: 'About App',
                     subtitle: 'Woman Guard v1.0.0',
                     onTap: _showAboutModal,
@@ -556,10 +558,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       child: Row(
         children: [
           Text('Settings',
-              style: GoogleFonts.poppins(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w700,
-                  color: AppColors.textPrimary)),
+              style: AppText.pageTitle.copyWith(color: AppColors.textPrimary)),
           const Spacer(),
           const Icon(Icons.settings_rounded, color: AppColors.primary, size: 24),
         ],
@@ -600,12 +599,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                borderRadius: BorderRadius.circular(20),
+                borderRadius: BorderRadius.circular(AppRadius.xl),
                 boxShadow: [
-                  BoxShadow(
-                      color: AppColors.primary.withValues(alpha: 0.35),
-                      blurRadius: 16,
-                      offset: const Offset(0, 6))
+                  AppShadow.tinted(AppColors.primary)
                 ],
               ),
               child: Row(
@@ -627,10 +623,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     alignment: Alignment.center,
                     child: photoUrl == null
                         ? Text(initials,
-                            style: GoogleFonts.poppins(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white))
+                            style: AppText.pageTitle.copyWith(color: Colors.white))
                         : null,
                   ),
                   const SizedBox(width: 14),
@@ -639,10 +632,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(displayName,
-                            style: GoogleFonts.poppins(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white)),
+                            style: AppText.sectionTitle.copyWith(color: Colors.white)),
                         Text(subtitle,
                             style: GoogleFonts.poppins(
                                 fontSize: 12,
@@ -662,12 +652,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                       decoration: BoxDecoration(
                           color: Colors.white.withValues(alpha: 0.2),
-                          borderRadius: BorderRadius.circular(20)),
+                          borderRadius: BorderRadius.circular(AppRadius.xl)),
                       child: Text('Edit',
-                          style: GoogleFonts.poppins(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.white)),
+                          style: AppText.label.copyWith(color: Colors.white)),
                     ),
                   ),
                 ],
@@ -697,12 +684,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           Container(
             decoration: BoxDecoration(
               color: AppColors.surface,
-              borderRadius: BorderRadius.circular(20),
-              boxShadow: [
-                BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 3))
+              borderRadius: BorderRadius.circular(AppRadius.xl),
+              boxShadow: const [
+                AppShadow.card
               ],
             ),
             child: Column(
@@ -743,7 +727,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                  color: iconBg, borderRadius: BorderRadius.circular(12)),
+                  color: iconBg, borderRadius: BorderRadius.circular(AppRadius.md)),
               alignment: Alignment.center,
               child: Icon(icon, color: iconColor, size: 20),
             ),
@@ -753,10 +737,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(label,
-                      style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textPrimary)),
+                      style: AppText.cardTitle.copyWith(color: AppColors.textPrimary)),
                   Text(subtitle,
                       style: GoogleFonts.poppins(
                           fontSize: 11, color: AppColors.textSecondary)),
@@ -792,7 +773,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-                color: iconBg, borderRadius: BorderRadius.circular(12)),
+                color: iconBg, borderRadius: BorderRadius.circular(AppRadius.md)),
             alignment: Alignment.center,
             child: Icon(icon, color: iconColor, size: 20),
           ),
@@ -802,10 +783,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: GoogleFonts.poppins(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppColors.textPrimary)),
+                    style: AppText.cardTitle.copyWith(color: AppColors.textPrimary)),
                 if (subtitle.isNotEmpty)
                   Text(subtitle,
                       style: GoogleFonts.poppins(
@@ -819,7 +797,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             activeThumbColor: AppColors.primary,
             activeTrackColor: AppColors.primarySurface,
             inactiveThumbColor: AppColors.textSecondary,
-            inactiveTrackColor: const Color(0xFFEEEEF2),
+            inactiveTrackColor: AppColors.neutralTile,
           ),
         ],
       ),
@@ -839,12 +817,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: AppColors.surface,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.05),
-                      blurRadius: 10,
-                      offset: const Offset(0, 3))
+                borderRadius: BorderRadius.circular(AppRadius.lg),
+                boxShadow: const [
+                  AppShadow.card
                 ],
               ),
               child: Row(
@@ -854,9 +829,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     height: 40,
                     decoration: BoxDecoration(
                         color: isAuthenticated
-                            ? const Color(0xFFFFE5E5)
+                            ? AppColors.tintRedStrong
                             : AppColors.primarySurface,
-                        borderRadius: BorderRadius.circular(12)),
+                        borderRadius: BorderRadius.circular(AppRadius.md)),
                     alignment: Alignment.center,
                     child: Icon(
                         isAuthenticated
@@ -872,10 +847,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       isAuthenticated
                           ? 'Log Out'
                           : 'Sign In with Google',
-                      style: GoogleFonts.poppins(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: isAuthenticated
+                      style: AppText.cardTitle.copyWith(color: isAuthenticated
                               ? AppColors.sosRed
                               : AppColors.primary)),
                 ],
@@ -939,7 +911,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     height: 4,
                     decoration: BoxDecoration(
                       color: Colors.grey.shade300,
-                      borderRadius: BorderRadius.circular(2),
+                      borderRadius: BorderRadius.circular(AppRadius.handle),
                     ),
                   ),
                 ),
@@ -949,18 +921,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF0E6F9),
-                        borderRadius: BorderRadius.circular(14),
+                        color: AppColors.tintViolet,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: const Icon(Icons.history_rounded,
                           color: AppColors.actionPurple, size: 24),
                     ),
                     const SizedBox(width: 12),
                     Text('Safety & Alert History',
-                        style: GoogleFonts.poppins(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: AppColors.textPrimary)),
+                        style: AppText.greeting.copyWith(color: AppColors.textPrimary)),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -985,7 +954,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     height: 42,
                                     decoration: BoxDecoration(
                                       color: item.bgColor,
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius: BorderRadius.circular(AppRadius.md),
                                     ),
                                     alignment: Alignment.center,
                                     child: Icon(item.icon, color: item.iconColor, size: 20),
@@ -1008,10 +977,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     ),
                                   ),
                                   Text(item.timeAgo,
-                                      style: GoogleFonts.poppins(
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                          color: AppColors.textSecondary)),
+                                      style: AppText.caption.copyWith(color: AppColors.textSecondary)),
                                 ],
                               ),
                             );
@@ -1030,7 +996,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Row(
           children: [
             const Icon(Icons.do_not_disturb_on_rounded, color: AppColors.sosRed),
@@ -1048,7 +1014,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
             child: Text('Understood',
                 style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
@@ -1062,7 +1028,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Row(
           children: [
             const Icon(Icons.lock_rounded, color: AppColors.actionBlue),
@@ -1096,7 +1062,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
             child: Text('Close',
                 style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
@@ -1135,7 +1101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Row(
           children: [
             const Icon(Icons.shield_rounded, color: AppColors.primary),
@@ -1164,7 +1130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => Navigator.pop(ctx),
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             ),
             child: Text('Close',
                 style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
@@ -1178,7 +1144,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
         title: Text('Log Out',
             style: GoogleFonts.poppins(
                 fontWeight: FontWeight.w700, color: AppColors.textPrimary)),
@@ -1209,7 +1175,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppColors.sosRed,
               shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(AppRadius.md)),
               elevation: 0,
             ),
             child: Text('Log Out',

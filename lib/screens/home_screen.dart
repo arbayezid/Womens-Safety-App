@@ -42,6 +42,8 @@ import 'ride_details_screen.dart';
 import 'inbox_screen.dart';
 import '../services/inbox_service.dart';
 import '../utils/duration_format.dart';
+import '../core/app_tokens.dart';
+import '../core/app_text.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -284,7 +286,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 Expanded(
                   child: Text(
                     result.message,
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12.5),
+                    style: AppText.label,
                   ),
                 ),
               ],
@@ -296,7 +298,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             backgroundColor: AppColors.sosRed,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             margin: const EdgeInsets.all(16),
             duration: const Duration(seconds: 5),
           ),
@@ -311,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 Expanded(
                   child: Text(
                     result.message,
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12.5),
+                    style: AppText.label,
                   ),
                 ),
               ],
@@ -323,7 +325,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             backgroundColor: AppColors.sosRed,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             margin: const EdgeInsets.all(16),
             duration: const Duration(seconds: 5),
           ),
@@ -337,7 +339,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             backgroundColor: Colors.orange.shade800,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             margin: const EdgeInsets.all(16),
             duration: const Duration(seconds: 4),
           ),
@@ -407,7 +409,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 text,
                 maxLines: 3,
                 overflow: TextOverflow.ellipsis,
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 12.5),
+                style: AppText.label,
               ),
             ),
           ],
@@ -425,9 +427,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               )
             : null,
         backgroundColor:
-            needsManualSmsFallback ? AppColors.primaryViolet : AppColors.successForeground,
+            needsManualSmsFallback ? AppColors.primary : AppColors.successForeground,
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         duration: Duration(seconds: needsManualSmsFallback ? 5 : 3),
       ),
@@ -472,11 +474,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           SnackBar(
             content: Text(
               '⚠️ ${result.message}',
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12.5),
+              style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12),
             ),
             backgroundColor: Colors.orange.shade800,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
             duration: const Duration(seconds: 4),
           ),
@@ -634,14 +636,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           final confirmed = await showDialog<bool>(
             context: context,
             builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
               title: Row(
                 children: [
                   const Icon(Icons.radar_rounded, color: AppColors.actionOrange, size: 28),
                   const SizedBox(width: 10),
                   Expanded(child: Text(
                     'Being Followed?',
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
+                    style: AppText.greeting,
                   )),
                 ],
               ),
@@ -663,7 +665,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                   onPressed: () => Navigator.of(ctx).pop(true),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.actionOrange,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                   ),
                   child: Text(
                     'Activate Now',
@@ -827,17 +829,17 @@ class _SafetyDashboard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFFF9E6),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: const Color(0xFFFFD56B), width: 1.2),
+                        color: AppColors.tintCream,
+                        borderRadius: BorderRadius.circular(AppRadius.md),
+                        border: Border.all(color: AppColors.amberBright, width: 1.2),
                       ),
                       child: Row(
                         children: [
                           Container(
                             padding: const EdgeInsets.all(6),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFFEDBA),
-                              borderRadius: BorderRadius.circular(8),
+                              color: AppColors.tintButter,
+                              borderRadius: BorderRadius.circular(AppRadius.sm),
                             ),
                             child: const Icon(Icons.mark_email_unread_rounded, color: AppColors.actionOrange, size: 20),
                           ),
@@ -1003,11 +1005,7 @@ class _SafetyDashboard extends StatelessWidget {
             // ── 5. Quick Actions heading ───────────────────────────
             Text(
               'Quick Actions',
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-                color: AppColors.textPrimary,
-              ),
+              style: AppText.greeting.copyWith(color: AppColors.textPrimary),
             ),
 
             const SizedBox(height: 14),
@@ -1092,8 +1090,8 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF0F0),
-        borderRadius: BorderRadius.circular(18),
+        color: AppColors.dangerSurface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.5), width: 1.5),
         boxShadow: [
           BoxShadow(
@@ -1126,20 +1124,11 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                   children: [
                     Text(
                       '🚨 SOS EMERGENCY ACTIVE',
-                      style: GoogleFonts.poppins(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.sosRed,
-                        letterSpacing: 0.3,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.sosRed, letterSpacing: 0.3),
                     ),
                     Text(
                       'Broadcasting live GPS tracking to guardians',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: AppText.caption.copyWith(color: AppColors.textPrimary),
                     ),
                   ],
                 ),
@@ -1182,16 +1171,12 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                     icon: const Icon(Icons.meeting_room_rounded, size: 16, color: AppColors.sosRed),
                     label: _OneLineButtonLabel(
                       'Incident Room',
-                      style: GoogleFonts.poppins(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.sosRed,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: AppColors.sosRed),
                     ),
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size(0, 46),
                       side: const BorderSide(color: AppColors.sosRed, width: 1.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                     ),
                   ),
@@ -1209,18 +1194,13 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                         : const Icon(Icons.check_circle_rounded, color: Colors.white, size: 18),
                     label: _OneLineButtonLabel(
                       _isResolving ? 'Resolving...' : "I'M SAFE NOW",
-                      style: GoogleFonts.poppins(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                        letterSpacing: 0.3,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.3),
                     ),
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(0, 46),
                       backgroundColor: AppColors.safeGreen,
                       disabledBackgroundColor: AppColors.safeGreen.withValues(alpha: 0.6),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
                       elevation: 0,
                     ),
@@ -1299,7 +1279,7 @@ class _ActiveIncomingGuardianSosBannerState
           ),
           backgroundColor: AppColors.actionGreen,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -1340,8 +1320,8 @@ class _ActiveIncomingGuardianSosBannerState
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF0F0),
-        borderRadius: BorderRadius.circular(18),
+        color: AppColors.dangerSurface,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
         border: Border.all(color: AppColors.sosRed, width: 2),
         boxShadow: [
           BoxShadow(
@@ -1374,12 +1354,7 @@ class _ActiveIncomingGuardianSosBannerState
                   children: [
                     Text(
                       '🚨 INCOMING EMERGENCY SOS',
-                      style: GoogleFonts.poppins(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.sosRed,
-                        letterSpacing: 0.4,
-                      ),
+                      style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.sosRed, letterSpacing: 0.4),
                     ),
                     Text(
                       '$senderName needs immediate assistance!',
@@ -1393,11 +1368,7 @@ class _ActiveIncomingGuardianSosBannerState
                     ),
                     Text(
                       '$timeAgo • $address',
-                      style: GoogleFonts.poppins(
-                        fontSize: 11,
-                        color: AppColors.textSecondary,
-                        fontWeight: FontWeight.w500,
-                      ),
+                      style: AppText.caption.copyWith(color: AppColors.textSecondary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1455,7 +1426,7 @@ class _ActiveIncomingGuardianSosBannerState
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.sosRed,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       elevation: 0,
                     ),
@@ -1482,7 +1453,7 @@ class _ActiveIncomingGuardianSosBannerState
                     ),
                     style: OutlinedButton.styleFrom(
                       side: const BorderSide(color: AppColors.sosRed, width: 1.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                     ),
                   ),
@@ -1495,7 +1466,7 @@ class _ActiveIncomingGuardianSosBannerState
                   onPressed: _isResponding ? null : _handleAcknowledge,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppColors.actionGreen,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     elevation: 0,
                   ),
@@ -1507,11 +1478,7 @@ class _ActiveIncomingGuardianSosBannerState
                         )
                       : Text(
                           "RESPOND",
-                          style: GoogleFonts.poppins(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                          ),
+                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
                         ),
                 ),
               ),
@@ -1590,11 +1557,7 @@ class _TopAppBarState extends State<_TopAppBar> {
                 child: photoUrl == null
                     ? Text(
                         initials,
-                        style: GoogleFonts.poppins(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.primary,
-                        ),
+                        style: AppText.greeting.copyWith(color: AppColors.primary),
                       )
                     : null,
               ),
@@ -1615,11 +1578,7 @@ class _TopAppBarState extends State<_TopAppBar> {
                       greeting,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: GoogleFonts.poppins(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: AppColors.textPrimary,
-                      ),
+                      style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                     ),
                     Text(
                       isAuthenticated
@@ -1705,18 +1664,18 @@ class _ESP32Badge extends StatelessWidget {
             break;
           case Esp32ConnectionStatus.connecting:
           case Esp32ConnectionStatus.scanning:
-            bgColor = const Color(0xFFFFF8E1);
-            dotColor = const Color(0xFFFFA000);
+            bgColor = AppColors.warningSurface;
+            dotColor = AppColors.warningForeground;
             label = 'ESP32 Connecting';
             break;
           case Esp32ConnectionStatus.permissionDenied:
-            bgColor = const Color(0xFFFFEBEE);
+            bgColor = AppColors.dangerSurfaceAlt;
             dotColor = AppColors.sosRed;
             label = 'Bluetooth Req';
             break;
           case Esp32ConnectionStatus.bluetoothDisabled:
           case Esp32ConnectionStatus.disconnected:
-            bgColor = const Color(0xFFF5F5F5);
+            bgColor = AppColors.neutralSurface;
             dotColor = AppColors.textSecondary;
             label = 'ESP32 Offline';
             break;
@@ -1728,7 +1687,7 @@ class _ESP32Badge extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
               color: bgColor,
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
@@ -1858,19 +1817,15 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
     return Container(
       decoration: BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        boxShadow: const [
+          AppShadow.card,
         ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           onTap: () {
             HapticFeedback.selectionClick();
             if (_result.isServiceDisabled) {
@@ -2052,7 +2007,7 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
           height: 44,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: Color(0xFFFEEDD8),
+            color: AppColors.tintOrange,
           ),
           alignment: Alignment.center,
           child: const Icon(
@@ -2101,7 +2056,7 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
             minimumSize: Size.zero,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
             ),
           ),
           onPressed: () async {
@@ -2143,7 +2098,7 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
           height: 44,
           decoration: const BoxDecoration(
             shape: BoxShape.circle,
-            color: Color(0xFFFEEDD8),
+            color: AppColors.tintOrange,
           ),
           alignment: Alignment.center,
           child: const Icon(
@@ -2184,13 +2139,13 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
         const SizedBox(width: 6),
         TextButton(
           style: TextButton.styleFrom(
-            backgroundColor: const Color(0xFFFEEDD8),
+            backgroundColor: AppColors.tintOrange,
             foregroundColor: AppColors.actionOrange,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             minimumSize: Size.zero,
             tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20),
+              borderRadius: BorderRadius.circular(AppRadius.xl),
             ),
           ),
           onPressed: () async {
@@ -2477,17 +2432,12 @@ class _SOSButtonState extends State<_SOSButton> with SingleTickerProviderStateMi
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: const RadialGradient(
-          colors: [Color(0xFFFF5F56), Color(0xFFE8231A)],
+          colors: [AppColors.sosGradientStart, AppColors.sosGradientEnd],
           center: Alignment(-0.3, -0.3),
           radius: 1.0,
         ),
         boxShadow: [
-          BoxShadow(
-            color: AppColors.sosRed.withValues(alpha: 0.45),
-            blurRadius: 24,
-            offset: const Offset(0, 8),
-            spreadRadius: 2,
-          ),
+          AppShadow.sosButton,
         ],
       ),
       alignment: Alignment.center,
@@ -2502,12 +2452,7 @@ class _SOSButtonState extends State<_SOSButton> with SingleTickerProviderStateMi
             )
           : Text(
               'SOS',
-              style: GoogleFonts.poppins(
-                fontSize: 42,
-                fontWeight: FontWeight.w900,
-                color: AppColors.textOnPrimary,
-                letterSpacing: 3,
-              ),
+              style: AppText.sosNumeral.copyWith(color: AppColors.textOnPrimary),
             ),
     );
   }
@@ -2519,14 +2464,14 @@ class _SOSButtonState extends State<_SOSButton> with SingleTickerProviderStateMi
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: const RadialGradient(
-          colors: [Color(0xFFE8231A), Color(0xFFC62828)],
+          colors: [AppColors.sosGradientEnd, AppColors.sosActiveEnd],
           center: Alignment(-0.3, -0.3),
           radius: 1.0,
         ),
         border: Border.all(color: Colors.white, width: 3.5),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFFC62828).withValues(alpha: 0.5),
+            color: AppColors.sosActiveEnd.withValues(alpha: 0.5),
             blurRadius: 28,
             offset: const Offset(0, 8),
             spreadRadius: 2,
@@ -2544,13 +2489,7 @@ class _SOSButtonState extends State<_SOSButton> with SingleTickerProviderStateMi
             const Icon(Icons.sensors_rounded, color: Colors.white, size: 28),
             Text(
               'LIVE',
-              style: GoogleFonts.poppins(
-                fontSize: 26,
-                height: 1.1,
-                fontWeight: FontWeight.w900,
-                color: AppColors.textOnPrimary,
-                letterSpacing: 3,
-              ),
+              style: GoogleFonts.poppins(fontSize: 26, height: 1.1, fontWeight: FontWeight.w700, color: AppColors.textOnPrimary, letterSpacing: 2),
             ),
             if (widget.isLoading)
               Padding(
@@ -2672,7 +2611,7 @@ class _TapHintBadge extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
             color: AppColors.sosRed.withValues(alpha: 0.10),
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(AppRadius.xl),
             border: Border.all(color: AppColors.sosRed.withValues(alpha: 0.30)),
           ),
           child: Row(
@@ -2693,11 +2632,7 @@ class _TapHintBadge extends StatelessWidget {
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: GoogleFonts.poppins(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFFC62828),
-                  ),
+                  style: AppText.label.copyWith(color: AppColors.sosActiveEnd),
                 ),
               ),
             ],
@@ -2709,8 +2644,8 @@ class _TapHintBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
       decoration: BoxDecoration(
-        color: const Color(0xFFEEEEF2),
-        borderRadius: BorderRadius.circular(20),
+        color: AppColors.neutralTile,
+        borderRadius: BorderRadius.circular(AppRadius.xl),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -2767,7 +2702,7 @@ class _SosDeliveryStatusRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool attention = status.smsNeedsAttention;
-    final Color tone = attention ? const Color(0xFFD35400) : AppColors.safeGreen;
+    final Color tone = attention ? AppColors.orangeDeep : AppColors.safeGreen;
 
     final parts = <String>[
       if (status.smsTotal > 0)
@@ -2783,7 +2718,7 @@ class _SosDeliveryStatusRow extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.75),
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: BorderRadius.circular(AppRadius.sm),
         border: Border.all(color: tone.withValues(alpha: 0.35)),
       ),
       child: Row(
@@ -2813,13 +2748,13 @@ class _SosDeliveryStatusRow extends StatelessWidget {
                     child: SizedBox(
                       width: 14,
                       height: 14,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFD35400)),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.orangeDeep),
                     ),
                   )
                 : TextButton(
                     onPressed: onRetry,
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFD35400),
+                      foregroundColor: AppColors.orangeDeep,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
                       minimumSize: const Size(0, 32),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -2903,7 +2838,7 @@ class _ActiveSosActionsSheetState extends State<_ActiveSosActionsSheet> {
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.xl)),
       ),
       padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
       child: SafeArea(
@@ -2918,7 +2853,7 @@ class _ActiveSosActionsSheetState extends State<_ActiveSosActionsSheet> {
                 height: 4,
                 decoration: BoxDecoration(
                   color: AppColors.divider,
-                  borderRadius: BorderRadius.circular(2),
+                  borderRadius: BorderRadius.circular(AppRadius.handle),
                 ),
               ),
             ),
@@ -2940,11 +2875,7 @@ class _ActiveSosActionsSheetState extends State<_ActiveSosActionsSheet> {
                     children: [
                       Text(
                         'SOS alert is active',
-                        style: GoogleFonts.poppins(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.textPrimary,
-                        ),
+                        style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                       ),
                       Text(
                         subtitle,
@@ -3018,7 +2949,7 @@ class _SheetOptionTile extends StatelessWidget {
       opacity: enabled ? 1 : 0.5,
       child: Material(
         color: color.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(AppRadius.md),
         child: InkWell(
           onTap: enabled
               ? () {
@@ -3026,7 +2957,7 @@ class _SheetOptionTile extends StatelessWidget {
                   onTap();
                 }
               : null,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(AppRadius.md),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
@@ -3054,10 +2985,7 @@ class _SheetOptionTile extends StatelessWidget {
                       ),
                       Text(
                         subtitle,
-                        style: GoogleFonts.poppins(
-                          fontSize: 11.5,
-                          color: AppColors.textSecondary,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                       ),
                     ],
                   ),
@@ -3149,13 +3077,13 @@ class _HoldToConfirmButtonState extends State<_HoldToConfirmButton>
             final double v = _hold.value;
             final Color fg = v > 0.5 ? Colors.white : green;
             return ClipRRect(
-              borderRadius: BorderRadius.circular(14),
+              borderRadius: BorderRadius.circular(AppRadius.md),
               child: Container(
                 constraints: const BoxConstraints(minHeight: 54),
                 decoration: BoxDecoration(
                   color: green.withValues(alpha: 0.12),
                   border: Border.all(color: green, width: 1.5),
-                  borderRadius: BorderRadius.circular(14),
+                  borderRadius: BorderRadius.circular(AppRadius.md),
                 ),
                 child: Stack(
                   children: [
@@ -3219,7 +3147,7 @@ Future<bool> _confirmMarkSafe(BuildContext context, {bool alreadyConfirmed = fal
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (ctx) => AlertDialog(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
       title: Row(
         children: [
           const Icon(Icons.shield_rounded, color: AppColors.safeGreen, size: 28),
@@ -3227,7 +3155,7 @@ Future<bool> _confirmMarkSafe(BuildContext context, {bool alreadyConfirmed = fal
           Expanded(
             child: Text(
               "I'm Safe Now",
-              style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
+              style: AppText.greeting,
             ),
           ),
         ],
@@ -3245,7 +3173,7 @@ Future<bool> _confirmMarkSafe(BuildContext context, {bool alreadyConfirmed = fal
           onPressed: () => Navigator.of(ctx).pop(true),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.safeGreen,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
           ),
           child: Text(
             'Yes, I Am Safe',
@@ -3277,7 +3205,7 @@ void _showMarkedSafeSnackBar(BuildContext context) {
       ),
       backgroundColor: AppColors.safeGreen,
       behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       duration: const Duration(seconds: 4),
     ),
@@ -3294,9 +3222,9 @@ class _ActiveRideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isOverdue = ride.isOverdue;
-    final cardBg = isOverdue ? const Color(0xFFFFF3E0) : const Color(0xFFE8F1FC);
-    final borderColor = isOverdue ? const Color(0xFFFFB74D) : const Color(0xFF90CAF9);
-    final badgeColor = isOverdue ? Colors.deepOrange : const Color(0xFF1565C0);
+    final cardBg = isOverdue ? AppColors.tintAmber : const Color(0xFFE8F1FC);
+    final borderColor = isOverdue ? AppColors.amberSoft : AppColors.skyLight;
+    final badgeColor = isOverdue ? Colors.deepOrange : AppColors.blueDeep;
 
     final durationText = ride.expectedMinutes != null
         ? '${formatMinutes(ride.expectedMinutes!, suffix: 'm')} trip'
@@ -3312,14 +3240,10 @@ class _ActiveRideCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: cardBg,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           border: Border.all(color: borderColor, width: 1.3),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
+          boxShadow: const [
+            AppShadow.card,
           ],
         ),
         child: Row(
@@ -3328,7 +3252,7 @@ class _ActiveRideCard extends StatelessWidget {
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: badgeColor,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.local_taxi_rounded, color: Colors.white, size: 20),
             ),
@@ -3351,12 +3275,7 @@ class _ActiveRideCard extends StatelessWidget {
                       const SizedBox(width: 5),
                       Text(
                         isOverdue ? 'RIDE OVERDUE' : 'ACTIVE RIDE CHECK-IN',
-                        style: GoogleFonts.poppins(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          color: badgeColor,
-                          letterSpacing: 0.5,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: badgeColor, letterSpacing: 0.5),
                       ),
                       const Spacer(),
                       Text(
@@ -3409,8 +3328,8 @@ class _IncomingProtectedRideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isOverdue = ride.isOverdue;
-    final cardBg = isOverdue ? const Color(0xFFFFF3E0) : const Color(0xFFF3E8FF);
-    final borderColor = isOverdue ? const Color(0xFFFFB74D) : const Color(0xFFC084FC);
+    final cardBg = isOverdue ? AppColors.tintAmber : const Color(0xFFF3E8FF);
+    final borderColor = isOverdue ? AppColors.amberSoft : const Color(0xFFC084FC);
     final badgeColor = isOverdue ? Colors.deepOrange : const Color(0xFF7E22CE);
 
     return GestureDetector(
@@ -3423,14 +3342,10 @@ class _IncomingProtectedRideCard extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
           color: cardBg,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           border: Border.all(color: borderColor, width: 1.3),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
+          boxShadow: const [
+            AppShadow.card,
           ],
         ),
         child: Row(
@@ -3439,7 +3354,7 @@ class _IncomingProtectedRideCard extends StatelessWidget {
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
                 color: badgeColor,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: const Icon(Icons.shield_rounded, color: Colors.white, size: 20),
             ),
@@ -3456,27 +3371,18 @@ class _IncomingProtectedRideCard extends StatelessWidget {
                         height: 7,
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
-                          color: isOverdue ? Colors.deepOrange : const Color(0xFF9333EA),
+                          color: isOverdue ? Colors.deepOrange : AppColors.purpleVivid,
                         ),
                       ),
                       const SizedBox(width: 5),
                       Text(
                         isOverdue ? 'PROTECTED RIDE OVERDUE' : 'PROTECTED CONTACT ON RIDE',
-                        style: GoogleFonts.poppins(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: badgeColor,
-                          letterSpacing: 0.5,
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: badgeColor, letterSpacing: 0.5),
                       ),
                       const Spacer(),
                       Text(
                         'LIVE',
-                        style: GoogleFonts.poppins(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: const Color(0xFF9333EA),
-                        ),
+                        style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.purpleVivid),
                       ),
                     ],
                   ),
@@ -3508,7 +3414,7 @@ class _IncomingProtectedRideCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: badgeColor,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: Text(
                 'Track',
@@ -3555,43 +3461,43 @@ class _QuickActionsGrid extends StatelessWidget {
       icon: Icons.phone_in_talk_rounded,
       label: 'Fake Call',
       iconColor: AppColors.actionBlue,
-      iconBackground: Color(0xFFDDEEFD),
+      iconBackground: AppColors.tintSky,
     ),
     _QuickActionItem(
       icon: Icons.campaign_rounded,
       label: 'Loud Siren',
       iconColor: AppColors.actionOrange,
-      iconBackground: Color(0xFFFEEDD8),
+      iconBackground: AppColors.tintOrange,
     ),
     _QuickActionItem(
       icon: Icons.directions_walk_rounded,
       label: 'Safe Journey',
       iconColor: AppColors.actionGreen,
-      iconBackground: Color(0xFFDFF5E3),
+      iconBackground: AppColors.successBackground,
     ),
     _QuickActionItem(
       icon: Icons.local_taxi_rounded,
       label: 'Ride Check-in',
       iconColor: AppColors.actionBlue,
-      iconBackground: Color(0xFFE3F2FD),
+      iconBackground: AppColors.tintBlue,
     ),
     _QuickActionItem(
       icon: Icons.calculate_rounded,
       label: 'Camouflage',
       iconColor: AppColors.textPrimary,
-      iconBackground: Color(0xFFEEEEF2),
+      iconBackground: AppColors.neutralTile,
     ),
     _QuickActionItem(
       icon: Icons.security_rounded,
       label: 'Silent Panic',
       iconColor: AppColors.sosRed,
-      iconBackground: Color(0xFFFFEEEE),
+      iconBackground: AppColors.tintRed,
     ),
     _QuickActionItem(
       icon: Icons.radar_rounded,
       label: 'Being Followed',
       iconColor: AppColors.actionOrange,
-      iconBackground: Color(0xFFFFF3E0),
+      iconBackground: AppColors.tintAmber,
     ),
   ];
 
@@ -3651,7 +3557,7 @@ class _QuickActionCard extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: cardBg,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           border: isSirenActive
               ? Border.all(color: AppColors.sosRed, width: 2)
               : null,
@@ -3674,7 +3580,7 @@ class _QuickActionCard extends StatelessWidget {
               height: 52,
               decoration: BoxDecoration(
                 color: iconBg,
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
               child: Icon(item.icon, color: iconColor, size: 28),
@@ -3714,14 +3620,10 @@ class _AppBottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: AppColors.surface,
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, -4),
-          ),
+          AppShadow.navBar,
         ],
       ),
       child: BottomNavigationBar(

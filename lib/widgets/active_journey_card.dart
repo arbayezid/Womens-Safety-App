@@ -8,6 +8,7 @@ import '../services/journey_service.dart';
 import '../services/pin_security_service.dart';
 import 'pin_input_dialog.dart';
 import '../utils/duration_format.dart';
+import '../core/app_tokens.dart';
 
 /// Card displayed on the home screen safety dashboard when a Safe Journey session is active.
 class ActiveJourneyCard extends StatelessWidget {
@@ -48,9 +49,9 @@ class ActiveJourneyCard extends StatelessWidget {
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: isFollowed
-              ? const Color(0xFFFFF7ED)
-              : (isDelayed ? const Color(0xFFFFF7ED) : const Color(0xFFF0FDF4)),
-          borderRadius: BorderRadius.circular(18),
+              ? AppColors.tintPeach
+              : (isDelayed ? AppColors.tintPeach : AppColors.tintGreenSoft),
+          borderRadius: BorderRadius.circular(AppRadius.lg),
           border: Border.all(
             color: isFollowed
                 ? AppColors.actionOrange
@@ -100,11 +101,7 @@ class ActiveJourneyCard extends StatelessWidget {
                               isFollowed
                                   ? "⚠️ I'm Being Followed Mode"
                                   : 'Safe Journey to ${journey.destinationLabel}',
-                              style: GoogleFonts.poppins(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w800,
-                                color: AppColors.textPrimary,
-                              ),
+                              style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -113,21 +110,17 @@ class ActiveJourneyCard extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: isFollowed
-                                  ? const Color(0xFFFFEDD5)
-                                  : (isDelayed ? const Color(0xFFFFEDD5) : const Color(0xFFDCFCE7)),
-                              borderRadius: BorderRadius.circular(6),
+                                  ? AppColors.tintPeachStrong
+                                  : (isDelayed ? AppColors.tintPeachStrong : AppColors.tintGreenMid),
+                              borderRadius: BorderRadius.circular(AppRadius.xs),
                             ),
                             child: Text(
                               isFollowed
                                   ? 'Feels Followed'
                                   : (isDelayed ? 'Delayed' : 'Active'),
-                              style: GoogleFonts.poppins(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w700,
-                                color: (isFollowed || isDelayed)
+                              style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: (isFollowed || isDelayed)
                                     ? AppColors.actionOrange
-                                    : AppColors.actionGreen,
-                              ),
+                                    : AppColors.actionGreen),
                             ),
                           ),
                         ],
@@ -173,7 +166,7 @@ class ActiveJourneyCard extends StatelessWidget {
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppColors.actionGreen,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       elevation: 0,
                     ),
@@ -188,7 +181,7 @@ class ActiveJourneyCard extends StatelessWidget {
                     },
                     style: OutlinedButton.styleFrom(
                       side: BorderSide(color: Colors.black.withValues(alpha: 0.15)),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
                       padding: const EdgeInsets.symmetric(vertical: 8),
                     ),
                     child: Text(
@@ -227,7 +220,7 @@ class ActiveJourneyCard extends StatelessWidget {
                     final confirm = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.lg)),
                         title: Text('Cancel Safe Journey?', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
                         content: Text('Are you sure you want to stop monitoring this safe journey?', style: GoogleFonts.poppins(fontSize: 13)),
                         actions: [
