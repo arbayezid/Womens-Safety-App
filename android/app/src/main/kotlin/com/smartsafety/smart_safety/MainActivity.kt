@@ -96,6 +96,8 @@ class MainActivity : FlutterActivity() {
         AppChannels.registerShared(messenger, this)
         AppChannels.registerDeadline(messenger, this)
         DeadlineDartRunner.mainMessenger = messenger
+        // ESP32 pendant: the link itself runs in PendantLinkService; the app only controls it.
+        PendantLink.register(messenger, this)
         MethodChannel(messenger, GUARDIAN_CHANNEL).setMethodCallHandler(::onGuardianCall)
         // Keeps the app's siren button in step with the native alert siren (e.g. its 2-minute end).
         AlertSirenPlayer.stateListener = { playing ->
@@ -133,6 +135,7 @@ class MainActivity : FlutterActivity() {
         if (DeadlineDartRunner.mainMessenger === flutterEngine.dartExecutor.binaryMessenger) {
             DeadlineDartRunner.mainMessenger = null
         }
+        PendantLink.unregister(flutterEngine.dartExecutor.binaryMessenger)
         fakeCallAudio?.stopAll()
         fakeCallAudio = null
         AlertSirenPlayer.stateListener = null

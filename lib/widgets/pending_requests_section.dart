@@ -94,7 +94,7 @@ class _RequestCardState extends State<_RequestCard> {
     try {
       await ContactSyncService.instance.acceptRequest(widget.request['docId']);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: SnackContent(
               "You're now ${widget.request['senderName']}'s guardian and will get their SOS alerts.", tone: UiTone.success,
@@ -120,7 +120,7 @@ class _RequestCardState extends State<_RequestCard> {
     try {
       await ContactSyncService.instance.rejectRequest(widget.request['docId']);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text(
               'Declined request from ${widget.request['senderName']}',

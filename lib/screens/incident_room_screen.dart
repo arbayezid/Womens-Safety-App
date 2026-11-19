@@ -23,6 +23,7 @@ import '../widgets/pin_input_dialog.dart';
 import '../models/ride_checkin.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// Comprehensive Emergency Incident Room screen coordinating real-time SOS tracking,
 /// breadcrumb history, nearby physical safe zones, multi-guardian acknowledgment state,
@@ -184,7 +185,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       await NotificationService.instance.acknowledgeAlert(alertId);
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Row(
             children: [
@@ -269,7 +270,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       await EmergencyService.instance.markSafe(alertId: alertId);
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Row(
             children: [
@@ -382,18 +383,9 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               icon: const Icon(Icons.arrow_back_ios_new_rounded, color: AppColors.textPrimary, size: 20),
               onPressed: () => Navigator.of(context).pop(),
             ),
-            title: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Incident',
-                  style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
-                ),
-                Text(
-                  isActive ? 'Live Incident Command' : 'Archived Incident Record',
-                  style: AppText.caption.copyWith(color: isActive ? AppColors.sosRed : AppColors.safeGreen),
-                ),
-              ],
+            title: Text(
+              'Incident',
+              style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
             ),
             actions: [
               Container(
@@ -768,8 +760,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
     final batteryLevel = (docData['batteryLevel'] as num?)?.toInt();
     final address = docData['liveLocation']?['address'] ??
         docData['location']?['address'] ??
-        docData['address'] ??
-        'Live GPS Tracking Active';
+        docData['address'];
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -844,6 +835,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             isSender ? 'You triggered an Emergency SOS' : '$senderName is in an Emergency',
             style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
           ),
+          if (address != null) ...[
           const SizedBox(height: 4),
           Row(
             children: [
@@ -863,6 +855,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               ),
             ],
           ),
+          ],
           const Divider(height: 20),
           Row(
             children: [
@@ -1298,11 +1291,9 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             ],
           ),
           const SizedBox(height: 12),
-          if (displayedIdentities.isEmpty)
+          if (displayedIdentities.isEmpty && isSender)
             Text(
-              isSender
-                  ? 'No guardian contacts attached to this alert.'
-                  : 'You are viewing this emergency incident.',
+              'No guardian contacts attached to this alert.',
               style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
             )
           else

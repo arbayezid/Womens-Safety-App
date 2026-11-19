@@ -123,7 +123,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       await RideCheckinService.instance.arriveSafely(rideId: widget.rideId);
       if (!mounted) return;
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Row(
             children: [
@@ -175,7 +175,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
 
   Future<void> _handleEmergencySos() async {
     HapticFeedback.heavyImpact();
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: SnackContent('Sending SOS…', tone: UiTone.critical, style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
         backgroundColor: AppColors.sosRed,
@@ -203,7 +203,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
             onPressed: () async {
               await RideCheckinService.instance.extendRideTime(15);
               if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
+                AppSnack.showBar(context,
                   SnackBar(
                     content: Text('Added 15 minutes to expected ride duration.', style: GoogleFonts.poppins()),
                     backgroundColor: AppColors.primary,

@@ -112,9 +112,9 @@ void main() {
   });
 
   group('Phase 4: Followed Mode - Safety Trigger Evaluation Tests', () {
-    test('evaluateFollowedCheck returns true when elapsed time is 10 minutes or more', () {
+    test('evaluateFollowedCheck returns true when 5 minutes or more have passed', () {
       final now = DateTime.now();
-      final lastCheck = now.subtract(const Duration(minutes: 10, seconds: 5));
+      final lastCheck = now.subtract(const Duration(minutes: 5, seconds: 5));
 
       final shouldTrigger = JourneyService.evaluateFollowedCheck(
         now: now,
@@ -125,9 +125,9 @@ void main() {
       expect(shouldTrigger, isTrue);
     });
 
-    test('evaluateFollowedCheck returns false when less than 10 minutes elapsed', () {
+    test('evaluateFollowedCheck returns false when less than 5 minutes have passed', () {
       final now = DateTime.now();
-      final lastCheck = now.subtract(const Duration(minutes: 9, seconds: 30));
+      final lastCheck = now.subtract(const Duration(minutes: 4, seconds: 30));
 
       final shouldTrigger = JourneyService.evaluateFollowedCheck(
         now: now,

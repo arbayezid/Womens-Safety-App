@@ -26,12 +26,19 @@ class JourneyModel {
   final int? batteryLevel;
   final DateTime? lastSafetyCheckAt;
   final String? linkedSosAlertId;
+
+  /// The linked SOS came from the duress PIN: someone may be with them, so do not call.
+  final bool linkedSosDuress;
   final bool startSmsSent;
   final String mode; // 'safe_journey' | 'followed'
 
   /// Road route chosen at start: {polyline, distanceMeters, durationSeconds, mode, provider}.
   /// Null for Followed Mode, journeys without a destination pin, or when routing was offline.
   final Map<String, dynamic>? route;
+
+  /// Guardians who opened this journey's live location: uid -> {name, at}.
+  /// Shown to the traveller in Followed Mode ("Rahim is watching your location").
+  final Map<String, dynamic> watchers;
 
   const JourneyModel({
     required this.id,
@@ -50,10 +57,27 @@ class JourneyModel {
     this.batteryLevel,
     this.lastSafetyCheckAt,
     this.linkedSosAlertId,
+    this.linkedSosDuress = false,
     this.startSmsSent = false,
     this.mode = 'safe_journey',
     this.route,
+    this.watchers = const {},
   });
+
+  /// Names of the guardians watching, earliest first.
+  List<String> get watcherNames {
+    final entries = watchers.entries.where((e) => e.value is Map).toList()
+      ..sort((a, b) {
+        DateTime at(dynamic v) => (v is Map && v['at'] is Timestamp)
+            ? (v['at'] as Timestamp).toDate()
+            : DateTime.fromMillisecondsSinceEpoch(0);
+        return at(a.value).compareTo(at(b.value));
+      });
+    return entries
+        .map((e) => ((e.value as Map)['name']?.toString().trim() ?? ''))
+        .map((name) => name.isEmpty ? 'A guardian' : name)
+        .toList();
+  }
 
   /// Whether this session is running in "I'm Being Followed" mode
   bool get isFollowedMode => mode == 'followed';
@@ -168,9 +192,11 @@ class JourneyModel {
           ? parseDate(map['lastSafetyCheckAt'], now)
           : null,
       linkedSosAlertId: map['linkedSosAlertId']?.toString(),
+      linkedSosDuress: map['linkedSosDuress'] == true,
       startSmsSent: map['startSmsSent'] as bool? ?? false,
       mode: map['mode']?.toString() ?? 'safe_journey',
       route: map['route'] is Map ? Map<String, dynamic>.from(map['route'] as Map) : null,
+      watchers: map['watchers'] is Map ? Map<String, dynamic>.from(map['watchers'] as Map) : const {},
     );
   }
 
@@ -192,9 +218,11 @@ class JourneyModel {
     int? batteryLevel,
     DateTime? lastSafetyCheckAt,
     String? linkedSosAlertId,
+    bool? linkedSosDuress,
     bool? startSmsSent,
     String? mode,
     Map<String, dynamic>? route,
+    Map<String, dynamic>? watchers,
   }) {
     return JourneyModel(
       id: id ?? this.id,
@@ -213,9 +241,11 @@ class JourneyModel {
       batteryLevel: batteryLevel ?? this.batteryLevel,
       lastSafetyCheckAt: lastSafetyCheckAt ?? this.lastSafetyCheckAt,
       linkedSosAlertId: linkedSosAlertId ?? this.linkedSosAlertId,
+      linkedSosDuress: linkedSosDuress ?? this.linkedSosDuress,
       startSmsSent: startSmsSent ?? this.startSmsSent,
       mode: mode ?? this.mode,
       route: route ?? this.route,
+      watchers: watchers ?? this.watchers,
     );
   }
 }

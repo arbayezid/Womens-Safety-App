@@ -7,6 +7,7 @@ import '../services/location_service.dart';
 import '../services/safety_report_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import 'ui/app_snack.dart';
 
 /// Modal bottom sheet for submitting a new community safety report.
 class ReportUnsafeSpotSheet extends StatefulWidget {
@@ -92,7 +93,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
   Future<void> _submitReport() async {
     final desc = _descController.text.trim();
     if (desc.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text(
             'Please provide a short description of the concern.',
@@ -105,7 +106,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
     }
 
     if (_latitude == null || _longitude == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Unable to detect location. Please try again.', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,
@@ -129,7 +130,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
 
       if (res.isSuccess) {
         Navigator.of(context).pop(true);
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Row(
               children: [
@@ -149,7 +150,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text(res.errorMessage ?? 'Failed to submit report', style: GoogleFonts.poppins()),
             backgroundColor: res.isRateLimited ? Colors.orange.shade800 : AppColors.sosRed,

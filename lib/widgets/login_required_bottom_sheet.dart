@@ -4,6 +4,7 @@ import '../core/app_colors.dart';
 import '../services/auth_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import 'ui/app_snack.dart';
 
 /// Modal bottom sheet presented when a Guest user attempts a protected action
 /// (e.g. triggering SOS, managing contacts, editing profile).
@@ -37,7 +38,7 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
       if (result.isSuccess) {
         Navigator.pop(context, true);
       } else if (!result.isCancelled && result.errorMessage != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text(result.errorMessage!),
             backgroundColor: AppColors.sosRed,
@@ -142,12 +143,6 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
                     icon: Icons.cloud_sync_rounded,
                     color: AppColors.actionBlue,
                     text: 'Your contacts are kept if you change phones',
-                  ),
-                  SizedBox(height: 8),
-                  _FeatureRow(
-                    icon: Icons.verified_user_rounded,
-                    color: AppColors.successForeground,
-                    text: 'Your profile is on every device you sign in to',
                   ),
                 ],
               ),

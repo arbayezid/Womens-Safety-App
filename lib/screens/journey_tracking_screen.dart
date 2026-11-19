@@ -26,6 +26,9 @@ class JourneyTrackingScreen extends StatefulWidget {
 class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
   final MapController _mapController = MapController();
 
+  /// A guardian opening a live journey is shown to the traveller as watching (once per visit).
+  bool _watchMarked = false;
+
   Future<void> _openGoogleMaps(double lat, double lng) async {
     final uri = Uri.parse('https://www.google.com/maps/search/?api=1&query=$lat,$lng');
     try {
@@ -97,6 +100,15 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
 
           final journey = JourneyModel.fromMap(snapshot.data!.data()!, snapshot.data!.id);
           final isOwner = journey.ownerId == currentUid;
+          final isFollowed = journey.isFollowedMode;
+          final isSos = journey.status == JourneyStatus.alert;
+          // Duress SOS: someone may be with them, and a ringing phone could give them away
+          final doNotCall = isSos && journey.linkedSosDuress;
+
+          if (!isOwner && !_watchMarked && (journey.isActive || isSos)) {
+            _watchMarked = true;
+            JourneyService.instance.markWatching(journey.id);
+          }
 
           final curPos = LatLng(journey.currentLat, journey.currentLng);
           final startPos = LatLng(journey.startLat, journey.startLng);
@@ -118,7 +130,8 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                 );
 
           final now = DateTime.now();
-          final isDelayed = now.isAfter(journey.expectedArrivalAt) && journey.isActive;
+          final isDelayed = !isFollowed && now.isAfter(journey.expectedArrivalAt) && journey.isActive;
+          final lastCheckIn = journey.lastSafetyCheckAt ?? journey.startedAt;
 
           return Column(
             children: [
@@ -274,7 +287,9 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                           ? 'SOS active'
                                           : isDelayed
                                               ? 'Delayed'
-                                              : 'On the way',
+                                              : isFollowed
+                                                  ? 'Being followed'
+                                                  : 'On the way',
                                   style: GoogleFonts.poppins(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
@@ -341,9 +356,11 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                 style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                               ),
                               Text(
-                                hasDest
-                                    ? '${journey.ownerName} • ${_formatDistance(distanceToDest)} ${hasRoute ? 'left by road' : 'remaining'}'
-                                    : '${journey.ownerName} • no map pin, end it manually on arrival',
+                                isFollowed
+                                    ? '${journey.ownerName} thinks they are being followed'
+                                    : hasDest
+                                        ? '${journey.ownerName} • ${_formatDistance(distanceToDest)} ${hasRoute ? 'left by road' : 'remaining'}'
+                                        : '${journey.ownerName} • no map pin, end it manually on arrival',
                                 style: GoogleFonts.poppins(
                                   fontSize: 12,
                                   color: AppColors.textSecondary,
@@ -387,8 +404,8 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(isDelayed ? 'Delayed Past' : 'Expected Arrival', style: GoogleFonts.poppins(fontSize: 11, color: isDelayed ? AppColors.actionOrange : AppColors.textSecondary)),
-                                Text(_formatClockTime(journey.expectedArrivalAt), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: isDelayed ? AppColors.actionOrange : AppColors.textPrimary)),
+                                Text(isFollowed ? 'Last check-in' : (isDelayed ? 'Delayed Past' : 'Expected Arrival'), style: GoogleFonts.poppins(fontSize: 11, color: isDelayed ? AppColors.actionOrange : AppColors.textSecondary)),
+                                Text(_formatClockTime(isFollowed ? lastCheckIn : journey.expectedArrivalAt), style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: isDelayed ? AppColors.actionOrange : AppColors.textPrimary)),
                               ],
                             ),
                           ),
@@ -432,9 +449,24 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                         ],
                       ),
                     ] else ...[
+                      if (doNotCall) ...[
+                        Row(
+                          children: [
+                            const Icon(Icons.phone_disabled_rounded, size: 16, color: AppColors.sosRed),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                "Silent alert: don't call. Follow their location instead.",
+                                style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.sosRed),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                      ],
                       Row(
                         children: [
-                          if (journey.ownerPhone != null && journey.ownerPhone!.isNotEmpty)
+                          if (!doNotCall && journey.ownerPhone != null && journey.ownerPhone!.isNotEmpty)
                             Expanded(
                               child: OutlinedButton.icon(
                                 onPressed: () => _callPhone(journey.ownerPhone!),
@@ -447,7 +479,7 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                 ),
                               ),
                             ),
-                          if (journey.ownerPhone != null && journey.ownerPhone!.isNotEmpty)
+                          if (!doNotCall && journey.ownerPhone != null && journey.ownerPhone!.isNotEmpty)
                             const SizedBox(width: 8),
                           Expanded(
                             child: ElevatedButton.icon(

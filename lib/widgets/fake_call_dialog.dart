@@ -9,6 +9,7 @@ import '../services/auth_service.dart';
 import '../services/fake_call_audio_service.dart';
 import '../services/fake_call_settings_service.dart';
 import '../core/app_tokens.dart';
+import 'ui/app_snack.dart';
 
 /// Full-screen realistic incoming phone call simulator.
 ///
@@ -144,7 +145,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
       speaker: _isSpeaker,
     );
     if (mode != 'unavailable' || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+    AppSnack.showBar(context, SnackBar(
       content: Text(
         'Call audio unavailable. Install an English text-to-speech voice in phone Settings › Text-to-speech.',
         style: GoogleFonts.roboto(fontSize: 12, fontWeight: FontWeight.w500),

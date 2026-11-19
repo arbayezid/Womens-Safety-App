@@ -4,6 +4,7 @@ import '../core/app_colors.dart';
 import '../services/contact_sync_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import 'ui/app_snack.dart';
 
 /// Modal dialog for adding emergency contacts via Email-based sync
 /// with optional mobile phone number for offline SMS fallback.
@@ -97,7 +98,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
         );
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          AppSnack.showBar(context,
             SnackBar(
               content: Row(
                 children: [
@@ -131,7 +132,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
         );
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          AppSnack.showBar(context,
             SnackBar(
               content: Row(
                 children: [
@@ -176,7 +177,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
           isPrimary: _isPrimary,
         );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          AppSnack.showBar(context,
             SnackBar(
               content: Row(
                 children: [
@@ -345,18 +346,6 @@ class _AddContactDialogState extends State<AddContactDialog> {
                       color: AppColors.textPrimary,
                     ),
                   ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.primary.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(AppRadius.xs),
-                    ),
-                    child: Text(
-                      'App Sync',
-                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
-                    ),
-                  ),
                 ],
               ),
               const SizedBox(height: 6),
@@ -395,18 +384,6 @@ class _AddContactDialogState extends State<AddContactDialog> {
                       fontSize: 13,
                       fontWeight: FontWeight.w600,
                       color: AppColors.textPrimary,
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                    decoration: BoxDecoration(
-                      color: AppColors.actionGreen.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(AppRadius.xs),
-                    ),
-                    child: Text(
-                      'Offline SMS Fallback',
-                      style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionGreen),
                     ),
                   ),
                 ],
@@ -497,7 +474,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 contentPadding: EdgeInsets.zero,
                 activeThumbColor: AppColors.actionOrange,
                 title: Text(
-                  'Backup contact: only alerted if no one responds',
+                  'Backup contact',
                   style: GoogleFonts.poppins(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -505,7 +482,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   ),
                 ),
                 subtitle: Text(
-                  'Excluded from initial SOS; notified in escalation Stage 1 if guardians do not acknowledge within 3 minutes',
+                  'Only alerted if no one responds within 3 minutes',
                   style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 ),
                 onChanged: (val) => setState(() => _isBackup = val),

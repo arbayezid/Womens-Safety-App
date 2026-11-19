@@ -515,12 +515,15 @@ class GuardianAlertService : Service() {
             }
             "arrived" -> {
                 if (!within(updatedAt, 20 * 60 * 1000L)) return null
-                Triple(key, "✅ $name arrived safely",
-                    if (followed) "Followed Mode has ended safely." else "They reached $destLabel.")
+                Triple(key, if (followed) "✅ $name is safe" else "✅ $name arrived safely",
+                    if (followed) "Followed Mode has ended." else "They reached $destLabel.")
             }
             "alert" -> {
+                // Taken over by an SOS: the SOS alert itself already reached this guardian
+                if (!str(doc, "linkedSosAlertId").isNullOrEmpty()) return null
                 if (!within(updatedAt, 3 * 60 * 60 * 1000L)) return null
-                Triple(key, "🚨 $name's Safe Journey raised an alert",
+                Triple(key,
+                    if (followed) "🚨 $name missed a Followed Mode check-in" else "🚨 $name's Safe Journey raised an alert",
                     "A safety check went unanswered. Tap to see their live location.")
             }
             "cancelled" -> {

@@ -304,8 +304,21 @@ service cloud.firestore {
       // Read: Owner or listed guardian
       allow read: if isJourneyOwner() || isJourneyGuardian();
 
-      // Update: Only owner can update tracking, status, check-ins, or cancel
-      allow update: if isJourneyOwner();
+      // A guardian may only add or refresh their own "watching" entry: watchers.<their uid>
+      function isOwnWatcherUpdate() {
+        let before = resource.data.get('watchers', {});
+        let after = request.resource.data.get('watchers', {});
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['watchers']) &&
+          after.diff(before).affectedKeys().hasOnly([request.auth.uid]) &&
+          after[request.auth.uid].keys().hasOnly(['name', 'at']) &&
+          after[request.auth.uid].name is string &&
+          after[request.auth.uid].name.size() <= 80 &&
+          after[request.auth.uid].at == request.time;
+      }
+
+      // Update: Only owner can update tracking, status, check-ins, or cancel;
+      // a guardian can mark that they are watching (shown to the owner in Followed Mode)
+      allow update: if isJourneyOwner() || (isJourneyGuardian() && isOwnWatcherUpdate());
 
       // Delete: Denied or only owner when cancelled/arrived
       allow delete: if isJourneyOwner() && resource.data.status in ['cancelled', 'arrived'];

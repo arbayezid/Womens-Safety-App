@@ -12,6 +12,7 @@ import '../services/fake_call_settings_service.dart';
 import 'fake_call_dialog.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import 'ui/app_snack.dart';
 
 /// Runs the "After 10s" fake call. Lives outside any screen, so the call still rings if the
 /// user closes the sheet or switches tabs while waiting (app must stay open, as before).
@@ -146,8 +147,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
       return;
     }
     FakeCallScheduler.instance.schedule(navigator, caller, delay: delay);
-    messenger?.hideCurrentSnackBar();
-    messenger?.showSnackBar(
+    AppSnack.showOn(messenger,
       SnackBar(
         content: Text(
           '${caller.name} will call in ${delay.inSeconds} seconds.',
@@ -157,6 +157,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
         duration: const Duration(seconds: 4),
+        persist: false,
         action: SnackBarAction(
           label: 'Cancel',
           textColor: Colors.white,

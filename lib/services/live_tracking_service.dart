@@ -32,6 +32,11 @@ class LiveTrackingService {
   /// Firestore document ID for the active session (alertId or journeyId)
   String? _documentId;
 
+  /// Journey to keep moving while an SOS session tracks instead (an SOS sent during
+  /// Followed Mode or a Safe Journey): its guardians keep seeing a live location.
+  /// Set and cleared by JourneyService; survives the SOS session restarting.
+  String? mirrorJourneyId;
+
   /// Stream subscription for live device GPS positions
   StreamSubscription<Position>? _positionSubscription;
 
@@ -241,6 +246,16 @@ class LiveTrackingService {
         }).timeout(const Duration(seconds: 4)).catchError((Object e) {
           debugPrint('[LiveTracking] Notice extending SOS expiry: $e');
         }));
+        final journeyId = mirrorJourneyId;
+        if (journeyId != null) {
+          unawaited(_firestore.collection('journeys').doc(journeyId).update({
+            'currentLocation': locationMap,
+            'lastUpdatedAt': FieldValue.serverTimestamp(),
+            'batteryLevel': batteryLevel,
+          }).timeout(const Duration(seconds: 4)).catchError((Object e) {
+            debugPrint('[LiveTracking] Notice mirroring SOS location to journey: $e');
+          }));
+        }
       } else if (type == 'journey') {
         await _firestore.collection('journeys').doc(docId).update({
           'currentLocation': locationMap,

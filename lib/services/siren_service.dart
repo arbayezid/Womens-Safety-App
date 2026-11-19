@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'activity_service.dart';
 import 'guardian_alert_service.dart';
 
@@ -43,6 +44,28 @@ class SirenService {
   }
 
   bool get _useNativeAlertSiren => !kIsWeb && Platform.isAndroid;
+
+  static const MethodChannel _deviceChannel = MethodChannel('com.smartsafety.smart_safety/device');
+
+  /// Turns the phone's alarm volume to maximum (Android), whatever the user had set. The level
+  /// before is restored by [_restoreSystemVolume] when the siren stops.
+  Future<void> _raiseSystemVolume() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _deviceChannel.invokeMethod('raiseSirenVolume');
+    } catch (e) {
+      debugPrint('[SirenService] Could not raise alarm volume: $e');
+    }
+  }
+
+  Future<void> _restoreSystemVolume() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    try {
+      await _deviceChannel.invokeMethod('restoreSirenVolume');
+    } catch (e) {
+      debugPrint('[SirenService] Could not restore alarm volume: $e');
+    }
+  }
 
   /// Rings for an incoming live SOS alert: loud, alarm stream (also in silent mode), for
   /// [incomingAlertRingDuration]. Stop it early only through a guardian action or the alert
@@ -88,6 +111,20 @@ class SirenService {
     try {
       final player = AudioPlayer();
       player.setReleaseMode(ReleaseMode.loop).catchError((_) {});
+      if (!kIsWeb && Platform.isAndroid) {
+        // Play on the alarm stream so the siren follows the alarm volume (raised to max on start)
+        // and still sounds in silent and vibrate mode.
+        player
+            .setAudioContext(AudioContext(
+              android: const AudioContextAndroid(
+                usageType: AndroidUsageType.alarm,
+                contentType: AndroidContentType.sonification,
+                audioFocus: AndroidAudioFocus.gainTransient,
+                stayAwake: true,
+              ),
+            ))
+            .catchError((_) {});
+      }
       player.onPlayerStateChanged.listen((state) {
         _dartPlaying = state == PlayerState.playing;
         _publish();
@@ -107,7 +144,8 @@ class SirenService {
 
       final player = _getOrCreatePlayer();
       if (player != null) {
-        // Ensure max volume
+        // Max volume: the phone's alarm volume to its highest level, and the player at full scale
+        await _raiseSystemVolume();
         await player.setVolume(1.0);
         await player.setReleaseMode(ReleaseMode.loop);
 
@@ -127,6 +165,7 @@ class SirenService {
       debugPrint('[SirenService] 🔊 Siren is now playing on loop at MAX volume.');
     } catch (e) {
       debugPrint('[SirenService] ❌ Failed to play siren audio: $e');
+      await _restoreSystemVolume();
       _dartPlaying = false;
       _publish();
     }
@@ -143,6 +182,7 @@ class SirenService {
       if (player != null) {
         await player.stop();
       }
+      await _restoreSystemVolume();
       // An incoming alert may be ringing through the native guardian service instead
       await GuardianAlertService.instance.stopNativeSiren();
       _dartPlaying = false;
@@ -157,14 +197,40 @@ class SirenService {
     }
   }
 
-  /// Toggles the emergency siren state (starts if stopped, stops if playing).
-  Future<bool> toggleSiren() async {
-    if (isPlaying) {
-      await stopSiren();
-    } else {
-      await startSiren();
-    }
-    return isPlaying;
+  Future<void> _toggleChain = Future<void>.value();
+  int _pendingToggles = 0;
+  bool? _requestedOn;
+
+  /// Toggles the emergency siren (starts if stopped, stops if playing) and returns the state
+  /// after the change.
+  ///
+  /// Taps are serialised: each one flips the requested state at once, and the queued work only
+  /// moves the player to whatever was requested last. Rapid taps therefore cause at most one
+  /// start or stop, never overlapping ones, and every caller gets the final confirmed state, so
+  /// a late "Siren on" can't appear after the siren was turned off.
+  Future<bool> toggleSiren() {
+    _requestedOn = !(_requestedOn ?? isPlaying);
+    _pendingToggles++;
+    final result = Completer<bool>();
+    _toggleChain = _toggleChain.then((_) async {
+      try {
+        final want = _requestedOn ?? isPlaying;
+        if (want != isPlaying) {
+          if (want) {
+            await startSiren();
+          } else {
+            await stopSiren();
+          }
+        }
+      } catch (e) {
+        debugPrint('[SirenService] ❌ Toggle failed: $e');
+      } finally {
+        // Once idle, read the real state again (the siren may be stopped elsewhere, e.g. by SOS).
+        if (--_pendingToggles == 0) _requestedOn = null;
+        result.complete(isPlaying);
+      }
+    });
+    return result.future;
   }
 
   /// Dispose player resources

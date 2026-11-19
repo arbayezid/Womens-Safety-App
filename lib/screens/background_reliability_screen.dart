@@ -202,9 +202,10 @@ class _InfoCard extends StatelessWidget {
           Expanded(
             child: Text(
               allGood
-                  ? 'All set. Safety timers and guardian alerts can work while Woman Guard is closed or your phone is locked.'
-                  : 'Some phone settings can stop Woman Guard from working while it is closed. If a safety timer runs out, '
-                      'the app must still be able to send your SOS, and guardians must still receive alerts. Fix the items below.',
+                  ? 'All set. Safety timers, guardian alerts and your ESP32 pendant can work while Woman Guard is closed or your phone is locked.'
+                  : 'Some phone settings can stop Woman Guard from working while it is closed. If a safety timer runs out '
+                      'or you press your ESP32 pendant, the app must still be able to send your SOS, and guardians must '
+                      'still receive alerts. Fix the items below.',
               style: GoogleFonts.poppins(fontSize: 12, height: 1.45, color: AppColors.textPrimary),
             ),
           ),

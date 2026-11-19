@@ -33,18 +33,32 @@ void main() {
       );
     });
 
-    test('Followed Mode: every 10 min from start, then from the last check-in', () {
+    test('Followed Mode: every 5 min from start, then from the last check-in', () {
+      expect(followedCheckInterval, const Duration(minutes: 5));
       final eta = start.add(const Duration(hours: 2));
       expect(
         nextJourneyCheckAt(followed: true, startedAt: start, expectedArrivalAt: eta),
-        start.add(const Duration(minutes: 10)).add(deadlineBackstopOffset),
+        start.add(const Duration(minutes: 5)).add(deadlineBackstopOffset),
       );
-      final confirmed = start.add(const Duration(minutes: 11));
+      final confirmed = start.add(const Duration(minutes: 6));
       expect(
         nextJourneyCheckAt(
             followed: true, startedAt: start, expectedArrivalAt: eta, lastSafetyCheckAt: confirmed),
-        confirmed.add(const Duration(minutes: 10)).add(deadlineBackstopOffset),
+        confirmed.add(const Duration(minutes: 5)).add(deadlineBackstopOffset),
       );
+    });
+
+    test('Followed Mode check-ins are silent; others keep their sound', () {
+      final followed = SafetyDeadline(
+        id: 'journey_j1', kind: SafetyDeadlineKind.journey, refId: 'j1', uid: 'u',
+        fireAt: start, silent: true,
+      );
+      expect(followed.toArgs()['silent'], isTrue);
+      expect(followed.toFirestore('armed')['silent'], isTrue);
+      final ride = SafetyDeadline(
+        id: 'ride_r1', kind: SafetyDeadlineKind.ride, refId: 'r1', uid: 'u', fireAt: start,
+      );
+      expect(ride.toArgs()['silent'], isFalse);
     });
 
     test('backstop fires after the in-app 30 s monitor tick would have detected it', () {

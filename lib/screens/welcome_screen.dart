@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/app_colors.dart';
 import '../services/auth_service.dart';
 import 'home_screen.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// First screen: logo, sign in with Google, or continue as a guest.
 class WelcomeScreen extends StatefulWidget {
@@ -81,7 +82,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
       if (result.isSuccess) {
         _navigateToHome();
       } else if (!result.isCancelled && result.errorMessage != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text(result.errorMessage!),
             backgroundColor: AppColors.sosRed,

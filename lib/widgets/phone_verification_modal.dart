@@ -213,7 +213,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
 
           if (_step == PhoneVerificationStep.enterPhone) ...[
             Text(
-              'Enter your personal mobile phone number to receive a verification SMS:',
+              'Enter your mobile number to get a verification SMS.',
               style: GoogleFonts.poppins(
                 fontSize: 13,
                 color: AppColors.textSecondary,

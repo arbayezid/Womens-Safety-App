@@ -71,7 +71,9 @@ class SafetyCheckState {
 /// Central service managing Safe Journey monitoring, Dead-Man's Switch countdowns,
 /// and automated emergency escalation.
 class JourneyService {
-  JourneyService._internal();
+  JourneyService._internal() {
+    EmergencyService.instance.activeAlertIdNotifier.addListener(_onActiveSosChanged);
+  }
 
   /// Singleton instance
   static final JourneyService instance = JourneyService._internal();
@@ -86,6 +88,35 @@ class JourneyService {
   /// True when a session that started at [startedAt] is too old to escalate at [now].
   static bool isStaleSession(DateTime startedAt, DateTime now) =>
       now.difference(startedAt) > staleSessionLimit;
+
+  /// Followed Mode is stale only after [staleSessionLimit] without a check-in: while the user
+  /// keeps answering, it runs as long as they need it and never ends on a timer.
+  static bool isStaleJourney({
+    required bool followed,
+    required DateTime startedAt,
+    DateTime? lastSafetyCheckAt,
+    required DateTime now,
+  }) =>
+      followed
+          ? now.difference(lastSafetyCheckAt ?? startedAt) > staleSessionLimit
+          : isStaleSession(startedAt, now);
+
+  static bool _isStale(JourneyModel j, DateTime now) => isStaleJourney(
+        followed: j.isFollowedMode,
+        startedAt: j.startedAt,
+        lastSafetyCheckAt: j.lastSafetyCheckAt,
+        now: now,
+      );
+
+  /// The periodic Followed Mode check, shown silently (vibration only).
+  static final JourneySafetyTrigger followedCheckTrigger = JourneySafetyTrigger(
+    type: JourneySafetyTriggerType.followedCheck,
+    title: 'Followed Mode check-in',
+    reason: 'It has been ${followedCheckInterval.inMinutes} minutes since your last check-in',
+  );
+
+  /// Last SOS alert seen by [_onActiveSosChanged].
+  String? _lastSosAlertId;
 
   final Telephony _telephony = Telephony.instance;
 
@@ -320,13 +351,15 @@ class JourneyService {
     return null;
   }
 
-  /// Pure static evaluation of whether a 10-minute periodic check-in is required in Followed Mode.
+  /// Pure static evaluation of whether the periodic Followed Mode check-in is due
+  /// (every [followedCheckInterval]).
   static bool evaluateFollowedCheck({
     required DateTime now,
     required DateTime lastCheckOrStart,
     required bool isCooldownActive,
-    int intervalMinutes = 10,
+    int? intervalMinutes,
   }) {
+    intervalMinutes ??= followedCheckInterval.inMinutes;
     if (isCooldownActive) return false;
     return now.difference(lastCheckOrStart).inMinutes >= intervalMinutes;
   }
@@ -389,7 +422,13 @@ class JourneyService {
       activeJourneyNotifier.value = model;
 
       if (!model.isActive) {
-        _cleanupMonitor();
+        // In alert an SOS has taken over: no more check-ins, but keep listening so the screen
+        // still shows who is watching, and keep the journey's map moving with the SOS location.
+        _cleanupMonitor(keepDocListener: true);
+        unawaited(NotificationService.instance.cancelSafetyCheckNotification());
+        if (model.status == JourneyStatus.alert && EmergencyService.instance.activeAlertId != null) {
+          LiveTrackingService.instance.mirrorJourneyId = model.id;
+        }
       } else if (_monitorTimer == null || !_monitorTimer!.isActive) {
         _startMonitorLoop();
       }
@@ -568,6 +607,12 @@ class JourneyService {
       throw Exception('Authentication required to activate Followed Mode');
     }
 
+    // Followed Mode replaces a Safe Journey still running, so its checks don't run twice
+    final running = activeJourney;
+    if (running != null && !running.isFollowedMode && running.isActive) {
+      await cancelJourney();
+    }
+
     Position? startPos = await Geolocator.getLastKnownPosition();
     try {
       startPos ??= await Geolocator.getCurrentPosition(
@@ -580,6 +625,26 @@ class JourneyService {
 
     final startLat = startPos?.latitude ?? 23.8103;
     final startLng = startPos?.longitude ?? 90.4125;
+
+    // Guardians find journeys by these lists (in-app alert, push, home card, inbox), so
+    // default to every emergency contact, as Safe Journey does. Empty lists = SMS only.
+    if (guardianUids == null || guardianEmails == null) {
+      try {
+        final contacts = await ContactService.instance.getContacts();
+        guardianUids ??= contacts
+            .where((c) => c.contactUid != null && c.contactUid!.isNotEmpty)
+            .map((c) => c.contactUid!)
+            .toSet()
+            .toList();
+        guardianEmails ??= contacts
+            .where((c) => c.email.isNotEmpty)
+            .map((c) => c.email.toLowerCase().trim())
+            .toSet()
+            .toList();
+      } catch (e) {
+        debugPrint('[JourneyService] Could not load guardians for Followed Mode: $e');
+      }
+    }
 
     final now = DateTime.now();
     final docRef = FirebaseFirestore.instance.collection('journeys').doc();
@@ -640,7 +705,7 @@ class JourneyService {
     // Start Background Service
     await BackgroundServiceManager.instance.startService(
       title: 'Followed mode on',
-      content: 'Broadcasting live coordinates & checking nearest police checkpoint',
+      content: 'Sharing your live location with your guardians',
     );
 
     // Send SMS alert to guardians
@@ -692,6 +757,7 @@ class JourneyService {
     required String destLabel,
     DateTime? expectedArrival,
     String? mapUrl,
+    String? customMessage,
   }) async {
     final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
     if (phoneNumbers.isEmpty) return;
@@ -699,7 +765,9 @@ class JourneyService {
     final userName = AuthService.instance.displayName;
     final String message;
 
-    if (isStart) {
+    if (customMessage != null) {
+      message = customMessage;
+    } else if (isStart) {
       final etaStr = expectedArrival != null
           ? '${expectedArrival.hour == 0 ? 12 : (expectedArrival.hour > 12 ? expectedArrival.hour - 12 : expectedArrival.hour)}:${expectedArrival.minute.toString().padLeft(2, '0')} ${expectedArrival.hour >= 12 ? 'PM' : 'AM'}'
           : 'soon';
@@ -734,7 +802,7 @@ class JourneyService {
     if (journey == null || !journey.isActive) return;
 
     // A journey that was never ended must not escalate hours later
-    if (isStaleSession(journey.startedAt, DateTime.now())) {
+    if (_isStale(journey, DateTime.now())) {
       await _expireStaleJourney(journey);
       return;
     }
@@ -758,7 +826,8 @@ class JourneyService {
     if (journey.isFollowedMode) {
       final lastCheck = journey.lastSafetyCheckAt ?? journey.startedAt;
       final cooldownTime = _triggerCooldowns[JourneySafetyTriggerType.followedCheck];
-      final isCooldownActive = cooldownTime != null && now.difference(cooldownTime).inMinutes < 10;
+      final isCooldownActive =
+          cooldownTime != null && now.difference(cooldownTime) < followedCheckInterval;
       final shouldCheck = evaluateFollowedCheck(
         now: now,
         lastCheckOrStart: lastCheck,
@@ -766,14 +835,8 @@ class JourneyService {
       );
 
       if (shouldCheck && activeSafetyCheckNotifier.value == null) {
-        debugPrint('[JourneyService] ⚠️ 10-minute Followed Mode check activated!');
-        _triggerSafetyCheck(
-          const JourneySafetyTrigger(
-            type: JourneySafetyTriggerType.followedCheck,
-            title: 'Followed Mode Check-In',
-            reason: '10 minutes elapsed in Followed Mode. Please tap to confirm you are safe.',
-          ),
-        );
+        debugPrint('[JourneyService] Followed Mode check-in due');
+        _triggerSafetyCheck(followedCheckTrigger);
       }
       return;
     }
@@ -877,10 +940,11 @@ class JourneyService {
       secondsRemaining: 60,
     );
 
-    // Display high-priority notification
+    // Display high-priority notification (Followed Mode: vibration only, no sound)
     NotificationService.instance.showSafetyCheckNotification(
       secondsRemaining: 60,
       reason: trigger.reason,
+      silent: trigger.type == JourneySafetyTriggerType.followedCheck,
     );
 
     // Native backstop: escalates even if the app is killed during the countdown
@@ -1036,7 +1100,7 @@ class JourneyService {
       await SafetyDeadlineService.instance.clear(journeyDeadlineId(journeyId));
       return 'skipped';
     }
-    if (isStaleSession(journey.startedAt, DateTime.now())) {
+    if (_isStale(journey, DateTime.now())) {
       await _expireStaleJourney(journey);
       return 'skipped';
     }
@@ -1056,11 +1120,7 @@ class JourneyService {
     if (journey == null || journey.id != journeyId || !journey.isActive) return false;
     if (activeSafetyCheckNotifier.value != null) return true;
     _triggerSafetyCheck(journey.isFollowedMode
-        ? const JourneySafetyTrigger(
-            type: JourneySafetyTriggerType.followedCheck,
-            title: 'Followed Mode Check-In',
-            reason: '10 minutes elapsed in Followed Mode. Please tap to confirm you are safe.',
-          )
+        ? followedCheckTrigger
         : JourneySafetyTrigger(
             type: JourneySafetyTriggerType.delay,
             title: 'Arrival Delay Detected',
@@ -1090,12 +1150,14 @@ class JourneyService {
           expectedArrivalAt: expectedArrivalAt ?? journey.expectedArrivalAt,
           lastSafetyCheckAt: lastSafetyCheckAt ?? journey.lastSafetyCheckAt,
         ),
-        title: followed ? 'Followed mode check-in' : 'Safe Journey check: are you OK?',
+        title: followed ? 'Followed Mode check-in' : 'Safe Journey check: are you OK?',
         body: followed
-            ? 'It has been 10 minutes since your last check-in.'
+            ? 'It has been ${followedCheckInterval.inMinutes} minutes since your last check-in.'
             : 'You are past your arrival time for ${journey.destinationLabel}. Tap "I\'m safe" to end the journey.',
         // The Safe Journey deadline is always the post-ETA arrival check
         endOnSafe: !followed,
+        // Someone following the user must not hear the check-in
+        silent: followed,
       ),
       replace: replace,
     ));
@@ -1155,6 +1217,16 @@ class JourneyService {
     }
     await SafetyDeadlineService.instance.clear(journeyDeadlineId(journey.id));
 
+    // Never end Followed Mode without saying so
+    if (journey.isFollowedMode) {
+      NotificationService.instance.showStatusNotification(
+        id: 1002,
+        title: 'Followed Mode ended',
+        body: 'No check-in for ${staleSessionLimit.inHours} hours, so it was turned off. '
+            'Start it again if you still need it.',
+      );
+    }
+
     if (activeJourney?.id == journey.id) {
       _cleanupMonitor();
       _clearLocalSession();
@@ -1166,8 +1238,9 @@ class JourneyService {
     }
   }
 
-  /// Marks the journey as arrived and informs contacts if start SMS was sent
-  Future<void> completeJourney() async {
+  /// Marks the journey as arrived and informs contacts if start SMS was sent.
+  /// [notifyContacts] false when they were just texted already (SOS "I'm safe").
+  Future<void> completeJourney({bool notifyContacts = true}) async {
     final journey = activeJourney;
     if (journey == null) return;
 
@@ -1183,29 +1256,91 @@ class JourneyService {
       _endingLocally = false;
     }
 
-    if (journey.startSmsSent) {
+    if (journey.startSmsSent && notifyContacts) {
       _sendJourneySms(
         isStart: false,
         destLabel: journey.destinationLabel,
+        customMessage: journey.isFollowedMode
+            ? '${AuthService.instance.displayName} is safe now. Followed Mode has ended.'
+            : null,
       );
     }
 
     _cleanupMonitor();
     _clearLocalSession();
 
-    await LiveTrackingService.instance.stopTrackingSession();
-    await BackgroundServiceManager.instance.stopService();
+    // An SOS still running keeps its own tracking; only the journey's tracking stops here.
+    if (LiveTrackingService.instance.activeSessionType != 'sos') {
+      await LiveTrackingService.instance.stopTrackingSession();
+      await BackgroundServiceManager.instance.stopService();
+    }
     MotionDetectionService.instance.checkAndSyncMonitoringState();
 
     ActivityService.instance.logActivity(
       ActivityItem(
         id: DateTime.now().millisecondsSinceEpoch.toString(),
         type: ActivityType.location,
-        title: 'Safe Journey Completed',
-        subtitle: 'Arrived safely at ${journey.destinationLabel}.',
+        title: journey.isFollowedMode ? 'Followed Mode Ended' : 'Safe Journey Completed',
+        subtitle: journey.isFollowedMode
+            ? 'Marked safe. Guardians were told.'
+            : 'Arrived safely at ${journey.destinationLabel}.',
         timestamp: DateTime.now(),
       ),
     );
+  }
+
+  /// A guardian opened this journey's live location: the traveller sees their name
+  /// ("Rahim is watching your location"). Only the guardian's own entry is written.
+  Future<void> markWatching(String journeyId) async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      await FirebaseFirestore.instance.collection('journeys').doc(journeyId).update({
+        'watchers.${user.uid}': {
+          'name': AuthService.instance.displayName,
+          'at': FieldValue.serverTimestamp(),
+        },
+      }).timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('[JourneyService] Could not mark watching on $journeyId: $e');
+    }
+  }
+
+  /// An SOS started or ended while a journey is running.
+  ///
+  /// Started: [EmergencyService] marks the journey as alert (check-ins stop, so nothing prompts
+  /// on screen during a silent duress alert); here the SOS location also moves the journey map.
+  /// Ended: the user said they are safe, so a journey in alert ends too; an active journey whose
+  /// tracking the SOS took over resumes it.
+  void _onActiveSosChanged() {
+    final alertId = EmergencyService.instance.activeAlertId;
+    final previous = _lastSosAlertId;
+    _lastSosAlertId = alertId;
+    final journey = activeJourney;
+    if (journey == null) return;
+
+    if (alertId != null && alertId != previous) {
+      LiveTrackingService.instance.mirrorJourneyId = journey.id;
+      return;
+    }
+    if (alertId == null && previous != null) {
+      LiveTrackingService.instance.mirrorJourneyId = null;
+      if (journey.status == JourneyStatus.alert) {
+        // markSafe has already texted "is safe now"
+        unawaited(completeJourney(notifyContacts: false));
+      } else if (journey.isActive && LiveTrackingService.instance.activeDocumentId != journey.id) {
+        unawaited(() async {
+          await LiveTrackingService.instance.startTrackingSession(
+            sessionType: 'journey',
+            documentId: journey.id,
+          );
+          await BackgroundServiceManager.instance.startService(
+            title: journey.isFollowedMode ? 'Followed mode on' : 'Safe Journey on',
+            content: 'Sharing your live location with your guardians',
+          );
+        }());
+      }
+    }
   }
 
   /// Cancels the current journey
@@ -1243,11 +1378,13 @@ class JourneyService {
     );
   }
 
-  void _cleanupMonitor() {
+  void _cleanupMonitor({bool keepDocListener = false}) {
     _monitorTimer?.cancel();
     _countdownTimer?.cancel();
-    _journeyDocSub?.cancel();
-    _journeyDocSub = null;
+    if (!keepDocListener) {
+      _journeyDocSub?.cancel();
+      _journeyDocSub = null;
+    }
     _journeyCheckTrigger = null;
     _inactivityAckLat = null;
     _inactivityAckLng = null;
@@ -1261,6 +1398,7 @@ class JourneyService {
 
   void _clearLocalSession() async {
     activeJourneyNotifier.value = null;
+    LiveTrackingService.instance.mirrorJourneyId = null;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(prefKeyActiveJourneyId);

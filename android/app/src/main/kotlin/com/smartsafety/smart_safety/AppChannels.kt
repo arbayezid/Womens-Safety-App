@@ -35,6 +35,11 @@ object AppChannels {
                 "getSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "getManufacturer" -> result.success(Build.MANUFACTURER ?: "")
                 "openAutoStartSettings" -> result.success(openAutoStartSettings(app))
+                "raiseSirenVolume" -> result.success(SirenVolume.raise(app))
+                "restoreSirenVolume" -> {
+                    SirenVolume.restore(app)
+                    result.success(null)
+                }
                 else -> result.notImplemented()
             }
         }

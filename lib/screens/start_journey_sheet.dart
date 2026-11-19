@@ -16,6 +16,7 @@ import '../services/safe_zone_repository.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// Modal bottom sheet for configuring and starting a new Safe Journey session.
 class StartJourneySheet extends StatefulWidget {
@@ -317,7 +318,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
   Future<void> _handleStartJourney() async {
     final destLabel = _customDestController.text.trim();
     if (destLabel.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Please select or enter a destination.', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,
@@ -375,7 +376,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
       if (!mounted) return;
       Navigator.of(context).pop();
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Row(
             children: [
@@ -400,7 +401,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Failed to start journey: $e', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,
@@ -705,13 +706,6 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                       Text(
                         'Start Safe Journey',
                         style: AppText.greeting.copyWith(color: AppColors.textPrimary),
-                      ),
-                      Text(
-                        'Live route tracking with Dead-Man\'s Switch',
-                        style: GoogleFonts.poppins(
-                          fontSize: 12,
-                          color: AppColors.textSecondary,
-                        ),
                       ),
                     ],
                   ),

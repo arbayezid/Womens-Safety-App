@@ -15,6 +15,7 @@ import '../core/app_text.dart';
 import '../widgets/ui/status_label.dart';
 import '../widgets/ui/ui_tone.dart';
 import '../widgets/ui/battery_chip.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// Screen displaying the complete chronological history of all SOS emergency alerts
 /// (both received as a trusted guardian and dispatched by the current user).
@@ -218,7 +219,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
     } catch (e) {
       debugPrint('[SosHistory] Mark false alarm failed: $e');
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         const SnackBar(content: Text('Could not update the alert. Please try again.')),
       );
     }
@@ -511,8 +512,8 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
           const SizedBox(height: 6),
           Text(
             tabType == 'sent'
-                ? 'When you activate emergency SOS, your dispatched GPS alerts will appear here.'
-                : 'When contacts in your guardian network trigger emergency SOS, their alerts with live GPS will appear here.',
+                ? 'Alerts you send will appear here.'
+                : 'Alerts from people you protect will appear here.',
             textAlign: TextAlign.center,
             style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
           ),
@@ -981,7 +982,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                     onPressed: () async {
                       await NotificationService.instance.dismissAlert(alertId);
                       if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      AppSnack.showBar(context,
                         SnackBar(
                           content: Text(
                             'Alert acknowledged and dismissed',

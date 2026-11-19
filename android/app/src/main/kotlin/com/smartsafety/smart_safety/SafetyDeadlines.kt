@@ -65,6 +65,8 @@ object SafetyDeadlines {
         val updatedAt: Long,
         /** "I'm safe" ends the journey instead of arming the next check (Safe Journey arrival check). */
         val endOnSafe: Boolean = false,
+        /** Vibrate only, no sound: someone nearby must not hear the prompt (Followed Mode). */
+        val silent: Boolean = false,
     ) {
         fun toJson(): JSONObject = JSONObject()
             .put("id", id).put("kind", kind).put("refId", refId).put("uid", uid)
@@ -72,12 +74,13 @@ object SafetyDeadlines {
             .put("promptSeconds", promptSeconds).put("direct", direct)
             .put("title", title).put("body", body).put("attempts", attempts).put("updatedAt", updatedAt)
             .put("endOnSafe", endOnSafe)
+            .put("silent", silent)
 
         fun toArgs(): Map<String, Any?> = mapOf(
             "id" to id, "kind" to kind, "refId" to refId, "uid" to uid, "fireAt" to fireAt,
             "state" to state, "escalateAt" to escalateAt, "promptSeconds" to promptSeconds,
             "direct" to direct, "title" to title, "body" to body, "attempts" to attempts,
-            "endOnSafe" to endOnSafe,
+            "endOnSafe" to endOnSafe, "silent" to silent,
         )
 
         val isJourneyCheck get() = kind == "journey"
@@ -98,6 +101,7 @@ object SafetyDeadlines {
                 attempts = o.optInt("attempts", 0),
                 updatedAt = o.optLong("updatedAt"),
                 endOnSafe = o.optBoolean("endOnSafe", false),
+                silent = o.optBoolean("silent", false),
             )
 
             fun fromArgs(a: Map<*, *>) = Deadline(
@@ -115,6 +119,7 @@ object SafetyDeadlines {
                 attempts = 0,
                 updatedAt = System.currentTimeMillis(),
                 endOnSafe = a["endOnSafe"] == true,
+                silent = a["silent"] == true,
             )
         }
     }
@@ -331,13 +336,14 @@ object SafetyDeadlines {
         val title = d.title.ifBlank { "⚠️ Safety check: are you OK?" }
         val body = (d.body.ifBlank { "Please confirm you are safe." }) +
             " SOS will be sent to your guardians automatically in ${d.promptSeconds} seconds."
-        val notification = NotificationCompat.Builder(context, NotificationChannels.SAFETY_CHECKS)
+        val channel = if (d.silent) NotificationChannels.SILENT_SAFETY_CHECKS else NotificationChannels.SAFETY_CHECKS
+        val notification = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setCategory(if (d.silent) NotificationCompat.CATEGORY_REMINDER else NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setOngoing(true)
             .setAutoCancel(true)

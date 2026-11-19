@@ -6,6 +6,7 @@ import '../screens/journey_tracking_screen.dart';
 import '../screens/followed_mode_screen.dart';
 import '../services/journey_service.dart';
 import '../services/pin_security_service.dart';
+import '../services/safety_deadline_service.dart' show followedCheckInterval;
 import 'pin_input_dialog.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
@@ -128,7 +129,7 @@ class ActiveJourneyCard extends StatelessWidget {
                       const SizedBox(height: 2),
                       Text(
                         isFollowed
-                            ? 'Tracking live • 10m check-ins active • Tap to open'
+                            ? 'Tracking live • check-in every ${followedCheckInterval.inMinutes} min'
                             : _formatEta(journey.expectedArrivalAt),
                         style: GoogleFonts.poppins(
                           fontSize: 11,
@@ -144,6 +145,9 @@ class ActiveJourneyCard extends StatelessWidget {
                 const Icon(Icons.chevron_right_rounded, color: AppColors.textSecondary),
               ],
             ),
+            // Followed Mode ends only on its own screen, behind the PIN (with duress support):
+            // a one-tap "I've Arrived" here would let someone else switch it off.
+            if (!isFollowed) ...[
             const SizedBox(height: 12),
 
             // Action Buttons: I've Arrived, +15m, Cancel
@@ -243,6 +247,7 @@ class ActiveJourneyCard extends StatelessWidget {
                 ),
               ],
             ),
+            ],
           ],
         ),
       ),

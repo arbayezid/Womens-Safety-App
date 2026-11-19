@@ -7,6 +7,7 @@ import '../services/app_permission_service.dart';
 import '../services/esp32_ble_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import 'ui/app_snack.dart';
 
 /// Bottom sheet dialog for Bluetooth device discovery, connection,
 /// and management for the ESP32 Women's Safety Smart Pendant.
@@ -162,7 +163,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
     });
 
     if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text(
             'Connected to ${device.platformName.isNotEmpty ? device.platformName : "ESP32"} successfully!',
@@ -503,38 +504,6 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             ),
           ),
           const SizedBox(height: 18),
-
-          // Test SOS Trigger button: a dry run of the packet parser, never a real SOS
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                final recognised = _bleService.runHardwareTestDryRun();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      recognised
-                          ? 'Pendant SOS received (test only, no alert sent)'
-                          : 'Pendant SOS packet not recognised',
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
-                    ),
-                    behavior: SnackBarBehavior.floating,
-                  ),
-                );
-              },
-              icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),
-              label: Text(
-                'Test hardware button',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.sosRed,
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
 
           // Disconnect & Forget Row
           Row(

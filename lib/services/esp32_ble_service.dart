@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
@@ -116,6 +117,11 @@ class SosPacketFilter {
 /// Central Service managing real Bluetooth Low Energy communication,
 /// adapter monitoring, device discovery, GATT characteristic listeners,
 /// and hardware SOS triggers from the ESP32 Women's Safety Smart Pendant.
+///
+/// On Android the connection itself lives in the native `PendantLinkService` (a foreground
+/// service), so it stays up when the app is closed, cleared from Recent apps or the phone is
+/// locked. This class then only scans (flutter_blue_plus), asks the service to connect /
+/// disconnect / forget, and mirrors its status. Other platforms keep the in-app connection.
 class Esp32BleService {
   Esp32BleService._internal();
 
@@ -154,6 +160,12 @@ class Esp32BleService {
   }
 
   final SosPacketFilter _packetFilter = SosPacketFilter();
+
+  /// Control channel of the native pendant link (Android only).
+  static const MethodChannel _pendantChannel = MethodChannel('com.smartsafety.smart_safety/pendant');
+
+  /// True when the native foreground service owns the pendant connection.
+  bool get _useNativeLink => !kIsWeb && Platform.isAndroid;
 
   /// True when the last connect attempt was refused because the device is not a pendant
   /// (no safety service) or its firmware exposes no supported SOS characteristic.
@@ -232,6 +244,11 @@ class Esp32BleService {
 
       if (_savedDeviceId != null) {
         debugPrint('[Esp32BleService] Found saved ESP32 device: $_savedDeviceName ($_savedDeviceId)');
+      }
+
+      if (_useNativeLink) {
+        await _initializeNativeLink();
+        return;
       }
 
       // 2. Monitor Bluetooth adapter hardware state changes (On / Off)
@@ -355,6 +372,7 @@ class Esp32BleService {
     BluetoothDevice? targetDevice,
     String? targetId,
   }) async {
+    if (_useNativeLink) return _connectNative(targetDevice: targetDevice, targetId: targetId);
     try {
       // 1. Check runtime permissions
       final hasPermission =
@@ -466,6 +484,156 @@ class Esp32BleService {
       _lastConnectError = _describeBleError(e);
       _handleDeviceDisconnected();
       return false;
+    }
+  }
+
+  // ── Native pendant link (Android) ─────────────────────────────────────────
+
+  /// Mirrors the native link's state and reconnects a pendant the user left connected.
+  Future<void> _initializeNativeLink() async {
+    _pendantChannel.setMethodCallHandler((call) async {
+      if (call.method == 'onState' && call.arguments is Map) {
+        _applyNativeState(Map<String, dynamic>.from(call.arguments as Map));
+      }
+      return null;
+    });
+
+    final state = await _invokeNative('getState');
+    if (state is! Map) return;
+    final map = Map<String, dynamic>.from(state);
+    _applyNativeState(map);
+    if (map['running'] == true) return; // already connected, or waiting for the pendant
+
+    if (!await AppPermissionService.instance.hasBluetoothPermission()) return;
+    final nativeSaved = map['savedAddress'] as String?;
+    if (nativeSaved != null) {
+      if (map['enabled'] == true) await _invokeNative('ensure');
+    } else if (_savedDeviceId != null) {
+      // Paired by an app version that kept the connection in Dart: move it to the native link.
+      debugPrint('[Esp32BleService] Moving saved pendant to the native link...');
+      unawaited(connectToDevice(targetId: _savedDeviceId));
+    }
+  }
+
+  void _applyNativeState(Map<String, dynamic> state) {
+    final status = switch (state['status']) {
+      'connected' => Esp32ConnectionStatus.connected,
+      'connecting' => Esp32ConnectionStatus.connecting,
+      'bluetoothDisabled' => Esp32ConnectionStatus.bluetoothDisabled,
+      'permissionDenied' => Esp32ConnectionStatus.permissionDenied,
+      _ => Esp32ConnectionStatus.disconnected,
+    };
+    // A scan started from the setup sheet keeps its own status until it ends.
+    final scanning = connectionStateNotifier.value == Esp32ConnectionStatus.scanning;
+    if (!scanning || status == Esp32ConnectionStatus.connected) {
+      connectionStateNotifier.value = status;
+    }
+
+    final battery = state['battery'];
+    if (battery is int && battery >= 0) batteryLevelNotifier.value = battery.clamp(0, 100);
+    final rssi = state['rssi'];
+    if (rssi is int && rssi != 0) rssiNotifier.value = rssi;
+
+    final savedAddress = state['savedAddress'] as String?;
+    final savedName = state['savedName'] as String?;
+    if (savedAddress != null && savedAddress != _savedDeviceId) {
+      unawaited(_savePairedDevice(savedAddress, savedName ?? _savedDeviceName ?? 'ESP32 Smart Device'));
+    }
+
+    final name = state['name'] as String?;
+    final address = state['address'] as String?;
+    final current = deviceStateNotifier.value;
+    deviceStateNotifier.value = current.copyWith(
+      deviceName: (name != null && name.isNotEmpty) ? name : null,
+      deviceAddress: address,
+      batteryLevel: batteryLevelNotifier.value,
+      rssi: rssiNotifier.value,
+      isButtonArmed: status == Esp32ConnectionStatus.connected,
+      lastSeen: status == Esp32ConnectionStatus.connected ? DateTime.now() : current.lastSeen,
+    );
+  }
+
+  Future<dynamic> _invokeNative(String method, [Map<String, dynamic>? args]) async {
+    try {
+      return await _pendantChannel.invokeMethod<dynamic>(method, args);
+    } on MissingPluginException {
+      return null;
+    } catch (e) {
+      debugPrint('[Esp32BleService] Pendant link $method failed: $e');
+      return null;
+    }
+  }
+
+  /// Asks the native pendant link to connect and waits for the outcome. The service keeps the
+  /// connection afterwards, whatever happens to the app.
+  Future<bool> _connectNative({BluetoothDevice? targetDevice, String? targetId}) async {
+    final hasPermission = await AppPermissionService.instance.checkAndRequestBluetoothPermissions();
+    if (!hasPermission) {
+      connectionStateNotifier.value = Esp32ConnectionStatus.permissionDenied;
+      return false;
+    }
+    if (!isBluetoothOn) {
+      connectionStateNotifier.value = Esp32ConnectionStatus.bluetoothDisabled;
+      return false;
+    }
+
+    final id = targetDevice?.remoteId.str ?? targetId ?? _savedDeviceId;
+    if (id == null || id.isEmpty) {
+      debugPrint('[Esp32BleService] No target device or saved ID provided for connect.');
+      return false;
+    }
+    final scannedName = targetDevice?.platformName ?? '';
+    final name = scannedName.isNotEmpty ? scannedName : (id == _savedDeviceId ? _savedDeviceName ?? '' : '');
+
+    if (FlutterBluePlus.isScanningNow) {
+      try {
+        await FlutterBluePlus.stopScan();
+      } catch (_) {}
+    }
+    _lastConnectUnsupported = false;
+    _lastConnectError = null;
+    connectionStateNotifier.value = Esp32ConnectionStatus.connecting;
+    debugPrint('[Esp32BleService] Asking pendant link to connect to $id ($name)...');
+
+    dynamic response;
+    try {
+      // Up to 3 attempts of 15 s plus service discovery happen natively.
+      response = await _pendantChannel
+          .invokeMethod<dynamic>('connect', {'address': id, 'name': name})
+          .timeout(const Duration(seconds: 90));
+    } on TimeoutException {
+      _lastConnectError = 'connection timed out';
+    } catch (e) {
+      _lastConnectError = _describeBleError(e);
+    }
+    final map = response is Map ? Map<String, dynamic>.from(response) : const <String, dynamic>{};
+    final result = map['result'] as String?;
+    final error = map['error'] as String?;
+
+    switch (result) {
+      case 'connected':
+        final state = await _invokeNative('getState');
+        final nativeName = state is Map ? state['name'] as String? : null;
+        await _savePairedDevice(
+          id,
+          (nativeName != null && nativeName.isNotEmpty) ? nativeName : (name.isNotEmpty ? name : 'ESP32 Smart Device'),
+        );
+        connectionStateNotifier.value = Esp32ConnectionStatus.connected;
+        debugPrint('[Esp32BleService] ESP32 connected through the native pendant link.');
+        return true;
+      case 'notPendant':
+      case 'unsupportedFirmware':
+        debugPrint('[Esp32BleService] Device $id refused as pendant: $result');
+        _lastConnectUnsupported = true;
+        if (result == 'notPendant' && id == _savedDeviceId) await forgetDevice();
+        return false;
+      default:
+        _lastConnectError ??= error ?? 'connection failed';
+        debugPrint('[Esp32BleService] Pendant link connect failed: $_lastConnectError');
+        // The native link reports the real state (e.g. still waiting for a saved pendant).
+        final state = await _invokeNative('getState');
+        if (state is Map) _applyNativeState(Map<String, dynamic>.from(state));
+        return false;
     }
   }
 
@@ -587,8 +755,16 @@ class Esp32BleService {
     }
   }
 
-  /// Disconnects from the current ESP32 device cleanly.
+  /// Disconnects from the current ESP32 device cleanly. On Android this also stops the pendant
+  /// link from reconnecting until the user connects again.
   Future<void> disconnect() async {
+    if (_useNativeLink) {
+      await _invokeNative('disconnect');
+      connectionStateNotifier.value =
+          isBluetoothOn ? Esp32ConnectionStatus.disconnected : Esp32ConnectionStatus.bluetoothDisabled;
+      debugPrint('[Esp32BleService] Pendant link stopped by the user.');
+      return;
+    }
     _packetFilter.onDisconnected();
     try {
       _telemetryTimer?.cancel();
@@ -615,7 +791,13 @@ class Esp32BleService {
 
   /// Forgets the paired device and clears persistent storage.
   Future<void> forgetDevice() async {
-    await disconnect();
+    if (_useNativeLink) {
+      await _invokeNative('forget');
+      connectionStateNotifier.value =
+          isBluetoothOn ? Esp32ConnectionStatus.disconnected : Esp32ConnectionStatus.bluetoothDisabled;
+    } else {
+      await disconnect();
+    }
     _savedDeviceId = null;
     _savedDeviceName = null;
     final prefs = await SharedPreferences.getInstance();
@@ -660,11 +842,12 @@ class Esp32BleService {
   /// Processes an incoming hardware button press from the ESP32 Smart Pendant.
   /// Fires immediately: BLE callbacks already arrive on the Dart main isolate, and deferring to
   /// a post-frame callback would queue triggers until the app is next drawn.
+  /// Sends the SOS only; the loud siren stays off (the user starts it from the app if wanted).
   void handleHardwareSosTrigger({String reason = 'ESP32 Hardware Button'}) {
     debugPrint('[Esp32BleService] HARDWARE SOS: $reason');
     HapticFeedback.heavyImpact();
     unawaited(EmergencyService.instance
-        .triggerEmergency(source: 'ESP32 Hardware', origin: SosOrigin.manual, playSiren: true)
+        .triggerEmergency(source: 'ESP32 Hardware', origin: SosOrigin.manual)
         .catchError((Object e) {
       debugPrint('[Esp32BleService] Hardware SOS failed: $e');
       return EmergencyResult(isSuccess: false, message: '$e');

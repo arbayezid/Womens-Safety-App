@@ -23,6 +23,7 @@ import 'guardian_alert_service.dart';
 import 'journey_guardian_alerts.dart';
 import 'navigation_service.dart';
 import 'siren_service.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// Top-level background notification action handler for flutter_local_notifications.
 @pragma('vm:entry-point')
@@ -432,6 +433,17 @@ class NotificationService {
           enableVibration: true,
         );
 
+        // Followed Mode check-ins: vibration only (matches the native channel)
+        final AndroidNotificationChannel silentSafetyCheckChannel = AndroidNotificationChannel(
+          silentSafetyCheckChannelId,
+          'Followed Mode Check-ins',
+          description: 'Silent check-ins while Followed Mode is on. Vibrates only, so nobody nearby hears it.',
+          importance: Importance.max,
+          playSound: false,
+          enableVibration: true,
+          vibrationPattern: Int64List.fromList([0, 400, 250, 400, 250, 400]),
+        );
+
         // High-Importance Android Notification Channel for Ride Safety Alerts
         final AndroidNotificationChannel rideSafetyAlertsChannel = AndroidNotificationChannel(
           'ride_safety_alerts_channel_v2',
@@ -458,6 +470,7 @@ class NotificationService {
         if (androidPlugin != null) {
           await androidPlugin.createNotificationChannel(sosChannelV2);
           await androidPlugin.createNotificationChannel(safetyCheckChannel);
+          await androidPlugin.createNotificationChannel(silentSafetyCheckChannel);
           await androidPlugin.createNotificationChannel(rideSafetyAlertsChannel);
           await androidPlugin.createNotificationChannel(rideCheckinChannel);
           await androidPlugin.requestNotificationsPermission();
@@ -1297,29 +1310,49 @@ class NotificationService {
   /// Notification ID reserved for Safe Journey Dead-Man's safety check
   static const int safetyCheckNotificationId = 999;
 
-  /// Shows a high-priority safety check local notification with sound and vibration
+  /// Followed Mode check-ins: vibration only, so someone following the user cannot hear them.
+  /// Same channel the native prompt uses (NotificationChannels.SILENT_SAFETY_CHECKS).
+  static const String silentSafetyCheckChannelId = 'followed_mode_checks_channel';
+
+  /// Shows a high-priority safety check local notification with sound and vibration.
+  /// [silent] (Followed Mode) vibrates without any sound.
   Future<void> showSafetyCheckNotification({
     required int secondsRemaining,
     required String reason,
+    bool silent = false,
   }) async {
-    const androidDetails = AndroidNotificationDetails(
-      'safety_check_channel',
-      'Safe Journey Safety Checks',
-      channelDescription: 'High-priority check-in prompts before auto-dispatching emergency SOS.',
-      importance: Importance.max,
-      priority: Priority.high,
-      fullScreenIntent: true,
-      category: AndroidNotificationCategory.alarm,
-      ticker: 'Safety Check Alert',
-      ongoing: true,
-    );
-    const iosDetails = DarwinNotificationDetails(
+    final androidDetails = silent
+        ? AndroidNotificationDetails(
+            silentSafetyCheckChannelId,
+            'Followed Mode Check-ins',
+            channelDescription: 'Silent check-ins while Followed Mode is on. Vibrates only, so nobody nearby hears it.',
+            importance: Importance.max,
+            priority: Priority.high,
+            fullScreenIntent: true,
+            category: AndroidNotificationCategory.reminder,
+            playSound: false,
+            enableVibration: true,
+            vibrationPattern: Int64List.fromList([0, 400, 250, 400, 250, 400]),
+            ongoing: true,
+          )
+        : const AndroidNotificationDetails(
+            'safety_check_channel',
+            'Safe Journey Safety Checks',
+            channelDescription: 'High-priority check-in prompts before auto-dispatching emergency SOS.',
+            importance: Importance.max,
+            priority: Priority.high,
+            fullScreenIntent: true,
+            category: AndroidNotificationCategory.alarm,
+            ticker: 'Safety Check Alert',
+            ongoing: true,
+          );
+    final iosDetails = DarwinNotificationDetails(
       presentAlert: true,
       presentBadge: true,
-      presentSound: true,
+      presentSound: !silent,
       interruptionLevel: InterruptionLevel.timeSensitive,
     );
-    const details = NotificationDetails(android: androidDetails, iOS: iosDetails);
+    final details = NotificationDetails(android: androidDetails, iOS: iosDetails);
 
     await _localNotifications.show(
       safetyCheckNotificationId,
@@ -1642,7 +1675,7 @@ class NotificationService {
     if (context == null || !context.mounted) return;
 
     if (status == 'active') {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           duration: const Duration(seconds: 8),
           behavior: SnackBarBehavior.floating,
@@ -1686,6 +1719,7 @@ class NotificationService {
               ),
             ],
           ),
+          persist: false,
           action: SnackBarAction(
             label: 'TRACK LIVE',
             textColor: const Color(0xFF38BDF8),
@@ -1700,7 +1734,7 @@ class NotificationService {
         ),
       );
     } else if (status == 'arrived') {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           duration: const Duration(seconds: 6),
           behavior: SnackBarBehavior.floating,
@@ -1742,6 +1776,7 @@ class NotificationService {
               ),
             ],
           ),
+          persist: false,
           action: SnackBarAction(
             label: 'VIEW',
             textColor: Colors.white,

@@ -32,6 +32,9 @@ object NotificationChannels {
     /** The sender's own "are you safe?" check when a safety timer runs out while the app is closed. */
     const val SAFETY_CHECKS = "safety_deadline_checks_channel"
 
+    /** Same check for Followed Mode: vibration only, so the person following cannot hear it. */
+    const val SILENT_SAFETY_CHECKS = "followed_mode_checks_channel"
+
     /** Incoming ride check-in alerts from protected contacts. */
     const val RIDE_ALERTS = "ride_safety_alerts_channel_v2"
 
@@ -92,6 +95,16 @@ object NotificationChannels {
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 600, 300, 600, 300, 600)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(SILENT_SAFETY_CHECKS, "Followed Mode Check-ins", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Silent check-ins while Followed Mode is on. Vibrates only, so nobody nearby hears it."
+                setSound(null, null)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 400, 250, 400, 250, 400)
+                lockscreenVisibility = Notification.VISIBILITY_PRIVATE
             }
         )
 

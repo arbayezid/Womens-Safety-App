@@ -38,11 +38,26 @@ object DeadlineDartRunner {
         if (!headlessReady) {
             Log.e(TAG, "Headless Dart engine did not become ready; giving up on ${pending.size} call(s)")
             failPending()
-            destroyHeadless()
+            tearDownHeadless()
         }
     }
 
-    fun run(context: Context, method: String, args: Map<String, Any?>, onDone: (Any?) -> Unit) {
+    /**
+     * Calls not answered yet. Several native callers share the headless engine (safety deadlines,
+     * the pendant SOS), so it is only destroyed once none of them is waiting.
+     */
+    private var inFlight = 0
+
+    fun run(context: Context, method: String, args: Map<String, Any?>, done: (Any?) -> Unit) {
+        inFlight++
+        var answered = false
+        val onDone: (Any?) -> Unit = { result ->
+            if (!answered) {
+                answered = true
+                inFlight = (inFlight - 1).coerceAtLeast(0)
+                done(result)
+            }
+        }
         val main = mainMessenger
         if (main != null) {
             MethodChannel(main, AppChannels.DEADLINE).invokeMethod(method, args, object : MethodChannel.Result {
@@ -100,7 +115,7 @@ object DeadlineDartRunner {
         } catch (e: Exception) {
             Log.e(TAG, "Could not start headless Dart engine", e)
             failPending()
-            destroyHeadless()
+            tearDownHeadless()
         }
     }
 
@@ -126,8 +141,17 @@ object DeadlineDartRunner {
         calls.forEach { it.onDone(null) }
     }
 
-    /** Releases the headless engine once no deadline work is running. */
+    /** Releases the headless engine once no deadline or pendant work is running. */
     fun destroyHeadless() {
+        if (inFlight > 0) {
+            Log.i(TAG, "Headless engine kept: $inFlight call(s) still running")
+            return
+        }
+        tearDownHeadless()
+    }
+
+    /** Destroys the headless engine unconditionally (it failed to start or never became ready). */
+    private fun tearDownHeadless() {
         handler.removeCallbacks(readyTimeout)
         headlessChannel?.setMethodCallHandler(null)
         headlessChannel = null

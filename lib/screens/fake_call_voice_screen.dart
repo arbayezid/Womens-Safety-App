@@ -13,6 +13,7 @@ import '../models/fake_caller.dart';
 import '../services/fake_call_settings_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// "Record my own caller voice": one clip per caller, recorded with the microphone and kept on
 /// this phone only. A recording overrides the bundled clip and the voice language for that caller.
@@ -77,9 +78,8 @@ class _FakeCallVoiceScreenState extends State<FakeCallVoiceScreen> {
 
   void _snack(String message, {SnackBarAction? action}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating, action: action),
+    AppSnack.showBar(context,
+      SnackBar(content: Text(message), behavior: SnackBarBehavior.floating, action: action, persist: false),
     );
   }
 

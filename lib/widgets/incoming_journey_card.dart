@@ -55,10 +55,15 @@ class IncomingJourneyCard extends StatelessWidget {
       background = const Color(0xFFFFF1F0);
       chipBackground = AppColors.sosOuterRing;
       icon = Icons.warning_amber_rounded;
+      final sosSent = (journey.linkedSosAlertId ?? '').isNotEmpty;
       label = 'PROTECTED CONTACT NEEDS CHECKING';
-      chip = 'Alert';
-      headline = isFollowed ? 'Followed Mode check-in missed' : 'Missed a safety check';
-      detail = 'Track their live location now';
+      chip = sosSent ? 'SOS' : 'Alert';
+      headline = sosSent
+          ? (isFollowed ? 'Sent an SOS while being followed' : 'Sent an SOS on a Safe Journey')
+          : (isFollowed ? 'Followed Mode check-in missed' : 'Missed a safety check');
+      detail = journey.linkedSosDuress
+          ? "Silent alert: don't call. Track their location"
+          : 'Track their live location now';
     } else if (isFollowed) {
       accent = AppColors.actionOrange;
       background = AppColors.tintPeach;
@@ -83,7 +88,8 @@ class IncomingJourneyCard extends StatelessWidget {
           : 'ETA in ${formatMinutes(diff.inMinutes, suffix: 'm')} • ${_clock(eta)}';
     }
 
-    final phone = journey.ownerPhone?.trim() ?? '';
+    // No call button after a duress SOS: a ringing phone could warn whoever is with them
+    final phone = journey.linkedSosDuress ? '' : (journey.ownerPhone?.trim() ?? '');
     final status = [
       if (journey.batteryLevel != null) 'Battery ${journey.batteryLevel}%',
       'Updated ${_ago(journey.lastUpdatedAt, now)}',

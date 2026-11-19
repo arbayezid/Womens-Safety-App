@@ -44,8 +44,10 @@ bool isJourneyLiveForGuardian({
   final startedAt = _date(data['startedAt']);
   final updatedAt = _date(data['lastUpdatedAt']) ?? startedAt;
   bool within(DateTime? t, Duration window) => t != null && now.difference(t).abs() <= window;
+  // Followed Mode runs as long as the user keeps checking in: judge it by its last update
+  final followed = data['mode']?.toString() == 'followed';
   return switch (status) {
-    'active' => within(startedAt, journeyStartedWindow),
+    'active' => within(followed ? updatedAt : startedAt, journeyStartedWindow),
     'alert' => within(updatedAt, journeyAlertWindow),
     _ => false,
   };
@@ -97,14 +99,16 @@ JourneyGuardianEvent? journeyGuardianEvent({
       if (!within(updatedAt, journeyEndedWindow)) return null;
       return JourneyGuardianEvent(
         key: key,
-        title: '$name arrived safely',
-        body: followed ? 'Followed Mode has ended safely.' : 'They reached $destLabel.',
+        title: followed ? '$name is safe' : '$name arrived safely',
+        body: followed ? 'Followed Mode has ended.' : 'They reached $destLabel.',
       );
     case 'alert':
+      // Taken over by an SOS: the SOS alert itself already reached this guardian
+      if ((data['linkedSosAlertId']?.toString() ?? '').isNotEmpty) return null;
       if (!within(updatedAt, journeyAlertWindow)) return null;
       return JourneyGuardianEvent(
         key: key,
-        title: '$name\'s Safe Journey raised an alert',
+        title: followed ? '$name missed a Followed Mode check-in' : '$name\'s Safe Journey raised an alert',
         body: 'A safety check went unanswered. Tap to see their live location.',
       );
     case 'cancelled':

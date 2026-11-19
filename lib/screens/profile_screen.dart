@@ -256,7 +256,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     : (email ??
                         (isAuth
                             ? '+880 1XXXXXXX'
-                            : 'Explore Mode • Not logged in')),
+                            : 'Not logged in')),
                 style: GoogleFonts.poppins(
                     fontSize: 13,
                     color: Colors.white.withValues(alpha: 0.85))),
@@ -369,16 +369,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         value: contactsCount.toString(),
         label: 'Contacts',
         icon: Icons.group_rounded,
-        onTap: () {
-          // Switch tab or notify
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('$contactsCount emergency ${contactsCount == 1 ? 'contact' : 'contacts'}.'),
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        },
       ),
       _StatItem(
         value: alertCount.toString(),
@@ -392,15 +382,6 @@ class _ProfileScreenState extends State<ProfileScreen>
         value: '$safeScore%',
         label: 'Profile',
         icon: Icons.shield_rounded,
-        onTap: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Your profile is $safeScore% complete.'),
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 2),
-            ),
-          );
-        },
       ),
     ];
 
@@ -597,7 +578,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                   onTap: () async {
                     final res = await AuthService.instance.signInWithGoogle();
                     if (res.isSuccess && mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
+                      AppSnack.showBar(context,
                         const SnackBar(
                           content: SnackContent('Signed in with Google.', tone: UiTone.success),
                           backgroundColor: AppColors.successForeground,
@@ -663,7 +644,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               Navigator.pop(context);
               await AuthService.instance.signOut();
               if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
+              AppSnack.showBar(context,
                 const SnackBar(
                   content: Text('Logged out. Switched to Guest Mode.'),
                   backgroundColor: AppColors.textPrimary,
@@ -902,7 +883,7 @@ class _ProfileScreenState extends State<ProfileScreen>
               Navigator.pop(context);
               await ActivityService.instance.clearHistory();
               if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
+              AppSnack.showBar(context,
                 const SnackBar(
                   content: Text('Routine activity cleared. SOS records were kept.'),
                   backgroundColor: AppColors.textPrimary,
@@ -1052,7 +1033,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
       if (!mounted) return;
       if (!claim.isClaimed) {
         setState(() => _isSaving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text(claim.message),
             backgroundColor: AppColors.sosRed,
@@ -1081,7 +1062,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
 
     if (success) {
       Navigator.pop(context);
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         const SnackBar(
           content: SnackContent('Profile saved.', tone: UiTone.success),
           backgroundColor: AppColors.successForeground,
@@ -1089,7 +1070,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
         ),
       );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         const SnackBar(
           content: Text('Failed to update profile. Please try again.'),
           backgroundColor: AppColors.sosRed,

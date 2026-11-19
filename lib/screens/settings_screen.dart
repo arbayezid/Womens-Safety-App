@@ -24,6 +24,7 @@ import 'fake_call_voice_screen.dart';
 import 'profile_screen.dart';
 import 'sos_history_screen.dart';
 import 'ride_history_screen.dart';
+import 'user_manual_screen.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
 import '../widgets/ui/app_snack.dart';
@@ -362,7 +363,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       if (set == true) {
                         await _loadSettings();
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        AppSnack.showBar(context,
                           const SnackBar(
                             content: SnackContent('PIN saved.', tone: UiTone.success),
                             behavior: SnackBarBehavior.floating,
@@ -385,7 +386,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       if (set == true) {
                         await _loadSettings();
                         if (!context.mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        AppSnack.showBar(context,
                           const SnackBar(
                             content: SnackContent('Duress PIN saved.', tone: UiTone.success),
                             behavior: SnackBarBehavior.floating,
@@ -425,7 +426,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     subtitle: 'Test disguised calculator screen (Exit: Real PIN + =)',
                     onTap: () async {
                       if (!_hasRealPin) {
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        AppSnack.showBar(context,
                           SnackBar(
                             content: Text(
                               'Please set up your Security PIN first to test Camouflage mode.',
@@ -506,6 +507,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
               _buildSection(
                 title: 'App',
                 items: [
+                  _buildNavItem(
+                    icon: Icons.menu_book_rounded,
+                    iconColor: AppColors.primary,
+                    iconBg: AppColors.primarySurface,
+                    label: 'User manual',
+                    subtitle: 'How every feature works',
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const UserManualScreen()),
+                    ),
+                  ),
                   _buildNavItem(
                     icon: Icons.lock_rounded,
                     iconColor: AppColors.actionBlue,
@@ -844,7 +855,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final res = await AuthService.instance.signInWithGoogle();
     if (!mounted) return;
     if (res.isSuccess) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         const SnackBar(
           content: SnackContent('Signed in with Google.', tone: UiTone.success),
           backgroundColor: AppColors.successForeground,
@@ -852,7 +863,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     } else if (!res.isCancelled && res.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text(res.errorMessage!),
           backgroundColor: AppColors.sosRed,
@@ -993,7 +1004,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             _buildPrivacyBullet(
               title: 'Your location',
-              desc: 'Shared with your guardians during an SOS, Safe Journey, ride check-in or Followed Mode. The home screen also shows where you are.',
+              desc: 'Shared with your guardians during an SOS, Safe Journey, ride check-in or Followed Mode.',
             ),
             const SizedBox(height: 10),
             _buildPrivacyBullet(
@@ -1075,9 +1086,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 6),
             Text('Version 1.0.0 • Final Year Project',
                 style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary)),
-            const SizedBox(height: 12),
-            Text('Designed with real-time mutual cloud sync, offline SMS redundancy, BLE hardware pendant integration, and emergency audio sirens.',
-                style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.4)),
           ],
         ),
         actions: [
@@ -1119,7 +1127,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               Navigator.pop(context);
               await AuthService.instance.signOut();
               if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
+              AppSnack.showBar(context,
                 const SnackBar(
                   content: Text('Logged out. Switched to Guest Mode.'),
                   backgroundColor: AppColors.textPrimary,

@@ -17,6 +17,7 @@ import 'plate_crop_screen.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// Screen guiding the user through recording ride details, vehicle plate capture/OCR,
 /// driver info, expected ETA, and notifying trusted guardians.
@@ -207,7 +208,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
       debugPrint('[RideCheckin] Plate photo error: $e');
       if (mounted) {
         setState(() => _isOcrReading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text('Camera access error. You can enter details manually below.', style: GoogleFonts.poppins()),
             backgroundColor: AppColors.actionOrange,
@@ -430,10 +431,11 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
 
   Future<void> _handleStartRide() async {
     if (_allContacts.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('No emergency contacts available. Please add contacts first.', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,
+          persist: false,
           action: SnackBarAction(
             label: 'Add Contacts',
             textColor: Colors.white,
@@ -449,7 +451,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
     }
 
     if (_selectedGuardianIds.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Please select at least one guardian to notify.', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,
@@ -460,7 +462,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
 
     final formatted = _computedPlateFormatted;
     if (_isCustomPlateFormat && _customPlateController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Please enter the vehicle plate number.', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,
@@ -473,7 +475,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
     final serialDigits = BdPlateConstants.normalizeDigits(_serialController.text.trim());
     if (!_isCustomPlateFormat &&
         (!RegExp(r'^\d{2}$').hasMatch(classDigits) || !RegExp(r'^\d{4}$').hasMatch(serialDigits))) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Please enter the 2-digit class and 4-digit serial numbers.', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,
@@ -483,7 +485,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
     }
 
     if (!_isCustomPlateFormat && _ocrFilledPlate && !_plateConfirmed) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text(
             'Please compare the vehicle number with the photo and tick “Number matches the plate”.',
@@ -557,7 +559,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Failed to start Ride Check-in: $e', style: GoogleFonts.poppins()),
           backgroundColor: AppColors.sosRed,

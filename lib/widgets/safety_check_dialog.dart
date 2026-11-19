@@ -85,6 +85,8 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
           final isUrgent = seconds <= 15;
           // Past the ETA: "I'm safe" ends the journey; "+15m" keeps it going
           final safeEndsJourney = JourneyService.instance.confirmSafeEndsJourney;
+          // Followed Mode has no arrival time to extend
+          final isFollowedCheck = liveState.trigger.type == JourneySafetyTriggerType.followedCheck;
 
           return Dialog(
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
@@ -210,6 +212,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                   // Actions row: Extend Time & Immediate SOS
                   Row(
                     children: [
+                      if (!isFollowedCheck) ...[
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () async {
@@ -234,6 +237,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                         ),
                       ),
                       const SizedBox(width: 8),
+                      ],
                       Expanded(
                         child: ElevatedButton(
                           onPressed: () async {

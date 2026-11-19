@@ -9,6 +9,7 @@ import '../core/app_colors.dart';
 import '../models/fake_caller.dart';
 import '../models/journey_model.dart';
 import '../models/safe_zone_model.dart';
+import '../services/auth_service.dart';
 import '../services/emergency_service.dart';
 import '../services/fake_call_settings_service.dart';
 import '../services/journey_service.dart';
@@ -17,6 +18,7 @@ import '../services/location_service.dart';
 import '../services/navigation_service.dart';
 import '../services/pin_security_service.dart';
 import '../services/safe_zone_repository.dart';
+import '../services/safety_deadline_service.dart' show followedCheckInterval;
 import '../services/siren_service.dart';
 import '../widgets/fake_call_caller_sheet.dart';
 import '../widgets/fake_call_dialog.dart';
@@ -26,11 +28,19 @@ import '../core/app_text.dart';
 import '../widgets/ui/app_snack.dart';
 import '../widgets/ui/ui_tone.dart';
 
-/// Active command interface for "I'm Being Followed" Mode.
+/// "Rahim is watching your location", or that guardians were alerted and none has opened it yet.
+String followedWatchersHeadline(List<String> names) {
+  if (names.isEmpty) return 'Guardians alerted. Waiting for one to open your location';
+  if (names.length == 1) return '${names.first} is watching your location';
+  if (names.length == 2) return '${names[0]} and ${names[1]} are watching your location';
+  return '${names.first} and ${names.length - 1} others are watching your location';
+}
+
+/// Screen for "I'm Being Followed" Mode.
 ///
-/// Provides rapid turn-by-turn navigation to the nearest police station,
-/// instant and scheduled fake call deterrence, loud siren toggle,
-/// one-tap manual SOS escalation, and duress-aware safety resolution.
+/// Shows which guardians are watching, the next silent check-in, the nearest police station,
+/// fake call and siren tools, SOS, and "I'm safe" behind the PIN (the duress PIN sends a
+/// silent SOS and switches to the calculator instead of ending it).
 class FollowedModeScreen extends StatefulWidget {
   const FollowedModeScreen({super.key});
 
@@ -162,7 +172,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     HapticFeedback.mediumImpact();
     setState(() => _fakeCallCountdown = 30);
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: SnackContent(
           'Fake call in 30 seconds.', tone: UiTone.info, icon: Icons.phone_in_talk_rounded,
@@ -198,7 +208,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     if (!mounted) return;
     setState(() => _isSirenActive = isNowPlaying);
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: SnackContent(
           isNowPlaying ? 'Siren on' : 'Siren off', tone: UiTone.warning, icon: isNowPlaying ? Icons.volume_up_rounded : Icons.volume_off_rounded,
@@ -258,12 +268,13 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
       await EmergencyService.instance.triggerEmergency(
         source: 'FOLLOWED_SOS',
         origin: SosOrigin.manual,
-        customMessage: 'EMERGENCY: User activated Followed Mode and pressed Emergency SOS! Immediate response needed.',
+        customMessage:
+            'EMERGENCY: ${AuthService.instance.displayName} pressed SOS while being followed. Immediate help needed.',
         linkedJourneyId: activeJourney?.id,
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: SnackContent(
             'SOS sent to your guardians.', tone: UiTone.critical,
@@ -309,7 +320,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
             ],
           ),
           content: Text(
-            'Confirming safety will end Followed Mode, stop live GPS broadcasting, and inform your guardians that you are safe.',
+            'This ends Followed Mode, stops sharing your location and tells your guardians you are safe.',
             style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
           ),
           actions: [
@@ -336,10 +347,15 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
     HapticFeedback.heavyImpact();
 
     try {
-      await JourneyService.instance.completeJourney();
+      if (EmergencyService.instance.activeAlertId != null) {
+        // An SOS took Followed Mode over: resolving it ends Followed Mode as well
+        await EmergencyService.instance.markSafe();
+      } else {
+        await JourneyService.instance.completeJourney();
+      }
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: SnackContent(
             "Followed mode ended. Your guardians know you're safe.", tone: UiTone.success,
@@ -445,47 +461,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                 MediaQuery.of(context).padding.bottom + 32,
               ),
               children: [
-              // 1. Prominent Warning & Status Card
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: AppColors.tintPeach,
-                  borderRadius: BorderRadius.circular(AppRadius.lg),
-                  border: Border.all(color: AppColors.actionOrange.withValues(alpha: 0.4), width: 1.5),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: const BoxDecoration(
-                        color: AppColors.actionOrange,
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.radar_rounded, color: Colors.white, size: 20),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Guardians are following your location',
-                            style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.deepOrange.shade800),
-                          ),
-                          Text(
-                            "We'll check on you every 10 minutes. If you don't answer, SOS is sent.",
-                            style: GoogleFonts.poppins(
-                              fontSize: 11,
-                              color: AppColors.textPrimary,
-                              height: 1.35,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
+              // 1. Status: who is watching, next silent check-in
+              _buildStatusCard(journey),
 
               const SizedBox(height: 16),
 
@@ -512,6 +489,87 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
         ),
       );
       },
+    );
+  }
+
+  String _nextCheckIn(JourneyModel journey) {
+    final due = (journey.lastSafetyCheckAt ?? journey.startedAt).add(followedCheckInterval);
+    final left = due.difference(DateTime.now());
+    if (left.isNegative || left.inSeconds == 0) return 'Check-in due now';
+    final m = left.inMinutes;
+    final s = (left.inSeconds % 60).toString().padLeft(2, '0');
+    return 'Next silent check-in in $m:$s';
+  }
+
+  Widget _buildStatusCard(JourneyModel? journey) {
+    final names = journey?.watcherNames ?? const <String>[];
+    final inSos = journey?.status == JourneyStatus.alert;
+
+    final String headline;
+    final String detail;
+    if (inSos) {
+      headline = 'SOS sent. Guardians can see your live location';
+      detail = 'Check-ins are paused while the SOS is on.';
+    } else {
+      headline = followedWatchersHeadline(names);
+      detail = journey == null
+          ? 'Silent check-in every ${followedCheckInterval.inMinutes} minutes.'
+          : "${_nextCheckIn(journey)}. If you don't answer within 60 seconds, SOS is sent.";
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: inSos ? AppColors.tintRed : AppColors.tintPeach,
+        borderRadius: BorderRadius.circular(AppRadius.lg),
+        border: Border.all(
+          color: (inSos ? AppColors.sosRed : AppColors.actionOrange).withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: inSos ? AppColors.sosRed : AppColors.actionOrange,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              inSos
+                  ? Icons.emergency_rounded
+                  : (names.isEmpty ? Icons.radar_rounded : Icons.visibility_rounded),
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  headline,
+                  style: GoogleFonts.poppins(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: inSos ? AppColors.sosRed : Colors.deepOrange.shade800,
+                  ),
+                ),
+                Text(
+                  detail,
+                  style: GoogleFonts.poppins(
+                    fontSize: 11,
+                    color: AppColors.textPrimary,
+                    height: 1.35,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

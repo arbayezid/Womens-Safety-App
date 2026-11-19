@@ -15,6 +15,7 @@ import '../screens/background_reliability_screen.dart';
 import 'auth_service.dart';
 import 'contact_service.dart';
 import 'emergency_service.dart';
+import 'esp32_ble_service.dart';
 import 'journey_service.dart';
 import 'notification_service.dart';
 import 'ride_checkin_service.dart';
@@ -37,12 +38,15 @@ const Duration deadlineBackstopOffset = Duration(seconds: 45);
 /// SOS stage timers already run in-app; the native copy fires this much later.
 const Duration sosStageBackstopOffset = Duration(seconds: 30);
 
+/// How often Followed Mode asks "are you OK?". Being followed is urgent, so this is short.
+const Duration followedCheckInterval = Duration(minutes: 5);
+
 String journeyDeadlineId(String journeyId) => 'journey_$journeyId';
 String rideDeadlineId(String rideId) => 'ride_$rideId';
 String sosStageDeadlineId(String alertId, int stage) => 'sos${stage}_$alertId';
 
 /// When the next time-based journey check is due (mirrors JourneyService's in-app rules):
-/// Followed Mode every 10 min since the last check-in; Safe Journey 5 min after the ETA, and never
+/// Followed Mode every [followedCheckInterval] since the last check-in; Safe Journey 5 min after the ETA, and never
 /// sooner than 10 min after the last confirmed check (the in-app cooldown).
 DateTime nextJourneyCheckAt({
   required bool followed,
@@ -51,7 +55,7 @@ DateTime nextJourneyCheckAt({
   DateTime? lastSafetyCheckAt,
 }) {
   if (followed) {
-    return (lastSafetyCheckAt ?? startedAt).add(const Duration(minutes: 10)).add(deadlineBackstopOffset);
+    return (lastSafetyCheckAt ?? startedAt).add(followedCheckInterval).add(deadlineBackstopOffset);
   }
   final afterEta = expectedArrivalAt.add(const Duration(minutes: 5));
   final afterLastCheck = lastSafetyCheckAt?.add(const Duration(minutes: 10));
@@ -84,6 +88,9 @@ class SafetyDeadline {
   /// (Safe Journey arrival check, see JourneyService.shouldEndJourneyOnSafeConfirm).
   final bool endOnSafe;
 
+  /// Prompt without sound (vibration only), so someone nearby does not hear it (Followed Mode).
+  final bool silent;
+
   const SafetyDeadline({
     required this.id,
     required this.kind,
@@ -95,6 +102,7 @@ class SafetyDeadline {
     this.title = '',
     this.body = '',
     this.endOnSafe = false,
+    this.silent = false,
   });
 
   Map<String, dynamic> toArgs({bool replace = false}) => {
@@ -108,6 +116,7 @@ class SafetyDeadline {
         'title': title,
         'body': body,
         'endOnSafe': endOnSafe,
+        'silent': silent,
         'replace': replace,
       };
 
@@ -118,6 +127,7 @@ class SafetyDeadline {
         'fireAt': Timestamp.fromDate(fireAt),
         'direct': direct,
         'endOnSafe': endOnSafe,
+        'silent': silent,
         'state': state,
         'updatedAt': FieldValue.serverTimestamp(),
       };
@@ -158,6 +168,10 @@ class SafetyDeadlineService {
           return _onPrompt(args, inApp: true);
         case 'deadlineFired':
           return _onFired(args);
+        case 'hardwareSos':
+          // ESP32 pendant button, forwarded by the native pendant link while the app is open.
+          Esp32BleService.instance.handleHardwareSosTrigger(reason: 'ESP32 Hardware Button');
+          return 'sent';
       }
       throw MissingPluginException(call.method);
     });
@@ -277,6 +291,7 @@ class SafetyDeadlineService {
           fireAt: fireAt,
           direct: data['direct'] == true,
           endOnSafe: data['endOnSafe'] == true,
+          silent: data['silent'] == true,
         ));
       }
     } catch (e) {
@@ -391,6 +406,7 @@ class SafetyDeadlineService {
             title: args['title']?.toString() ?? '',
             body: args['body']?.toString() ?? '',
             endOnSafe: args['endOnSafe'] == true,
+            silent: args['silent'] == true,
           ),
           replace: true,
         );
@@ -424,10 +440,29 @@ class SafetyDeadlineService {
           final result = await instance._onFired(args);
           await _settleHeadlessWork();
           return result;
+        case 'hardwareSos':
+          final result = await _onHeadlessHardwareSos(args);
+          await _settleHeadlessWork();
+          return result;
       }
       throw MissingPluginException(call.method);
     });
     await _channel.invokeMethod('headlessReady');
+  }
+
+  /// ESP32 pendant button pressed while the app is closed: runs the normal SOS pipeline.
+  /// No siren here: the headless engine is destroyed once the SOS work has settled, which would
+  /// cut a siren off after a few seconds. Returns 'sent' or 'failed'.
+  static Future<String> _onHeadlessHardwareSos(Map<String, dynamic> args) async {
+    final source = args['source']?.toString() ?? 'ESP32 Hardware';
+    debugPrint('[SafetyDeadline] Headless hardware SOS from $source');
+    try {
+      final result = await EmergencyService.instance.triggerEmergency(source: source, origin: SosOrigin.manual);
+      return result.isSuccess ? 'sent' : 'failed';
+    } catch (e) {
+      debugPrint('[SafetyDeadline] Headless hardware SOS failed: $e');
+      return 'failed';
+    }
   }
 
   static Future<bool> _prepareHeadlessContext() async {

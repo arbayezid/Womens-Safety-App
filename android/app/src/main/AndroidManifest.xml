@@ -113,6 +113,19 @@
                 android:value="Sends the user's emergency SOS to their guardians when a personal-safety check-in timer expires without a response." />
         </service>
 
+        <!-- ESP32 pendant link: keeps the pendant connected while the app is closed, cleared from
+             Recent apps or the phone is locked, and sends the SOS when its button is pressed. -->
+        <service
+            android:name=".PendantLinkService"
+            android:exported="false"
+            android:foregroundServiceType="connectedDevice"
+            android:stopWithTask="false" />
+
+        <!-- Restarts the pendant link if Android or a battery manager killed it -->
+        <receiver
+            android:name=".PendantWatchdogReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".AlertActionReceiver"
             android:exported="false" />

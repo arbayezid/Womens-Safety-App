@@ -15,6 +15,7 @@ import 'activity_service.dart';
 import 'auth_service.dart';
 import 'background_service.dart';
 import 'contact_service.dart';
+import 'journey_service.dart';
 import 'live_tracking_service.dart';
 import 'native_sms_service.dart';
 import 'safety_deadline_service.dart';
@@ -491,6 +492,32 @@ class EmergencyService {
     );
   }
 
+  /// Marks the running journey (Followed Mode or Safe Journey) as alert, linked to SOS [alertId],
+  /// whatever sent the SOS: the SOS button, the ESP32 button, shake, a missed check-in or the
+  /// duress PIN. Its check-ins then stop, so nothing prompts on screen during a silent alert, and
+  /// guardians see the journey as an emergency. Works in the headless engine too (the journey is
+  /// read from the saved session). [isDuress] tells guardians not to call.
+  Future<void> _linkActiveJourney(String alertId, {String? journeyId, required bool isDuress}) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final id = journeyId ?? prefs.getString(JourneyService.prefKeyActiveJourneyId);
+      if (id == null || id.isEmpty) return;
+      final ref = FirebaseFirestore.instance.collection('journeys').doc(id);
+      final snap = await ref.get().timeout(const Duration(seconds: 6));
+      final status = snap.data()?['status']?.toString();
+      if (status != 'active' && status != 'alert') return; // ended: nothing to take over
+      await ref.update({
+        'status': 'alert',
+        'linkedSosAlertId': alertId,
+        'linkedSosDuress': isDuress,
+        'lastUpdatedAt': FieldValue.serverTimestamp(),
+      }).timeout(const Duration(seconds: 6));
+      debugPrint('[EmergencyService] Linked SOS $alertId to journey $id');
+    } catch (e) {
+      debugPrint('[EmergencyService] Could not link SOS to the journey: $e');
+    }
+  }
+
   /// Explicit "Re-send" of the active alert from the home screen: re-rings guardians and
   /// re-sends the SMS round for the same alert document.
   ///
@@ -836,6 +863,9 @@ class EmergencyService {
                 _prefKeyActiveAlertStartedAt, triggerStartedAt.millisecondsSinceEpoch);
           } catch (_) {}
 
+          // An SOS during Followed Mode or a Safe Journey takes the journey over
+          unawaited(_linkActiveJourney(alertId, journeyId: linkedJourneyId, isDuress: isDuress));
+
           // Start throttled live tracking for active SOS
           await LiveTrackingService.instance.startTrackingSession(
             sessionType: 'sos',
@@ -843,10 +873,13 @@ class EmergencyService {
             initialPosition: position,
           );
 
-          // Start foreground background service
+          // Start foreground background service. A duress alert keeps the calculator disguise
+          // (this can run after PinSecurityService has already set it).
           await BackgroundServiceManager.instance.startService(
-            title: 'SOS active · sharing your location',
-            content: 'Broadcasting live coordinates to your guardians',
+            title: isDuress ? 'Calculator' : 'SOS active · sharing your location',
+            content: isDuress
+                ? 'Running background mathematical process'
+                : 'Broadcasting live coordinates to your guardians',
           );
 
           // Start smart SOS escalation engine

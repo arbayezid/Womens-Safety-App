@@ -26,6 +26,11 @@ class GuardianBootReceiver : BroadcastReceiver() {
         SafetyDeadlines.rescheduleAll(context)
         if (action == ACTION_EXACT_ALARM_PERMISSION_CHANGED) return
 
+        // ESP32 pendant the user left connected: reconnect it without opening the app.
+        if (PendantLinkService.ensureRunning(context)) {
+            Log.i("WG/GuardianBoot", "$action -> reconnecting ESP32 pendant")
+        }
+
         if (!GuardianAlertService.isEnabled(context)) return
         Log.i("WG/GuardianBoot", "$action -> starting guardian alert listener")
         // The watchdog retries if this start is refused, and keeps the listener alive afterwards.

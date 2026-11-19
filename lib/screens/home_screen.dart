@@ -22,6 +22,7 @@ import 'profile_screen.dart';
 import 'incident_room_screen.dart';
 import 'followed_mode_screen.dart';
 import '../widgets/fake_call_caller_sheet.dart';
+import '../widgets/followed_start_dialog.dart';
 import '../models/journey_model.dart';
 import '../services/journey_service.dart';
 import '../widgets/active_journey_card.dart';
@@ -247,7 +248,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       _isSOSLoading = true;
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: Row(
           children: [
@@ -280,7 +281,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (result.isSuccess) {
         _showSosResultSnackBar(result);
       } else if (result.hasNoRecipients) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Row(
               children: [
@@ -294,6 +295,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ],
             ),
+            persist: false,
             action: SnackBarAction(
               label: 'Contacts',
               textColor: Colors.amberAccent,
@@ -307,7 +309,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         );
       } else if (result.isPermissionDenied) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Row(
               children: [
@@ -321,6 +323,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                 ),
               ],
             ),
+            persist: false,
             action: SnackBarAction(
               label: 'Settings',
               textColor: Colors.amberAccent,
@@ -334,7 +337,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           ),
         );
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: SnackContent(
               result.message,
@@ -351,7 +354,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: SnackContent(
             "SOS couldn't be sent. ${e.toString().replaceAll('Exception: ', '')} Try again.",
@@ -399,8 +402,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
+    AppSnack.showOn(messenger,
       SnackBar(
         content: Row(
           children: [
@@ -419,6 +421,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ],
         ),
+        persist: false,
         action: needsManualSmsFallback
             ? SnackBarAction(
                 label: 'SMS App',
@@ -475,7 +478,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (result.isSuccess) {
         _showSosResultSnackBar(result, isResend: true);
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: SnackContent(
               result.message,
@@ -492,7 +495,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: SnackContent(
             "Couldn't send the alert again. ${e.toString().replaceAll('Exception: ', '')}",
@@ -516,7 +519,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   Future<void> _markSafeFromSheet(String alertId) async {
     final confirmed = await _confirmMarkSafe(context, alreadyConfirmed: true);
     if (!confirmed || !mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: Text(
           'Marking you safe…',
@@ -553,7 +556,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final bool isNowPlaying = await SirenService.instance.toggleSiren();
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: SnackContent(
             isNowPlaying ? 'Siren on' : 'Siren off',
@@ -575,13 +578,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       final isConfigured = await PinSecurityService.instance.isRealPinConfigured();
       if (!isConfigured) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text(
               'Please set up your Security PIN in Settings before using Camouflage.',
               style: GoogleFonts.poppins(color: Colors.white),
             ),
             backgroundColor: AppColors.primary,
+            persist: false,
             action: SnackBarAction(
               label: 'Setup PIN',
               textColor: Colors.white,
@@ -614,7 +618,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         context,
         actionName: 'start a Safe Journey',
         customSubtitle:
-            'To monitor your route with Dead-Man\'s Switch protection and broadcast live GPS tracking to guardians, please sign in.',
+            'To share your route and live location with guardians, please sign in.',
         onAuthenticated: () {
           showModalBottomSheet(
             context: context,
@@ -634,58 +638,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         customSubtitle:
             'To alert your guardians, activate live tracking, and get guidance to the nearest safe police checkpoint, please sign in.',
         onAuthenticated: () async {
+          // Already on (also while an SOS has taken it over): reopen it
           final activeJourney = JourneyService.instance.activeJourneyNotifier.value;
-          if (activeJourney != null && activeJourney.isActive && activeJourney.isFollowedMode) {
+          if (activeJourney != null &&
+              activeJourney.isFollowedMode &&
+              (activeJourney.isActive || activeJourney.status == JourneyStatus.alert)) {
             Navigator.of(context).push(
               MaterialPageRoute(builder: (_) => const FollowedModeScreen()),
             );
             return;
           }
 
-          final confirmed = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
-              title: Row(
-                children: [
-                  const Icon(Icons.radar_rounded, color: AppColors.actionOrange, size: 28),
-                  const SizedBox(width: 10),
-                  Expanded(child: Text(
-                    'Being Followed?',
-                    style: AppText.greeting,
-                  )),
-                ],
-              ),
-              content: Text(
-                'This will activate high-alert mode:\n\n'
-                '• Notify your emergency contacts via SMS & live map link\n'
-                '• Start continuous GPS live tracking\n'
-                '• Guide you to the nearest police station or safe zone\n'
-                '• Require a safety check-in every 10 minutes\n\n'
-                'Are you sure you want to activate this mode now?',
-                style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textSecondary)),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.of(ctx).pop(true),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.actionOrange,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-                  ),
-                  child: Text(
-                    'Activate Now',
-                    style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
-                  ),
-                ),
-              ],
-            ),
-          );
-
-          if (confirmed != true || !mounted) return;
+          // One tap: starts after a 5 s countdown that can be cancelled
+          final start = await FollowedStartDialog.show(context);
+          if (!start || !mounted) return;
 
           try {
             await JourneyService.instance.startFollowedMode(notifySms: true);
@@ -695,7 +661,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             );
           } catch (e) {
             if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
+            AppSnack.showBar(context,
               SnackBar(
                 content: Text('Failed to start Followed Mode: $e'),
                 backgroundColor: AppColors.sosRed,
@@ -732,7 +698,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Log the quick action event
     ActivityService.instance.logQuickAction(label);
 
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: Text(
           '$label activated',
@@ -1231,7 +1197,7 @@ class _ActiveIncomingGuardianSosBannerState
     try {
       await NotificationService.instance.acknowledgeAlert(alertId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Row(
             children: [
@@ -1263,8 +1229,7 @@ class _ActiveIncomingGuardianSosBannerState
         widget.alertData['sender_name']?.toString() ??
         'Emergency Contact';
     final address = widget.alertData['address']?.toString() ??
-        widget.alertData['location']?['address']?.toString() ??
-        'Live GPS Tracking Active';
+        widget.alertData['location']?['address']?.toString();
 
     final dynamic rawTime = widget.alertData['triggeredAt'] ?? widget.alertData['timestamp'];
     String timeAgo = 'Just now';
@@ -1335,7 +1300,7 @@ class _ActiveIncomingGuardianSosBannerState
                       overflow: TextOverflow.ellipsis,
                     ),
                     Text(
-                      '$timeAgo • $address',
+                      address == null ? timeAgo : '$timeAgo • $address',
                       style: AppText.caption.copyWith(color: AppColors.textSecondary),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1347,13 +1312,7 @@ class _ActiveIncomingGuardianSosBannerState
                 valueListenable: SirenService.instance.isPlayingNotifier,
                 builder: (context, isPlaying, _) {
                   return IconButton(
-                    onPressed: () {
-                      if (isPlaying) {
-                        SirenService.instance.stopSiren();
-                      } else {
-                        SirenService.instance.startSiren();
-                      }
-                    },
+                    onPressed: () => SirenService.instance.toggleSiren(),
                     icon: Icon(
                       isPlaying ? Icons.volume_off_rounded : Icons.volume_up_rounded,
                       color: isPlaying ? AppColors.sosRed : AppColors.textSecondary,
@@ -2877,12 +2836,6 @@ class _ActiveSosActionsSheetState extends State<_ActiveSosActionsSheet> {
               semanticsLabel: "I'm safe now. Double tap and hold to confirm.",
               onConfirmed: () => Navigator.of(context).pop(_ActiveSosAction.markSafe),
             ),
-            const SizedBox(height: 10),
-            Text(
-              'Tap outside to close',
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
-            ),
           ],
         ),
       ),
@@ -3152,8 +3105,7 @@ Future<bool> _confirmMarkSafe(BuildContext context, {bool alreadyConfirmed = fal
 
 void _showMarkedSafeSnackBar(BuildContext context) {
   final messenger = ScaffoldMessenger.of(context);
-  messenger.hideCurrentSnackBar();
-  messenger.showSnackBar(
+  AppSnack.showOn(messenger,
     SnackBar(
       content: Row(
         children: [
@@ -3264,7 +3216,7 @@ class _ActiveRideCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    'Sharing location · Tap for details',
+                    'Sharing location',
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       color: AppColors.textSecondary,
@@ -3362,7 +3314,7 @@ class _IncomingProtectedRideCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    'Vehicle ${ride.plateFormatted} · Tap to track',
+                    'Vehicle ${ride.plateFormatted}',
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       color: AppColors.textSecondary,
@@ -3546,7 +3498,8 @@ class _QuickActionCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(AppRadius.md),
               ),
               alignment: Alignment.center,
-              child: Icon(isSirenActive ? Icons.stop_circle_rounded : item.icon, color: iconColor, size: 28),
+              // Same megaphone icon on and off; the red tile and "Stop siren" label show it is playing.
+              child: Icon(item.icon, color: iconColor, size: 28),
             ),
 
             const SizedBox(height: 10),

@@ -120,8 +120,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
 
   void _showPrimarySnack(String message, {required bool success}) {
     final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(
+    AppSnack.showOn(messenger, SnackBar(
       content: Row(
         children: [
           Icon(success ? Icons.star_rounded : Icons.error_outline_rounded,
@@ -647,7 +646,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   /// Displays an informative error SnackBar when URL launching fails.
   void _showLaunchError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: Row(
           children: [
@@ -768,7 +767,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           if (removed && wasPrimary) unawaited(_setPrimaryHintSeen(false));
           await _loadContacts();
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          AppSnack.showBar(context, SnackBar(
             content: Text(
                 removed
                     ? (fromProtected && isRequest
@@ -809,8 +808,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   void _showResultSnack(String message, {required bool success, IconData? icon}) {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(SnackBar(
+    AppSnack.showOn(messenger, SnackBar(
       content: Row(
         children: [
           Icon(icon ?? (success ? Icons.check_circle_rounded : Icons.error_outline_rounded),
@@ -1152,7 +1150,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
   }
 
   Future<void> _handleUpgrade(ContactModel contact) async {
-    ScaffoldMessenger.of(context).showSnackBar(
+    AppSnack.showBar(context,
       SnackBar(
         content: Text('Checking if ${contact.email} is registered on Woman Guard...'),
         duration: const Duration(seconds: 1),
@@ -1162,7 +1160,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       final success = await ContactSyncService.instance.upgradeOfflineToSynced(contact);
       if (!mounted) return;
       if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: SnackContent('Request sent to ${contact.email}. They need to accept it.', tone: UiTone.success),
             backgroundColor: AppColors.actionGreen,
@@ -1170,7 +1168,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
         );
         await _loadContacts();
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text('User ${contact.email} is not yet registered. Offline SMS alerts remain active.'),
             backgroundColor: AppColors.actionOrange,
@@ -1179,7 +1177,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text(e.toString().replaceAll('Exception: ', '')),
           backgroundColor: AppColors.sosRed,
@@ -1261,7 +1259,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                   ),
                   const SizedBox(height: 12),
                   Text(
-                    'Emergency distress SMS with your live GPS location will be dispatched to this number when SOS is activated.',
+                    'SOS texts with your location go to this number.',
                     style: GoogleFonts.poppins(
                       fontSize: 12,
                       color: AppColors.textSecondary,
@@ -1377,7 +1375,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         }
 
                         if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
+                        AppSnack.showBar(context,
                           SnackBar(
                             content: Row(
                               children: [

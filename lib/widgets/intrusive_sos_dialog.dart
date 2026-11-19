@@ -13,6 +13,7 @@ import '../services/siren_service.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import 'ui/app_snack.dart';
 
 /// Fullscreen-style intrusive dialog displayed when an incoming high-priority
 /// SOS Alert push notification is received while the app is active.
@@ -340,10 +341,6 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                     fontSize: 14,
                     color: AppColors.sosRed,
                   ),
-                ),
-                subtitle: Text(
-                  'Call the national emergency number',
-                  style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
                 ),
                 trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
                 contentPadding: EdgeInsets.zero,
@@ -920,7 +917,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       if (mounted && Navigator.of(context).canPop()) {
                         Navigator.of(context).pop();
                       }
-                      messenger?.showSnackBar(
+                      AppSnack.showOn(messenger,
                         SnackBar(
                           content: Row(
                               children: [

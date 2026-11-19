@@ -14,6 +14,7 @@ import '../widgets/report_unsafe_spot_sheet.dart';
 import '../utils/auth_guard.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
 
 /// Available map tile styling presets.
 enum MapTileTheme {
@@ -189,7 +190,7 @@ class _MapScreenState extends State<MapScreen>
           _animatedMapMove(newPos, 15.0);
         }
       } else if (mounted && result.errorMessage != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        AppSnack.showBar(context,
           SnackBar(
             content: Text(result.errorMessage!),
             backgroundColor: AppColors.sosRed,
@@ -283,22 +284,6 @@ class _MapScreenState extends State<MapScreen>
     setState(() {
       _currentTileTheme = newTheme;
     });
-
-    ScaffoldMessenger.of(context).removeCurrentSnackBar();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(newTheme.icon, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
-            Text('Layer changed to ${newTheme.name}'),
-          ],
-        ),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
-      ),
-    );
   }
 
   /// Opens the community safety report modal sheet (guarded by AuthGuard)
@@ -1034,7 +1019,7 @@ class _MapScreenState extends State<MapScreen>
     );
 
     if (!launched && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      AppSnack.showBar(context,
         SnackBar(
           content: Text('Could not open navigation to ${zone.name}. Please ensure a map app or browser is installed.'),
           backgroundColor: AppColors.sosRed,
