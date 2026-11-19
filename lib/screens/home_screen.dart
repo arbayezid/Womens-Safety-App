@@ -1624,13 +1624,13 @@ class _ESP32Badge extends StatelessWidget {
           case Esp32ConnectionStatus.connected:
             bgColor = AppColors.successBackground;
             dotColor = AppColors.successForeground;
-            label = 'Pendant connected';
+            label = 'ESP32 Connected';
             break;
           case Esp32ConnectionStatus.connecting:
           case Esp32ConnectionStatus.scanning:
             bgColor = AppColors.warningSurface;
             dotColor = AppColors.warningForeground;
-            label = 'Connecting…';
+            label = 'ESP32 Connecting';
             break;
           case Esp32ConnectionStatus.permissionDenied:
             bgColor = AppColors.dangerSurfaceAlt;
@@ -1641,7 +1641,7 @@ class _ESP32Badge extends StatelessWidget {
           case Esp32ConnectionStatus.disconnected:
             bgColor = AppColors.neutralSurface;
             dotColor = AppColors.textSecondary;
-            label = 'Pendant offline';
+            label = 'ESP32 Offline';
             break;
         }
 

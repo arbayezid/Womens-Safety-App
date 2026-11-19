@@ -134,7 +134,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
                   const SizedBox(height: 12),
 
                   Text(
-                    'Alert the people you trust in one tap,\nwith or without the pendant.',
+                    'Alert the people you trust in one tap,\nwith or without the ESP32 device.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
                       fontSize: 14,

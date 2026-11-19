@@ -64,7 +64,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
     if (!hasPermission) {
       setState(() {
         _errorMessage =
-            'Allow Bluetooth and Nearby devices to find your safety pendant.';
+            'Allow Bluetooth and Nearby devices to find your ESP32 device.';
       });
       return;
     }
@@ -272,7 +272,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Safety pendant',
+                'ESP32 Safety Device',
                 style: AppText.greeting.copyWith(color: AppColors.textPrimary),
               ),
               Text(
@@ -364,7 +364,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
           ),
           const SizedBox(height: 8),
           Text(
-            'Turn on Bluetooth to find and connect your safety pendant.',
+            'Turn on Bluetooth to find and connect your ESP32 device.',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: AppColors.textSecondary,
@@ -496,7 +496,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                 _buildStatRow(
                   icon: Icons.touch_app_rounded,
                   iconColor: AppColors.sosRed,
-                  label: 'Pendant button',
+                  label: 'Hardware button',
                   value: 'Ready',
                 ),
               ],
@@ -524,7 +524,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
               },
               icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),
               label: Text(
-                'Test pendant button',
+                'Test hardware button',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white),
               ),
               style: ElevatedButton.styleFrom(
@@ -918,7 +918,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
                         child: Text(
-                          'Pendant',
+                          'ESP32',
                           style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
                         ),
                       ),
