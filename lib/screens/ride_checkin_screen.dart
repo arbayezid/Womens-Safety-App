@@ -574,7 +574,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          'Ride Safety Check-in',
+          'Ride check-in',
           style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
@@ -610,7 +610,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Track & Share Ride Details',
+                          'Share your ride',
                           style: GoogleFonts.poppins(
                             fontWeight: FontWeight.w700,
                             fontSize: 14,
@@ -618,7 +618,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                           ),
                         ),
                         Text(
-                          'Vehicle number, live location & plate photo broadcast to trusted guardians.',
+                          'Guardians see the vehicle number, plate photo and your location.',
                           style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary, height: 1.35),
                         ),
                       ],
@@ -807,7 +807,7 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 4),
                 child: Text(
-                  'When online, plate photos are read by Google Gemini AI for better accuracy.',
+                  'Plate photos are read online for better accuracy.',
                   style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                 ),
               ),

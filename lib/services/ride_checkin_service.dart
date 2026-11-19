@@ -232,7 +232,7 @@ class RideCheckinService {
     // 7. Start Foreground Background Service
     try {
       await BackgroundServiceManager.instance.startService(
-        title: '🚗 Ride Safety Active ($rideType)',
+        title: 'Ride shared ($rideType)',
         content: '$plateFormatted • Tracking live location',
       );
     } catch (_) {}
@@ -570,7 +570,7 @@ class RideCheckinService {
         refId: ride.id,
         uid: FirebaseAuth.instance.currentUser?.uid ?? ride.userId,
         fireAt: rideOverdueAt(createdAt: ride.createdAt, expectedMinutes: minutes),
-        title: '⚠️ Ride overdue: are you OK?',
+        title: 'Ride overdue: are you OK?',
         body: 'Your ${ride.rideType} ride (${ride.plateFormatted}) is more than 10 minutes overdue.',
       ),
       replace: replace,
@@ -645,7 +645,7 @@ class RideCheckinService {
 
     NotificationService.instance.showStatusNotification(
       id: 1002,
-      title: '🚨 Emergency SOS Dispatched',
+      title: 'SOS sent',
       body: 'Your guardians were alerted automatically because the ride safety check was unanswered.',
     );
     return 'escalated';

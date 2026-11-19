@@ -85,7 +85,7 @@ class IncomingJourneyCard extends StatelessWidget {
 
     final phone = journey.ownerPhone?.trim() ?? '';
     final status = [
-      if (journey.batteryLevel != null) '🔋 ${journey.batteryLevel}%',
+      if (journey.batteryLevel != null) 'Battery ${journey.batteryLevel}%',
       'Updated ${_ago(journey.lastUpdatedAt, now)}',
     ].join('  •  ');
 

@@ -760,7 +760,7 @@ class _MapScreenState extends State<MapScreen>
                     ),
                     const SizedBox(width: 5),
                     Text(
-                      'Safe Corridor Active',
+                      'Safe route on',
                       style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.successForeground),
                     ),
                   ],
@@ -795,7 +795,7 @@ class _MapScreenState extends State<MapScreen>
                     ),
                     const SizedBox(width: 5),
                     Text(
-                      'Safety Heatmap Active',
+                      'Heatmap on',
                       style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
                     ),
                   ],
@@ -828,7 +828,7 @@ class _MapScreenState extends State<MapScreen>
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      'Updating GPS...',
+                      'Updating location…',
                       style: AppText.caption.copyWith(color: AppColors.textSecondary),
                     ),
                   ],
@@ -953,8 +953,8 @@ class _MapScreenState extends State<MapScreen>
                 ),
                 Text(
                   _safeRouteEnabled
-                      ? 'Corridor to nearest police station active'
-                      : 'Tap to activate safe routing',
+                      ? 'Showing the route to the nearest police station'
+                      : 'Show the route to the nearest police station',
                   style: GoogleFonts.poppins(
                     fontSize: 11,
                     color: _safeRouteEnabled
@@ -1003,7 +1003,7 @@ class _MapScreenState extends State<MapScreen>
                 borderRadius: BorderRadius.circular(AppRadius.sm),
               ),
               child: Text(
-                '${zonesToDisplay.length} Available',
+                '${zonesToDisplay.length} nearby',
                 style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
               ),
             ),
@@ -1172,7 +1172,7 @@ class _SafeZoneCard extends StatelessWidget {
                             borderRadius: BorderRadius.circular(AppRadius.xs),
                           ),
                           child: Text(
-                            '24/7 Patrol',
+                            'Police checkpoint',
                             style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.successForeground),
                           ),
                         ),
@@ -1284,7 +1284,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
                       style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                     ),
                     Text(
-                      '${cluster.reports.length} report(s) • Decayed risk score: ${cluster.totalRiskScore.toStringAsFixed(1)}',
+                      '${cluster.reports.length} ${cluster.reports.length == 1 ? 'report' : 'reports'} nearby · Risk: ${isDanger ? 'High' : isWarning ? 'Medium' : 'Low'}',
                       style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
                     ),
                   ],
@@ -1294,7 +1294,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
           ),
           const SizedBox(height: 18),
           Text(
-            'Community Reports in this area:',
+            'Reports in this area',
             style: GoogleFonts.poppins(
               fontSize: 13,
               fontWeight: FontWeight.w700,
@@ -1357,7 +1357,7 @@ class _ClusterDetailsSheetState extends State<_ClusterDetailsSheet> {
                       Row(
                         children: [
                           Text(
-                            '🛡️ Verified by ${r.verifiedCount} women',
+                            'Confirmed by ${r.verifiedCount} ${r.verifiedCount == 1 ? 'user' : 'users'}',
                             style: AppText.caption.copyWith(color: AppColors.textSecondary),
                           ),
                           const Spacer(),

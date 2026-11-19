@@ -17,6 +17,9 @@ import '../widgets/pending_requests_section.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/ui_tone.dart';
+import '../widgets/ui/channel_chip.dart';
 
 /// Contacts screen — manage emergency and trusted contacts.
 ///
@@ -488,7 +491,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
           style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textPrimary),
           decoration: InputDecoration(
             border: InputBorder.none,
-            hintText: 'Search contacts by name, phone or relation...',
+            hintText: 'Search contacts',
             hintStyle: GoogleFonts.poppins(
                 fontSize: 13, color: AppColors.textSecondary),
             icon: const Icon(Icons.search_rounded,
@@ -552,7 +555,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
                         color: Colors.white),
                   ),
                   Text(
-                    'Alerted instantly with GPS location when SOS is triggered',
+                    'Get your SOS and location',
                     style: GoogleFonts.poppins(fontSize: 11, color: Colors.white.withValues(alpha: 0.85)),
                   ),
                   if (_contacts.isNotEmpty) ...[
@@ -1171,7 +1174,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('✅ Connection request sent to ${contact.email}! Waiting for consent.'),
+            content: SnackContent('Request sent to ${contact.email}. They need to accept it.', tone: UiTone.success),
             backgroundColor: AppColors.actionGreen,
           ),
         );
@@ -1803,7 +1806,7 @@ class _ContactCard extends StatelessWidget {
                             color: AppColors.primarySurface,
                             borderRadius: BorderRadius.circular(AppRadius.xs)),
                         child: Text(
-                          'PRIMARY',
+                          'Primary',
                           style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 0.4, color: AppColors.primary),
                         ),
                       ),
@@ -1817,7 +1820,7 @@ class _ContactCard extends StatelessWidget {
                             color: AppColors.tintOrange,
                             borderRadius: BorderRadius.circular(AppRadius.xs)),
                         child: Text(
-                          'BACKUP',
+                          'Backup',
                           style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionOrange),
                         ),
                       ),
@@ -1866,53 +1869,13 @@ class _ContactCard extends StatelessWidget {
                     ),
                     // Alert Channel Badges
                     if (contact.hasPhone)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: AppColors.successBackground,
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                        child: Text(
-                          '📱 SMS',
-                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionGreen),
-                        ),
-                      ),
+                      const ChannelChip(AlertChannel.sms),
                     if (contact.isSynced)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: AppColors.tintLavender,
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                        child: Text(
-                          '🔔 App',
-                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.primary),
-                        ),
-                      ),
+                      const ChannelChip(AlertChannel.app),
                     if (contact.isBackup)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: AppColors.tintOrange,
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                        child: Text(
-                          '🛡️ Backup',
-                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
-                        ),
-                      ),
+                      const ChannelChip(AlertChannel.backup),
                     if (!contact.hasPhone && !contact.isSynced)
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
-                        decoration: BoxDecoration(
-                          color: AppColors.tintRed,
-                          borderRadius: BorderRadius.circular(AppRadius.xs),
-                        ),
-                        child: Text(
-                          '⚠️ No alert channel',
-                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.sosRed),
-                        ),
-                      ),
+                      const ChannelChip(AlertChannel.none),
                     if (contact.isPending)
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
@@ -1926,7 +1889,7 @@ class _ContactCard extends StatelessWidget {
                             const Icon(Icons.hourglass_top_rounded, size: 10, color: AppColors.actionOrange),
                             const SizedBox(width: 3),
                             Text(
-                              'Sync Pending',
+                              'Sync pending',
                               style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
                             ),
                           ],

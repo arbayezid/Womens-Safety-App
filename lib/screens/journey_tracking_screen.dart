@@ -11,6 +11,7 @@ import '../services/journey_service.dart';
 import '../services/route_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/battery_chip.dart';
 
 /// Screen allowing travelers and trusted guardians to track an active Safe Journey in real-time.
 class JourneyTrackingScreen extends StatefulWidget {
@@ -269,12 +270,12 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                 const SizedBox(width: 8),
                                 Text(
                                   journey.status == JourneyStatus.arrived
-                                      ? '✅ Arrived Safely'
+                                      ? 'Arrived safely'
                                       : journey.status == JourneyStatus.alert
-                                          ? '🚨 SOS Alert Active'
+                                          ? 'SOS active'
                                           : isDelayed
-                                              ? '⚠️ Delayed'
-                                              : '🚶 Live Route Active',
+                                              ? 'Delayed'
+                                              : 'On the way',
                                   style: GoogleFonts.poppins(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
@@ -292,8 +293,8 @@ class _JourneyTrackingScreenState extends State<JourneyTrackingScreen> {
                                   color: AppColors.slateSurface,
                                   borderRadius: BorderRadius.circular(AppRadius.xs),
                                 ),
-                                child: Text(
-                                  '🔋 ${journey.batteryLevel}%',
+                                child: BatteryChip(
+                                  journey.batteryLevel!,
                                   style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700),
                                 ),
                               ),

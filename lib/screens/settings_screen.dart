@@ -26,6 +26,8 @@ import 'sos_history_screen.dart';
 import 'ride_history_screen.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/ui_tone.dart';
 
 /// Settings screen — app preferences, security, notifications,
 /// device setup, alert history and logout.
@@ -169,7 +171,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.bluetooth_rounded,
                         iconColor: AppColors.actionBlue,
                         iconBg: AppColors.tintSky,
-                        label: 'Device Setup',
+                        label: 'Device setup',
                         subtitle: subtitle,
                         trailing: _StatusDot(
                           color: isConn
@@ -193,7 +195,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         icon: Icons.history_rounded,
                         iconColor: AppColors.actionPurple,
                         iconBg: AppColors.tintViolet,
-                        label: 'Alert History',
+                        label: 'Alert history',
                         subtitle: subtitle,
                         onTap: _showAlertHistoryModal,
                       );
@@ -206,7 +208,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // ── Section: Safety ─────────────────────────────────────
               _buildSection(
-                title: 'Safety Features',
+                title: 'Safety features',
                 items: [
                   _buildToggleItem(
                     icon: Icons.vibration_rounded,
@@ -224,7 +226,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.location_on_rounded,
                     iconColor: AppColors.actionGreen,
                     iconBg: AppColors.successBackground,
-                    label: 'Live Location Sharing',
+                    label: 'Live location sharing',
                     subtitle: 'Share with emergency contacts',
                     value: _locationSharing,
                     onChanged: (v) {
@@ -236,8 +238,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.battery_alert_rounded,
                     iconColor: AppColors.sosRed,
                     iconBg: AppColors.tintRedStrong,
-                    label: 'Critical Battery Alert',
-                    subtitle: 'Auto-SMS location when battery ≤ 10%',
+                    label: 'Low battery alert',
+                    subtitle: 'Texts your location when battery is 10% or lower',
                     value: _criticalBatteryAlert,
                     onChanged: (v) {
                       setState(() => _criticalBatteryAlert = v);
@@ -249,7 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     iconColor: AppColors.actionOrange,
                     iconBg: AppColors.tintOrange,
                     label: 'Siren on automatic SOS',
-                    subtitle: 'Sound loud alarm on dead-man switch expiry',
+                    subtitle: 'Sound the siren when a check-in timer runs out',
                     value: _sirenOnAutoSos,
                     onChanged: (v) {
                       setState(() => _sirenOnAutoSos = v);
@@ -260,8 +262,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.personal_injury_rounded,
                     iconColor: AppColors.sosRed,
                     iconBg: AppColors.tintRedStrong,
-                    label: 'Fall Detection',
-                    subtitle: 'Auto-checks safety if impact & stillness detected',
+                    label: 'Fall detection',
+                    subtitle: 'Checks on you after a hard impact and no movement',
                     value: _fallDetection,
                     onChanged: (v) async {
                       setState(() => _fallDetection = v);
@@ -272,8 +274,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.trending_up_rounded,
                     iconColor: AppColors.primary,
                     iconBg: AppColors.tintLavender,
-                    label: 'Smart SOS Escalation',
-                    subtitle: 'Alerts backup contacts at 3m; prompts 999 at 8m if unanswered',
+                    label: 'Smart escalation',
+                    subtitle: 'Backup contacts at 3 min, 999 prompt at 8 min',
                     value: _smartEscalation,
                     onChanged: (v) async {
                       setState(() => _smartEscalation = v);
@@ -287,7 +289,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // ── Section: Fake Call ──────────────────────────────────
               _buildSection(
-                title: 'Fake Call',
+                title: 'Fake call',
                 items: [
                   ValueListenableBuilder<FakeCaller>(
                     valueListenable: FakeCallSettingsService.instance.callerNotifier,
@@ -295,7 +297,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       icon: Icons.phone_in_talk_rounded,
                       iconColor: AppColors.actionBlue,
                       iconBg: AppColors.tintSky,
-                      label: 'Default Caller',
+                      label: 'Default caller',
                       subtitle: caller.phone.isEmpty ? caller.name : '${caller.name} • ${caller.phone}',
                       onTap: () => FakeCallCallerSheet.show(context, pickOnly: true),
                     ),
@@ -304,7 +306,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.translate_rounded,
                     iconColor: AppColors.actionGreen,
                     iconBg: AppColors.successBackground,
-                    label: 'Caller Voice Language',
+                    label: 'Caller voice language',
                     subtitle: _fakeCallLanguage == FakeCallVoiceLanguage.bangla
                         ? 'Bangla (default)'
                         : 'English',
@@ -314,7 +316,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.record_voice_over_rounded,
                     iconColor: AppColors.actionOrange,
                     iconBg: AppColors.tintOrange,
-                    label: 'Record My Own Caller Voice',
+                    label: 'Record my own caller voice',
                     subtitle: 'One clip per caller; overrides the built-in voice',
                     onTap: () => Navigator.of(context).push(
                       MaterialPageRoute(builder: (_) => const FakeCallVoiceScreen()),
@@ -327,14 +329,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
               // ── Section: Security PIN & Camouflage ──────────────────
               _buildSection(
-                title: 'Security PIN & Camouflage',
+                title: 'Security PIN and camouflage',
                 items: [
                   _buildToggleItem(
                     icon: Icons.shield_outlined,
                     iconColor: AppColors.primary,
                     iconBg: AppColors.primarySurface,
-                    label: 'PIN Protection',
-                    subtitle: 'Protect "I\'m Safe" & Safe Journey cancellation',
+                    label: 'PIN protection',
+                    subtitle: 'Ask for the PIN to mark safe or stop a Safe Journey',
                     value: _pinProtection,
                     onChanged: (v) async {
                       if (v && !_hasRealPin) {
@@ -356,7 +358,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.pin_rounded,
                     iconColor: AppColors.actionGreen,
                     iconBg: AppColors.successBackground,
-                    label: 'Real Security PIN',
+                    label: 'Security PIN',
                     subtitle: _hasRealPin ? 'Configured • Tap to change' : 'Tap to configure 4-digit PIN',
                     onTap: () async {
                       final set = await PinInputDialog.show(
@@ -368,7 +370,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('✅ Real PIN configured successfully'),
+                            content: SnackContent('PIN saved.', tone: UiTone.success),
                             behavior: SnackBarBehavior.floating,
                           ),
                         );
@@ -379,7 +381,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.warning_amber_rounded,
                     iconColor: AppColors.sosRed,
                     iconBg: AppColors.tintRed,
-                    label: 'Duress Emergency PIN',
+                    label: 'Duress PIN',
                     subtitle: _hasDuressPin ? 'Configured • Silent panic & camouflage' : 'Tap to configure silent emergency PIN',
                     onTap: () async {
                       final set = await PinInputDialog.show(
@@ -391,7 +393,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text('✅ Duress PIN configured successfully'),
+                            content: SnackContent('Duress PIN saved.', tone: UiTone.success),
                             behavior: SnackBarBehavior.floating,
                           ),
                         );
@@ -403,7 +405,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     iconColor: AppColors.actionPurple,
                     iconBg: AppColors.tintViolet,
                     label: 'Require PIN to open app',
-                    subtitle: 'Lock application on startup',
+                    subtitle: 'Ask for the PIN when the app opens',
                     value: _requirePinOnOpen,
                     onChanged: (v) async {
                       if (v && !_hasRealPin) {
@@ -425,7 +427,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.calculate_rounded,
                     iconColor: AppColors.textPrimary,
                     iconBg: AppColors.neutralTile,
-                    label: 'Camouflage Calculator Preview',
+                    label: 'Preview camouflage calculator',
                     subtitle: 'Test disguised calculator screen (Exit: Real PIN + =)',
                     onTap: () async {
                       if (!_hasRealPin) {
@@ -456,7 +458,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.notifications_rounded,
                     iconColor: AppColors.primary,
                     iconBg: AppColors.primarySurface,
-                    label: 'Push Notifications',
+                    label: 'Push notifications',
                     subtitle: 'Alerts and system messages',
                     value: _notifications,
                     onChanged: (v) {
@@ -468,8 +470,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.history_rounded,
                     iconColor: AppColors.sosRed,
                     iconBg: AppColors.tintRed,
-                    label: 'SOS Alert History',
-                    subtitle: 'View all past emergency alerts and responses',
+                    label: 'SOS history',
+                    subtitle: 'Past alerts and who responded',
                     onTap: () {
                       Navigator.push(
                         context,
@@ -481,8 +483,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.directions_car_rounded,
                     iconColor: AppColors.actionBlue,
                     iconBg: AppColors.tintBlue,
-                    label: 'Ride Check-in History',
-                    subtitle: 'View past vehicle check-ins, license plates & routes',
+                    label: 'Ride history',
+                    subtitle: 'Past rides, plates and routes',
                     onTap: () {
                       Navigator.push(
                         context,
@@ -494,7 +496,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.verified_user_rounded,
                     iconColor: AppColors.actionGreen,
                     iconBg: AppColors.successBackground,
-                    label: 'Background Alerts Setup',
+                    label: 'Background alerts',
                     subtitle: 'Keep timers and guardian alerts working when the app is closed',
                     onTap: () {
                       Navigator.push(
@@ -502,14 +504,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         MaterialPageRoute(builder: (_) => const BackgroundReliabilityScreen()),
                       );
                     },
-                  ),
-                  _buildNavItem(
-                    icon: Icons.do_not_disturb_on_rounded,
-                    iconColor: AppColors.textSecondary,
-                    iconBg: AppColors.neutralTile,
-                    label: 'Do Not Disturb',
-                    subtitle: 'Emergency override enabled',
-                    onTap: _showDndModal,
                   ),
                 ],
               ),
@@ -524,15 +518,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     icon: Icons.lock_rounded,
                     iconColor: AppColors.actionBlue,
                     iconBg: AppColors.tintSky,
-                    label: 'Privacy & Security',
-                    subtitle: 'Local encryption & zero tracking',
+                    label: 'Privacy and data',
+                    subtitle: 'How your data is used',
                     onTap: _showPrivacyModal,
                   ),
                   _buildNavItem(
                     icon: Icons.info_outline_rounded,
                     iconColor: AppColors.textSecondary,
                     iconBg: AppColors.neutralTile,
-                    label: 'About App',
+                    label: 'About',
                     subtitle: 'Woman Guard v1.0.0',
                     onTap: _showAboutModal,
                   ),
@@ -580,7 +574,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ? profile.phone
             : (profile.email.isNotEmpty
                 ? profile.email
-                : (isAuth ? 'Google Account: Active' : 'Explore Mode • Tap to sign in'));
+                : (isAuth ? 'Signed in with Google' : 'Guest · Tap to sign in'));
 
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -865,7 +859,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (res.isSuccess) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('✅ Successfully signed in with Google!'),
+          content: SnackContent('Signed in with Google.', tone: UiTone.success),
           backgroundColor: AppColors.successForeground,
           behavior: SnackBarBehavior.floating,
         ),
@@ -992,37 +986,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _showDndModal() {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.xl)),
-        title: Row(
-          children: [
-            const Icon(Icons.do_not_disturb_on_rounded, color: AppColors.sosRed),
-            const SizedBox(width: 8),
-            Expanded(child: Text('Do Not Disturb',
-                style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
-          ],
-        ),
-        content: Text(
-          'Emergency Override Policy:\n\nEmergency SOS triggers, loud sirens, and offline alerts will bypass Do Not Disturb to protect your personal safety in critical situations.',
-          style: GoogleFonts.poppins(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primary,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
-            ),
-            child: Text('Understood',
-                style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600)),
-          ),
-        ],
-      ),
-    );
-  }
 
   void _showPrivacyModal() {
     showDialog(
@@ -1033,7 +996,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           children: [
             const Icon(Icons.lock_rounded, color: AppColors.actionBlue),
             const SizedBox(width: 8),
-            Expanded(child: Text('Privacy & Security',
+            Expanded(child: Text('Privacy and data',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w700))),
           ],
         ),
@@ -1042,18 +1005,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildPrivacyBullet(
-              title: 'Offline-First SMS Fallback',
-              desc: 'SMS alerts are sent directly from your SIM card when offline — no middleman server.',
+              title: 'Your location',
+              desc: 'Shared with your guardians during an SOS, Safe Journey, ride check-in or Followed Mode. The home screen also shows where you are.',
             ),
             const SizedBox(height: 10),
             _buildPrivacyBullet(
-              title: 'On-Demand Location Only',
-              desc: 'Live GPS location is accessed only when you trigger SOS or use the Safe Route Map.',
+              title: 'Your account',
+              desc: 'Your profile, contacts and alerts are stored in your account on Firebase.',
             ),
             const SizedBox(height: 10),
             _buildPrivacyBullet(
-              title: 'Consent-Based Guardians',
-              desc: 'A guardian must accept your request before receiving your alerts. Alerts go one way only: from you to the guardians you added. Protected by Firestore security rules.',
+              title: 'Text messages',
+              desc: 'Emergency SMS is sent from your own SIM card.',
+            ),
+            const SizedBox(height: 10),
+            _buildPrivacyBullet(
+              title: 'Guardians',
+              desc: 'A guardian must accept your request before they get your alerts. Alerts go only from you to the guardians you added.',
             ),
           ],
         ),

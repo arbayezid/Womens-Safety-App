@@ -101,7 +101,7 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
 
             // Title
             Text(
-              'Account Required 🛡️',
+              'Sign in to continue',
               textAlign: TextAlign.center,
               style: GoogleFonts.poppins(
                 fontSize: 20,
@@ -135,19 +135,19 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
                   _FeatureRow(
                     icon: Icons.sos_rounded,
                     color: AppColors.sosRed,
-                    text: 'Instant SOS dispatch with live GPS link',
+                    text: 'Guardians get your SOS in the app',
                   ),
                   SizedBox(height: 8),
                   _FeatureRow(
                     icon: Icons.cloud_sync_rounded,
                     color: AppColors.actionBlue,
-                    text: 'Cloud backup for trusted guardian contacts',
+                    text: 'Your contacts are kept if you change phones',
                   ),
                   SizedBox(height: 8),
                   _FeatureRow(
                     icon: Icons.verified_user_rounded,
                     color: AppColors.successForeground,
-                    text: 'Synchronized security profile across devices',
+                    text: 'Your profile is on every device you sign in to',
                   ),
                 ],
               ),
@@ -215,7 +215,7 @@ class _LoginRequiredBottomSheetState extends State<LoginRequiredBottomSheet> {
                 padding: const EdgeInsets.symmetric(vertical: 8),
               ),
               child: Text(
-                'Maybe Later',
+                'Maybe later',
                 style: GoogleFonts.poppins(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,

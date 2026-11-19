@@ -189,7 +189,7 @@ void main() {
 
       expect(find.text('Rina Apu'), findsOneWidget);
       expect(find.text('+880 1711-223344'), findsOneWidget);
-      expect(find.text('Incoming Call...'), findsOneWidget);
+      expect(find.text('Incoming call'), findsOneWidget);
 
       await tester.tap(find.byIcon(Icons.call_rounded));
       await tester.pump();

@@ -160,6 +160,20 @@ class _BackgroundReliabilityScreenState extends State<BackgroundReliabilityScree
                   const SizedBox(height: 8),
                   _AutoStartGuide(manufacturer: _manufacturer, onOpen: _openAutoStart),
                 ],
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.do_not_disturb_on_rounded, size: 18, color: AppColors.textSecondary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Do Not Disturb does not stop Woman Guard from sending your SOS or SMS. The siren plays as an alarm, so it is heard in most Do Not Disturb modes.',
+                        style: GoogleFonts.poppins(fontSize: 12, height: 1.45, color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
     );

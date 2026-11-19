@@ -23,6 +23,8 @@ import '../widgets/fake_call_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/ui_tone.dart';
 
 /// Active command interface for "I'm Being Followed" Mode.
 ///
@@ -162,8 +164,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          '⏱️ Fake Call scheduled in 30 seconds. Act natural!',
+        content: SnackContent(
+          'Fake call in 30 seconds.', tone: UiTone.info, icon: Icons.phone_in_talk_rounded,
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
         backgroundColor: AppColors.actionPurple,
@@ -198,8 +200,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          isNowPlaying ? '📢 Loud Siren Activated!' : '🔇 Siren Deactivated',
+        content: SnackContent(
+          isNowPlaying ? 'Siren on' : 'Siren off', tone: UiTone.warning, icon: isNowPlaying ? Icons.volume_up_rounded : Icons.volume_off_rounded,
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
         backgroundColor: isNowPlaying ? AppColors.sosRed : AppColors.textPrimary,
@@ -220,13 +222,13 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
             const Icon(Icons.emergency_rounded, color: AppColors.sosRed, size: 28),
             const SizedBox(width: 8),
             Expanded(child: Text(
-              'Dispatch Emergency SOS?',
+              'Send SOS now?',
               style: AppText.sectionTitle,
             )),
           ],
         ),
         content: Text(
-          'This will immediately broadcast an active emergency SOS alert to all your guardians, send offline SMS messages, and initiate escalation.',
+          'Your guardians get an alert with your location, SMS goes to your contacts, and escalation starts.',
           style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
         ),
         actions: [
@@ -263,8 +265,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '🚨 Emergency SOS Dispatched to Guardians!',
+          content: SnackContent(
+            'SOS sent to your guardians.', tone: UiTone.critical,
             style: GoogleFonts.poppins(fontWeight: FontWeight.w700),
           ),
           backgroundColor: AppColors.sosRed,
@@ -339,8 +341,8 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '✅ Followed Mode ended. Guardians notified that you are safe.',
+          content: SnackContent(
+            "Followed mode ended. Your guardians know you're safe.", tone: UiTone.success,
             style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
           ),
           backgroundColor: AppColors.safeGreen,
@@ -396,7 +398,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                   style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 ),
                 Text(
-                  'Active Defense & Live Guardian Tracking',
+                  'Followed mode',
                   style: AppText.caption.copyWith(color: AppColors.actionOrange),
                 ),
               ],
@@ -467,11 +469,11 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'GUARDIANS ALERTED & TRACKING',
+                            'Guardians are following your location',
                             style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.deepOrange.shade800),
                           ),
                           Text(
-                            'Periodic 10-minute check-ins active. If unanswered, SOS is automatically dispatched.',
+                            "We'll check on you every 10 minutes. If you don't answer, SOS is sent.",
                             style: GoogleFonts.poppins(
                               fontSize: 11,
                               color: AppColors.textPrimary,
@@ -551,7 +553,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                     Row(
                       children: [
                         Text(
-                          'NEAREST SAFE HAVEN',
+                          'Nearest safe place',
                           style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.actionBlue, letterSpacing: 0.5),
                         ),
                         const Spacer(),
@@ -604,7 +606,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               ),
               icon: const Icon(Icons.navigation_rounded, color: Colors.white, size: 20),
               label: Text(
-                'NAVIGATE TO POLICE STATION',
+                'Directions to police station',
                 style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
               ),
               style: ElevatedButton.styleFrom(
@@ -636,7 +638,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                 const Icon(Icons.my_location_rounded, size: 16, color: AppColors.primary),
                 const SizedBox(width: 6),
                 Text(
-                  'Live Radar Location',
+                  'Your location',
                   style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700),
                 ),
                 if (_isLoadingLocation) ...[
@@ -648,7 +650,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
                       borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
                     child: Text(
-                      'Locating...',
+                      'Locating…',
                       style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.actionOrange),
                     ),
                   ),
@@ -811,7 +813,7 @@ class _FollowedModeScreenState extends State<FollowedModeScreen>
               const Icon(Icons.psychology_alt_rounded, color: AppColors.actionPurple, size: 18),
               const SizedBox(width: 8),
               Text(
-                'Deterrence & Escape Tools',
+                'Tools',
                 style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
               ),
             ],

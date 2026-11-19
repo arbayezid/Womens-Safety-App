@@ -420,7 +420,7 @@ class InboxService with WidgetsBindingObserver {
       key: 'sos:$id#$ringSeq',
       type: InboxItemType.sos,
       id: id,
-      title: tone == InboxTone.live ? '🚨 $name needs help now!' : '🚨 SOS from $name',
+      title: tone == InboxTone.live ? '$name needs help now' : 'SOS from $name',
       body: [source, if (address != null && address.toString().trim().isNotEmpty) address.toString().trim()]
           .join(' · '),
       time: time,
@@ -439,10 +439,10 @@ class InboxService with WidgetsBindingObserver {
     final dest = data['destination'] is Map ? _name((data['destination'] as Map)['label'], 'their destination') : 'their destination';
     final followed = data['mode']?.toString() == 'followed';
     final (String title, String body, String chip, InboxTone tone) = switch (status) {
-      'active' when followed => ('⚠️ $name thinks they are being followed', 'Sharing live location with you.', 'Live', InboxTone.warning),
-      'active' => ('🚶 $name started a Safe Journey', 'Heading to $dest.', 'On the way', InboxTone.warning),
-      'arrived' => ('✅ $name arrived safely', followed ? 'Followed Mode ended safely.' : 'Reached $dest.', 'Arrived', InboxTone.ok),
-      'alert' => ('🚨 $name\'s Safe Journey raised an alert', 'A safety check went unanswered.', 'Alert', InboxTone.live),
+      'active' when followed => ('$name thinks they are being followed', 'Sharing live location with you.', 'Live', InboxTone.warning),
+      'active' => ('$name started a Safe Journey', 'Heading to $dest.', 'On the way', InboxTone.warning),
+      'arrived' => ('$name arrived safely', followed ? 'Followed Mode ended safely.' : 'Reached $dest.', 'Arrived', InboxTone.ok),
+      'alert' => ('$name\'s Safe Journey raised an alert', 'A safety check went unanswered.', 'Alert', InboxTone.live),
       'cancelled' => ('$name ended their Safe Journey', followed ? 'Followed Mode was turned off.' : 'Ended before reaching $dest.', 'Ended', InboxTone.neutral),
       _ => ('', '', '', InboxTone.neutral),
     };
@@ -469,9 +469,9 @@ class InboxService with WidgetsBindingObserver {
     final rideType = _name(data['rideType'], 'Ride');
     final plate = _name(data['plateFormatted'], 'unknown plate');
     final (String title, String chip, InboxTone tone) = switch (status) {
-      'active' => ('🚗 $name started a $rideType ride', 'On a ride', InboxTone.warning),
-      'arrived' => ('✅ $name arrived safely', 'Arrived', InboxTone.ok),
-      'overdue' => ('⚠️ $name\'s ride is overdue', 'Overdue', InboxTone.live),
+      'active' => ('$name started a $rideType ride', 'On a ride', InboxTone.warning),
+      'arrived' => ('$name arrived safely', 'Arrived', InboxTone.ok),
+      'overdue' => ('$name\'s ride is overdue', 'Overdue', InboxTone.live),
       _ => ('', '', InboxTone.neutral),
     };
     if (title.isEmpty) return null;
@@ -496,7 +496,7 @@ class InboxService with WidgetsBindingObserver {
       key: 'request:$id',
       type: InboxItemType.request,
       id: id,
-      title: '🛡️ $name wants you as their guardian',
+      title: '$name wants you as their guardian',
       body: relationship.isEmpty ? 'Tap to accept or decline.' : '$relationship · Tap to accept or decline.',
       time: _date(request['createdAt']) ?? now,
       status: 'Pending',

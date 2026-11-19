@@ -137,7 +137,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
                 const SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    '🛡️ Report added! Thank you for protecting the community.',
+                    'Report added. Thanks for letting others know.',
                     style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
                   ),
                 ),
@@ -210,11 +210,11 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Report Safety Concern',
+                        'Report a safety concern',
                         style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                       ),
                       Text(
-                        'Alert women in this area to stay vigilant',
+                        'Let others nearby know about a concern',
                         style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
                       ),
                     ],
@@ -256,7 +256,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
 
             // Incident Type Heading
             Text(
-              'Select Issue Category',
+              'What did you notice?',
               style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
             ),
             const SizedBox(height: 10),
@@ -298,7 +298,7 @@ class _ReportUnsafeSpotSheetState extends State<ReportUnsafeSpotSheet> {
 
             // Description TextField
             Text(
-              'Details / Helpful Observations',
+              'Details',
               style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
             ),
             const SizedBox(height: 8),

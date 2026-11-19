@@ -172,7 +172,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
             ],
           ),
           content: Text(
-            'This is a silent duress emergency. The sender may be under direct threat. Calling her phone could alert an aggressor. Do you still want to place this call?',
+            'This is a silent alert. A call could warn whoever is with them. Call anyway?',
             style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
           ),
           actions: [
@@ -187,7 +187,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.sm)),
               ),
               child: Text(
-                'Call Anyway',
+                'Call anyway',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
               ),
             ),
@@ -236,7 +236,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'No Phone Number Listed',
+                          'No phone number',
                           style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                         ),
                         Text(
@@ -299,7 +299,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   style: AppText.cardTitle,
                 ),
                 subtitle: Text(
-                  'Live command, dispatch backup & chat with responders',
+                  'See the live location, timeline and who is responding',
                   style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
                 ),
                 trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
@@ -342,7 +342,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   ),
                 ),
                 subtitle: Text(
-                  'Directly connect to National Emergency Police Hotline',
+                  'Call the national emergency number',
                   style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary),
                 ),
                 trailing: const Icon(Icons.arrow_forward_ios_rounded, size: 14),
@@ -598,10 +598,10 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
 
               Text(
                 isResolved
-                    ? '🛡️ MARKED SAFE'
+                    ? 'Marked safe'
                     : isDuress
-                        ? '🚨 SILENT SOS ALERT'
-                        : '🚨 INCOMING SOS ALERT',
+                        ? 'Silent SOS'
+                        : 'SOS alert',
                 style: AppText.greeting.copyWith(color: isResolved ? AppColors.safeGreen : AppColors.sosRed, letterSpacing: 0.6),
               ),
               const SizedBox(height: 6),
@@ -609,7 +609,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
               Text(
                 isResolved
                     ? '$senderName has marked themselves safe.'
-                    : '$senderName has triggered an emergency alarm!',
+                    : '$senderName needs help now.',
                 textAlign: TextAlign.center,
                 style: AppText.cardTitle.copyWith(color: AppColors.textPrimary),
               ),
@@ -743,7 +743,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
                       child: Text(
-                        'Update #$totalPresses',
+                        'Update $totalPresses',
                         style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
                       ),
                     ),
@@ -768,7 +768,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Silent duress alert — do NOT call. Use location tracking.',
+                          "Silent alert: don't call. Follow their location instead.",
                           style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.warningBannerText, height: 1.3),
                         ),
                       ),

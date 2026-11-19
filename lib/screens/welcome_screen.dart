@@ -158,7 +158,7 @@ class _WelcomeScreenState extends State<WelcomeScreen>
 
                   // ── Subtitle ─────────────────────────────────────────
                   Text(
-                    'Your personal guardian in your pocket.\nConnect device and stay safe.',
+                    'Alert the people you trust in one tap,\nwith or without the pendant.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
                       fontSize: 14,

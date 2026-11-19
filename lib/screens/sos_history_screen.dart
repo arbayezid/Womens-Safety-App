@@ -12,6 +12,9 @@ import 'incident_room_screen.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/status_label.dart';
+import '../widgets/ui/ui_tone.dart';
+import '../widgets/ui/battery_chip.dart';
 
 /// Screen displaying the complete chronological history of all SOS emergency alerts
 /// (both received as a trusted guardian and dispatched by the current user).
@@ -306,7 +309,7 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
               labelStyle: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
               tabs: const [
                 Tab(text: 'All Alerts'),
-                Tab(text: 'Received (Guardian)'),
+                Tab(text: 'Received'),
                 Tab(text: 'Sent by Me'),
               ],
             ),
@@ -769,14 +772,19 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                                     : const Color(0xFFEEF2F6),
                         borderRadius: BorderRadius.circular(AppRadius.sm),
                       ),
-                      child: Text(
+                      child: StatusLabel(
                         isFalseAlarm
-                            ? 'False Alarm'
+                            ? 'False alarm'
                             : isActive
-                                ? '🚨 Active'
+                                ? 'Active'
                                 : isAcknowledged
-                                    ? '✅ Responded'
+                                    ? 'Responded'
                                     : 'Resolved',
+                        tone: isFalseAlarm
+                            ? UiTone.warning
+                            : isActive
+                                ? UiTone.critical
+                                : UiTone.success,
                         style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: isFalseAlarm
                               ? const Color(0xFFB45309)
                               : isActive
@@ -794,8 +802,9 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                           color: AppColors.tintRose,
                           borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
-                        child: Text(
-                          liveUpdatedText != null ? '🔴 $liveUpdatedText' : '🔴 Live',
+                        child: StatusLabel(
+                          liveUpdatedText ?? 'Live',
+                          tone: UiTone.live,
                           style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.sosRed),
                         ),
                       ),
@@ -824,8 +833,8 @@ class _SosHistoryScreenState extends State<SosHistoryScreen>
                       color: batteryLevel <= 10 ? AppColors.tintRedStrong : AppColors.slateSurface,
                       borderRadius: BorderRadius.circular(AppRadius.xs),
                     ),
-                    child: Text(
-                      '🔋 $batteryLevel%',
+                    child: BatteryChip(
+                      batteryLevel,
                       style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: batteryLevel <= 10 ? AppColors.sosRed : AppColors.textSecondary),
                     ),
                   ),

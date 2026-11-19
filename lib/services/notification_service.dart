@@ -511,8 +511,8 @@ class NotificationService {
           final rideType = message.data['rideType'] ?? 'Ride';
           showRideCheckinNotification(
             title: status == 'arrived'
-                ? '✅ $travelerName arrived safely'
-                : '🚗 $travelerName started a $rideType ride — $plate',
+                ? '$travelerName arrived safely'
+                : '$travelerName started a $rideType ride · $plate',
             body: status == 'arrived'
                 ? 'The ride in vehicle $plate has completed safely.'
                 : 'Vehicle: $plate. Tap to view live location & driver details.',
@@ -1020,7 +1020,7 @@ class NotificationService {
     unawaited(SirenService.instance.startAlertSiren(alertId));
     _bannerAlertIds.add(alertId);
     _showLocalSosAlertBanner(
-      title: '🚨 INCOMING SOS ALERT: ${latestData['senderName']}!',
+      title: 'SOS from ${latestData['senderName']}',
       body: isAutomatic
           ? '${automaticAlertLabel(latestData['source'])}. Tap to view live location & incident command.'
           : '${latestData['senderName']} needs immediate help! Tap to view live location & incident command.',
@@ -1178,7 +1178,7 @@ class NotificationService {
 
     await _localNotifications.show(
       DateTime.now().millisecondsSinceEpoch ~/ 1000,
-      '📩 Guardian Connection Request',
+      'Guardian request',
       '$senderName ($senderEmail) wants to add you as an emergency guardian. Tap to review.',
       platformDetails,
       payload: 'GUARDIAN_REQUEST',
@@ -1323,7 +1323,7 @@ class NotificationService {
 
     await _localNotifications.show(
       safetyCheckNotificationId,
-      '🚨 Safety Check Required ($secondsRemaining s)',
+      'Are you OK? (${secondsRemaining}s)',
       'Are you safe? ($reason). Tap to confirm or SOS will trigger automatically.',
       details,
       payload: 'safety_check',
@@ -1578,7 +1578,7 @@ class NotificationService {
       if (status == 'active' && !_notifiedRideKeys.contains(activeKey)) {
         _notifiedRideKeys.add(activeKey);
         showRideCheckinNotification(
-          title: '🚗 $travelerName started a $rideType ride — $plate',
+          title: '$travelerName started a $rideType ride · $plate',
           body: 'Vehicle: $plate. Tap to view live location & driver details.',
           payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
         );
@@ -1596,7 +1596,7 @@ class NotificationService {
       if (status == 'arrived' && !_notifiedRideKeys.contains(arrivedKey)) {
         _notifiedRideKeys.add(arrivedKey);
         showRideCheckinNotification(
-          title: '✅ $travelerName arrived safely.',
+          title: '$travelerName arrived safely',
           body: 'The ride in vehicle $plate has completed safely.',
           payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
         );
@@ -1614,7 +1614,7 @@ class NotificationService {
       if (status == 'overdue' && !_notifiedRideKeys.contains(overdueKey)) {
         _notifiedRideKeys.add(overdueKey);
         showRideCheckinNotification(
-          title: '⚠️ Ride Overdue: $travelerName',
+          title: '$travelerName\'s ride is overdue',
           body: 'Ride in vehicle $plate is overdue by 10+ minutes.',
           payload: jsonEncode({'type': 'ride_checkin', 'rideId': rideId}),
         );
@@ -1665,7 +1665,7 @@ class NotificationService {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '🚗 $travelerName started a ride',
+                      '$travelerName started a ride',
                       style: GoogleFonts.poppins(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
@@ -1723,7 +1723,7 @@ class NotificationService {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '✅ $travelerName arrived safely',
+                      '$travelerName arrived safely',
                       style: GoogleFonts.poppins(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,

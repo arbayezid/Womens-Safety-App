@@ -105,7 +105,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Connection request sent to $email! They will be notified to accept.$primaryNote',
+                      'Request sent to $email. They need to accept it.$primaryNote',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 13),
                     ),
                   ),
@@ -139,7 +139,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Guardian request sent to $email! Once they open the app and accept, live sync will activate.$primaryNote',
+                      'Request sent to $email. They need to accept it in the app.$primaryNote',
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 13),
                     ),
                   ),
@@ -184,7 +184,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'Contact saved! (Offline SMS alerts active; sync will retry when online).$primaryNote',
+                      "Contact saved. They'll be added in the app when you're back online.$primaryNote",
                       style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12),
                     ),
                   ),
@@ -264,7 +264,7 @@ class _AddContactDialogState extends State<AddContactDialog> {
                           style: AppText.greeting.copyWith(color: AppColors.textPrimary),
                         ),
                         Text(
-                          'Sync via email & set offline SMS backup',
+                          'Add by email; a phone number also lets SMS reach them.',
                           style: GoogleFonts.poppins(
                             fontSize: 12,
                             color: AppColors.textSecondary,
@@ -418,8 +418,8 @@ class _AddContactDialogState extends State<AddContactDialog> {
                 decoration: InputDecoration(
                   hintText: 'e.g. +88017XXXXXXXX',
                   helperText: _phoneCtrl.text.trim().isEmpty
-                      ? '⚠️ Recommended: Without a phone number, emergency SMS cannot be dispatched to this person.'
-                      : '✅ Configured for direct emergency SMS with live GPS location.',
+                      ? "Recommended: without a phone number, SOS texts can't reach this person."
+                      : 'SOS texts with your location will go to this number.',
                   helperMaxLines: 3,
                   helperStyle: AppText.caption.copyWith(color: _phoneCtrl.text.trim().isEmpty ? Colors.orange.shade800 : AppColors.actionGreen),
                   prefixIcon: const Icon(Icons.phone_outlined, color: AppColors.actionGreen),

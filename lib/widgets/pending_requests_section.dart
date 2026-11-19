@@ -4,6 +4,8 @@ import '../core/app_colors.dart';
 import '../services/contact_sync_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/ui_tone.dart';
 
 /// Real-time widget rendering incoming guardian requests (accepting makes the current user
 /// the sender's guardian; it does not make the sender the current user's guardian)
@@ -51,11 +53,11 @@ class PendingRequestsSection extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Consent Requests (${requests.length})',
+                          'Guardian requests (${requests.length})',
                           style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.textPrimary),
                         ),
                         Text(
-                          'Users requesting you as an emergency guardian',
+                          'People who want you as their guardian',
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             color: AppColors.textSecondary,
@@ -94,8 +96,8 @@ class _RequestCardState extends State<_RequestCard> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '✅ You are now ${widget.request['senderName']}\'s guardian. You will receive their SOS alerts.',
+            content: SnackContent(
+              "You're now ${widget.request['senderName']}'s guardian and will get their SOS alerts.", tone: UiTone.success,
               style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
             ),
             backgroundColor: AppColors.successForeground,
@@ -240,7 +242,7 @@ class _RequestCardState extends State<_RequestCard> {
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                       )
                     : Text(
-                        'Accept & Sync',
+                        'Accept',
                         style: AppText.label.copyWith(color: Colors.white),
                       ),
               ),

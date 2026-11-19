@@ -9,6 +9,7 @@ import '../models/ride_checkin.dart';
 import '../services/navigation_service.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/battery_chip.dart';
 
 /// Guardian View screen showing real-time vehicle details, live GPS map tracking,
 /// zoomable plate photo evidence, "Call", and "Navigate" actions.
@@ -124,7 +125,7 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          'Ride Details (Guardian View)',
+          'Ride details',
           style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
@@ -243,8 +244,9 @@ class _RideDetailsScreenState extends State<RideDetailsScreen> {
                             color: AppColors.surface.withValues(alpha: 0.95),
                             borderRadius: BorderRadius.circular(AppRadius.sm),
                           ),
-                          child: Text(
-                            '🔋 ${ride.batteryLevel}% Battery',
+                          child: BatteryChip(
+                            ride.batteryLevel!,
+                            suffix: ' battery',
                             style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700),
                           ),
                         ),

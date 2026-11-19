@@ -82,14 +82,14 @@ JourneyGuardianEvent? journeyGuardianEvent({
       if (followed) {
         return JourneyGuardianEvent(
           key: key,
-          title: '⚠️ $name thinks they are being followed',
+          title: '$name thinks they are being followed',
           body: 'They are sharing their live location with you. Tap to track them now.',
         );
       }
       final eta = _date(data['expectedArrivalAt']);
       return JourneyGuardianEvent(
         key: key,
-        title: '🚶 $name started a Safe Journey',
+        title: '$name started a Safe Journey',
         body: 'Heading to $destLabel${eta != null ? ' · ETA ${_hhmm(eta)}' : ''}. '
             'Tap to follow their live location.',
       );
@@ -97,14 +97,14 @@ JourneyGuardianEvent? journeyGuardianEvent({
       if (!within(updatedAt, journeyEndedWindow)) return null;
       return JourneyGuardianEvent(
         key: key,
-        title: '✅ $name arrived safely',
+        title: '$name arrived safely',
         body: followed ? 'Followed Mode has ended safely.' : 'They reached $destLabel.',
       );
     case 'alert':
       if (!within(updatedAt, journeyAlertWindow)) return null;
       return JourneyGuardianEvent(
         key: key,
-        title: '🚨 $name\'s Safe Journey raised an alert',
+        title: '$name\'s Safe Journey raised an alert',
         body: 'A safety check went unanswered. Tap to see their live location.',
       );
     case 'cancelled':

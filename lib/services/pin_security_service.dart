@@ -328,7 +328,7 @@ class PinSecurityService {
     if (EmergencyService.instance.activeAlertId != null) {
       try {
         await BackgroundServiceManager.instance.startService(
-          title: '🚨 Emergency SOS Live Tracking Active',
+          title: 'SOS active · sharing your location',
           content: 'Broadcasting live coordinates to your guardians',
         );
       } catch (_) {}

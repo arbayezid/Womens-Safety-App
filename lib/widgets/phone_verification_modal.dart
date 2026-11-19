@@ -177,7 +177,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                       ),
                     ),
                     Text(
-                      'Required for mutual emergency guardian consent',
+                      'Needed to link you with your guardians',
                       style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary),
                     ),
                   ],
@@ -266,7 +266,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                       )
                     : Text(
-                        'Send OTP Code',
+                        'Send code',
                         style: AppText.cardTitle.copyWith(color: Colors.white),
                       ),
               ),
@@ -346,7 +346,7 @@ class _PhoneVerificationModalState extends State<PhoneVerificationModal> {
                             child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                           )
                         : Text(
-                            'Verify & Save',
+                            'Verify',
                             style: GoogleFonts.poppins(
                               color: Colors.white,
                               fontWeight: FontWeight.w600,

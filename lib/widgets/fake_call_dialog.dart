@@ -253,7 +253,7 @@ class _FakeCallDialogState extends State<FakeCallDialog> {
                 borderRadius: BorderRadius.circular(AppRadius.xl),
               ),
               child: Text(
-                'Incoming Call...',
+                'Incoming call',
                 style: GoogleFonts.poppins(
                   fontSize: 13,
                   color: const Color(0xFF53D769),

@@ -521,7 +521,7 @@ class JourneyService {
 
     // 3. Start Background Foreground Notification Service
     await BackgroundServiceManager.instance.startService(
-      title: '🚶 Safe Journey Active',
+      title: 'Safe Journey on',
       content: 'Heading to $destLabel (ETA: ${expectedArrival.hour}:${expectedArrival.minute.toString().padLeft(2, '0')})',
     );
 
@@ -639,7 +639,7 @@ class JourneyService {
 
     // Start Background Service
     await BackgroundServiceManager.instance.startService(
-      title: '⚠️ Followed Mode Active',
+      title: 'Followed mode on',
       content: 'Broadcasting live coordinates & checking nearest police checkpoint',
     );
 
@@ -1090,7 +1090,7 @@ class JourneyService {
           expectedArrivalAt: expectedArrivalAt ?? journey.expectedArrivalAt,
           lastSafetyCheckAt: lastSafetyCheckAt ?? journey.lastSafetyCheckAt,
         ),
-        title: followed ? '⚠️ Followed Mode check-in' : '⚠️ Safe Journey check: are you OK?',
+        title: followed ? 'Followed mode check-in' : 'Safe Journey check: are you OK?',
         body: followed
             ? 'It has been 10 minutes since your last check-in.'
             : 'You are past your arrival time for ${journey.destinationLabel}. Tap "I\'m safe" to end the journey.',
@@ -1132,7 +1132,7 @@ class JourneyService {
     // Notify user on screen
     NotificationService.instance.showStatusNotification(
       id: 1001,
-      title: '🚨 Emergency SOS Dispatched',
+      title: 'SOS sent',
       body: 'Your guardians were alerted automatically because the safety check was unanswered.',
     );
   }

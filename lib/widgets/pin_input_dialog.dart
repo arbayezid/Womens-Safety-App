@@ -286,7 +286,7 @@ class _PinInputDialogState extends State<PinInputDialog>
                       border: Border.all(color: AppColors.actionOrange.withValues(alpha: 0.3)),
                     ),
                     child: Text(
-                      'Entering this PIN anywhere triggers a silent emergency and transforms Woman Guard into a calculator.',
+                      'Entering this PIN sends a silent alert and switches Woman Guard to a calculator.',
                       style: GoogleFonts.poppins(
                         fontSize: 11,
                         color: const Color(0xFFC2410C),

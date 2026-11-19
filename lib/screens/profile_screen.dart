@@ -11,6 +11,8 @@ import '../services/phone_registry_service.dart';
 import '../utils/url_launcher_helper.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/ui_tone.dart';
 
 /// Profile screen — user info, stats, dynamic safety score, activity history,
 /// and permanent account options.
@@ -377,7 +379,7 @@ class _ProfileScreenState extends State<ProfileScreen>
           // Switch tab or notify
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('$contactsCount active emergency contacts configured.'),
+              content: Text('$contactsCount emergency ${contactsCount == 1 ? 'contact' : 'contacts'}.'),
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 2),
             ),
@@ -394,12 +396,12 @@ class _ProfileScreenState extends State<ProfileScreen>
       ),
       _StatItem(
         value: '$safeScore%',
-        label: 'Safe Score',
+        label: 'Profile',
         icon: Icons.shield_rounded,
         onTap: () {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('Safety Score: $safeScore% based on profile and contacts.'),
+              content: Text('Your profile is $safeScore% complete.'),
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 2),
             ),
@@ -502,21 +504,21 @@ class _ProfileScreenState extends State<ProfileScreen>
     if (score >= 85) {
       scoreColor = AppColors.successForeground;
       gradientColors = const [AppColors.successBackground, Color(0xFFB8E6C4)];
-      feedbackTitle = 'Safety Score: Excellent';
+      feedbackTitle = 'Profile complete';
       feedbackSubtitle =
-          'Outstanding protection! Profile complete, $_contactsCount contacts configured, and safety features ready.';
+          'Your details and $_contactsCount emergency contacts are set up.';
     } else if (score >= 60) {
       scoreColor = AppColors.actionOrange;
       gradientColors = const [AppColors.tintOrange, Color(0xFFFDE1BF)];
-      feedbackTitle = 'Safety Score: Good';
+      feedbackTitle = 'Profile $score% complete';
       feedbackSubtitle =
-          'Good security setup. ${_contactsCount < 3 ? "Add more emergency contacts" : "Complete your medical profile"} to reach 100%.';
+          '${_contactsCount < 3 ? "Add more emergency contacts" : "Add your medical details"} to finish it.';
     } else {
       scoreColor = AppColors.sosRed;
       gradientColors = const [AppColors.tintRedStrong, Color(0xFFFFD4D4)];
-      feedbackTitle = 'Safety Score: Attention Needed';
+      feedbackTitle = 'Complete your profile';
       feedbackSubtitle =
-          'Incomplete safety configuration. Please add emergency contacts and save your phone number for full SOS protection.';
+          'Add emergency contacts and your phone number so SOS can reach people.';
     }
 
     return Container(
@@ -603,8 +605,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     if (res.isSuccess && mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content:
-                              Text('✅ Successfully signed in with Google!'),
+                          content: SnackContent('Signed in with Google.', tone: UiTone.success),
                           backgroundColor: AppColors.successForeground,
                           behavior: SnackBarBehavior.floating,
                         ),
@@ -623,16 +624,6 @@ class _ProfileScreenState extends State<ProfileScreen>
                 label: 'Edit Safety Details',
                 onTap: () => _openEditProfileModal(
                     context, AuthService.instance.currentProfile),
-              ),
-              const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Divider(height: 1, color: AppColors.background)),
-              _AccountAction(
-                icon: Icons.backup_rounded,
-                iconColor: AppColors.actionPurple,
-                iconBg: AppColors.tintViolet,
-                label: 'Backup Data',
-                onTap: () => _showSnack('Backup Data'),
               ),
               if (AuthService.instance.isAuthenticated) ...[
                 const Padding(
@@ -772,7 +763,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      'No Recent Activity',
+                      'No activity yet',
                       style: GoogleFonts.poppins(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
@@ -781,7 +772,7 @@ class _ProfileScreenState extends State<ProfileScreen>
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'All quiet and safe! Safety alerts, siren activations, and contact updates will be tracked here.',
+                      'Alerts, siren use and contact changes will show here.',
                       textAlign: TextAlign.center,
                       style: GoogleFonts.poppins(
                         fontSize: 12,
@@ -940,16 +931,6 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  void _showSnack(String label) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text('$label tapped',
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-      behavior: SnackBarBehavior.floating,
-      shape: const StadiumBorder(),
-      margin: const EdgeInsets.all(16),
-      duration: const Duration(seconds: 1),
-    ));
-  }
 }
 
 /// Interactive Bottom Sheet for Editing Profile and Saving Permanently.
@@ -1108,7 +1089,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('✅ Profile updated and saved permanently!'),
+          content: SnackContent('Profile saved.', tone: UiTone.success),
           backgroundColor: AppColors.successForeground,
           behavior: SnackBarBehavior.floating,
         ),
@@ -1162,7 +1143,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
               Row(
                 children: [
                   Text(
-                    'Edit Profile 📝',
+                    'Edit profile',
                     style: GoogleFonts.poppins(
                       fontSize: 19,
                       fontWeight: FontWeight.w700,
@@ -1178,7 +1159,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
                 ],
               ),
               Text(
-                'Personal & emergency safety info will be saved permanently to your account.',
+                'Responders see this information during an SOS.',
                 style: GoogleFonts.poppins(
                   fontSize: 12,
                   color: AppColors.textSecondary,
@@ -1314,7 +1295,7 @@ class _EditProfileBottomSheetState extends State<_EditProfileBottomSheet> {
                           ),
                         )
                       : Text(
-                          'Save Profile Permanently',
+                          'Save',
                           style: GoogleFonts.poppins(
                             fontSize: 15,
                             fontWeight: FontWeight.w700,

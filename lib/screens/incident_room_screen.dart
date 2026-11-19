@@ -143,13 +143,13 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               const Icon(Icons.warning_amber_rounded, color: AppColors.sosRed, size: 28),
               const SizedBox(width: 8),
               Expanded(child: Text(
-                'Duress Alert Active',
+                'Silent alert',
                 style: AppText.sectionTitle,
               )),
             ],
           ),
           content: Text(
-            'The sender entered a Duress PIN indicating they are under threat. Calling their phone may alert attackers and put them in immediate danger.\n\nAre you sure you want to call?',
+            'They used their duress PIN, so someone may be with them. A call could warn that person.\n\nCall anyway?',
             style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
           ),
           actions: [
@@ -192,7 +192,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '✅ You confirmed responding! Escalation timers have been paused.',
+                  "You're marked as responding. Escalation is paused.",
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
               ),
@@ -277,7 +277,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '✅ Alert resolved. Your guardians have been notified that you are safe.',
+                  "Alert closed. Your guardians know you're safe.",
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
               ),
@@ -386,7 +386,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Emergency Incident Room',
+                  'Incident',
                   style: AppText.sectionTitle.copyWith(color: AppColors.textPrimary),
                 ),
                 Text(
@@ -557,12 +557,12 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '⚠️ SILENT DURESS ALERT ACTIVE',
+                  "Silent alert: don't call",
                   style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.sosRed, letterSpacing: 0.3),
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Sender entered a discreet Duress PIN under coercion. DO NOT call them or send noisy messages that could alert an aggressor. Alert 999 or proceed silently.',
+                  'They may be with someone who is threatening them. Follow their location and call 999 if needed.',
                   style: AppText.caption.copyWith(color: const Color(0xFF8B0000), height: 1.35),
                 ),
               ],
@@ -632,7 +632,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'LINKED VEHICLE DETAILS',
+                      'Vehicle',
                       style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.blueDeep, letterSpacing: 0.6),
                     ),
                     Text(
@@ -925,7 +925,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
           Row(
             children: [
               Text(
-                'Escalation Progression',
+                'Who gets alerted',
                 style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
               ),
               const SizedBox(width: 8),
@@ -960,24 +960,24 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             children: [
               _buildStepNode(
                 stepIndex: 0,
-                label: 'Direct',
-                sublabel: 'Guardians',
+                label: 'Guardians',
+                sublabel: 'First',
                 isActive: true,
                 isCompleted: escalationLevel > 0 || isAnyGuardianAcknowledged || !isActive,
               ),
               _buildStepConnector(isCompleted: escalationLevel >= 1 || isAnyGuardianAcknowledged),
               _buildStepNode(
                 stepIndex: 1,
-                label: 'Stage 1',
-                sublabel: 'Backups',
+                label: 'Backups',
+                sublabel: 'If no reply',
                 isActive: escalationLevel >= 1,
                 isCompleted: escalationLevel > 1,
               ),
               _buildStepConnector(isCompleted: escalationLevel >= 2),
               _buildStepNode(
                 stepIndex: 2,
-                label: 'Stage 2',
-                sublabel: '999 Services',
+                label: '999',
+                sublabel: 'Last step',
                 isActive: escalationLevel >= 2,
                 isCompleted: escalationLevel >= 2,
               ),
@@ -1066,7 +1066,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 const Icon(Icons.explore_rounded, color: AppColors.primary, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  'Live Incident Radar',
+                  'Live location',
                   style: GoogleFonts.poppins(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -1074,15 +1074,6 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   ),
                 ),
                 const Spacer(),
-                Text(
-                  '${trailPoints.length} trail pts',
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textSecondary,
-                  ),
-                ),
-                const SizedBox(width: 8),
                 IconButton(
                   icon: const Icon(Icons.my_location_rounded, size: 18, color: AppColors.primary),
                   tooltip: 'Center on sender',
@@ -1194,7 +1185,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Nearest Physical Safe Zones:',
+                  'Nearby safe places',
                   style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                 ),
                 const SizedBox(height: 8),
@@ -1391,9 +1382,16 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                           color: AppColors.tintAmber,
                           borderRadius: BorderRadius.circular(AppRadius.xs),
                         ),
-                        child: Text(
-                          '🛡️ Backup',
-                          style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.deepOrange),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.shield_outlined, size: 11, color: Colors.deepOrange),
+                            const SizedBox(width: 3),
+                            Text(
+                              'Backup',
+                              style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.deepOrange),
+                            ),
+                          ],
                         ),
                       ),
                     ],
@@ -1419,7 +1417,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
           if (!isSender && allIdentities.length > displayedIdentities.length) ...[
             const SizedBox(height: 8),
             Text(
-              '🛡️ ${allIdentities.length - displayedIdentities.length} other guardian contact(s) also notified by sender',
+              '${allIdentities.length - displayedIdentities.length} other ${allIdentities.length - displayedIdentities.length == 1 ? 'guardian was' : 'guardians were'} also alerted',
               style: GoogleFonts.poppins(
                 fontSize: 11,
                 color: AppColors.textSecondary,
@@ -1461,7 +1459,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                   const Icon(Icons.history_rounded, color: AppColors.primary, size: 18),
                   const SizedBox(width: 8),
                   Text(
-                    'Incident Timeline (${unifiedTimeline.length})',
+                    'Timeline (${unifiedTimeline.length})',
                     style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                   ),
                 ],
@@ -1611,7 +1609,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                       onPressed: () => _callPhone('999'),
                       icon: const Icon(Icons.call_rounded, color: Colors.white, size: 18),
                       label: Text(
-                        'CALL 999',
+                        'Call 999',
                         style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
                       ),
                       style: ElevatedButton.styleFrom(

@@ -212,13 +212,13 @@ class _CamouflageCalculatorScreenState extends State<CamouflageCalculatorScreen>
             const Icon(Icons.shield_rounded, color: AppColors.actionGreen, size: 28),
             const SizedBox(width: 10),
             Expanded(child: Text(
-              'Security Restored',
+              "You're back in Woman Guard",
               style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 18),
             )),
           ],
         ),
         content: Text(
-          'Real PIN verified. Camouflage mode has been exited.\n\nA silent emergency duress alert was previously triggered. Would you like to confirm you are safe now?',
+          'A silent alert is still active. Are you safe now?',
           style: GoogleFonts.poppins(fontSize: 13, height: 1.4),
         ),
         actions: [

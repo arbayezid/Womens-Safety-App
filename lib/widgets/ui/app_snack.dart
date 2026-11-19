@@ -8,11 +8,14 @@ import 'ui_tone.dart';
 /// The icon takes the snackbar's text colour, so it reads on the default dark
 /// snackbar and on coloured ones (red, green) alike.
 class SnackContent extends StatelessWidget {
-  const SnackContent(this.message, {super.key, required this.tone, this.style});
+  const SnackContent(this.message, {super.key, required this.tone, this.style, this.icon});
 
   final String message;
   final UiTone tone;
   final TextStyle? style;
+
+  /// Replaces the tone's default icon (e.g. a speaker for the siren).
+  final IconData? icon;
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +23,7 @@ class SnackContent extends StatelessWidget {
     final color = style?.color ?? inherited.color;
     return Row(
       children: [
-        Icon(tone.icon, size: 20, color: color),
+        Icon(icon ?? tone.icon, size: 20, color: color),
         const SizedBox(width: 10),
         Expanded(child: Text(message, style: style)),
       ],

@@ -64,7 +64,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
     if (!hasPermission) {
       setState(() {
         _errorMessage =
-            'Bluetooth & Nearby Device permissions are required to scan for the ESP32 safety pendant.';
+            'Allow Bluetooth and Nearby devices to find your safety pendant.';
       });
       return;
     }
@@ -272,7 +272,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'ESP32 Safety Device',
+                'Safety pendant',
                 style: AppText.greeting.copyWith(color: AppColors.textPrimary),
               ),
               Text(
@@ -361,13 +361,13 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
           ),
           const SizedBox(height: 20),
           Text(
-            'Bluetooth is Turned Off',
+            'Bluetooth is off',
             style: AppText.greeting.copyWith(color: AppColors.textPrimary),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 8),
           Text(
-            'Bluetooth must be turned on to scan and connect to your ESP32 safety pendant. Please enable Bluetooth to continue.',
+            'Turn on Bluetooth to find and connect your safety pendant.',
             style: GoogleFonts.poppins(
               fontSize: 13,
               color: AppColors.textSecondary,
@@ -478,7 +478,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                     return _buildStatRow(
                       icon: Icons.battery_charging_full_rounded,
                       iconColor: AppColors.successForeground,
-                      label: 'Battery Level',
+                      label: 'Battery',
                       value: '$battery%',
                     );
                   },
@@ -490,8 +490,8 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                     return _buildStatRow(
                       icon: Icons.signal_cellular_alt_rounded,
                       iconColor: AppColors.actionBlue,
-                      label: 'Signal Strength',
-                      value: '$rssi dBm',
+                      label: 'Signal',
+                      value: _signalLabel(rssi),
                     );
                   },
                 ),
@@ -499,8 +499,8 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                 _buildStatRow(
                   icon: Icons.touch_app_rounded,
                   iconColor: AppColors.sosRed,
-                  label: 'Hardware Button',
-                  value: 'Armed & Listening',
+                  label: 'Pendant button',
+                  value: 'Ready',
                 ),
               ],
             ),
@@ -527,7 +527,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
               },
               icon: const Icon(Icons.warning_amber_rounded, color: Colors.white),
               label: Text(
-                'Test Hardware SOS Trigger',
+                'Test pendant button',
                 style: GoogleFonts.poppins(fontWeight: FontWeight.w600, color: Colors.white),
               ),
               style: ElevatedButton.styleFrom(
@@ -921,7 +921,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                           borderRadius: BorderRadius.circular(AppRadius.sm),
                         ),
                         child: Text(
-                          'ESP32',
+                          'Pendant',
                           style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
                         ),
                       ),
@@ -936,7 +936,7 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
                       style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary), maxLines: 1, overflow: TextOverflow.ellipsis)),
                     const SizedBox(width: 8),
                     Text(
-                      '• ${result.rssi} dBm',
+                      '· ${_signalLabel(result.rssi)} signal',
                       style: AppText.caption.copyWith(color: _getRssiColor(result.rssi)),
                     ),
                   ],
@@ -970,6 +970,13 @@ class _Esp32ScanSheetState extends State<Esp32ScanSheet> with SingleTickerProvid
         ],
       ),
     );
+  }
+
+  /// Signal strength in words; thresholds match [_getRssiColor].
+  static String _signalLabel(int rssi) {
+    if (rssi >= -65) return 'Strong';
+    if (rssi >= -80) return 'Fair';
+    return 'Weak';
   }
 
   Color _getRssiColor(int rssi) {

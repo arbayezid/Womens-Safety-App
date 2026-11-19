@@ -271,7 +271,7 @@ class SafetyReportService {
 
       await NotificationService.instance.showStatusNotification(
         id: 998,
-        title: '⚠️ Caution: Risk-Zone Nearby',
+        title: 'Reported risk area nearby',
         body: 'You are near an area with reported $dominantType. Stay alert and stick to well-lit main roads.',
       );
     }

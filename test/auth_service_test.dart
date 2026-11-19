@@ -167,15 +167,15 @@ void main() {
       await tester.tap(find.text('Guarded Button'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Account Required 🛡️'), findsOneWidget);
+      expect(find.text('Sign in to continue'), findsOneWidget);
       expect(find.text('Continue with Google'), findsOneWidget);
       expect(actionExecuted, isFalse);
 
       // Dismissing the sheet should keep action unexecuted
-      await tester.tap(find.text('Maybe Later'));
+      await tester.tap(find.text('Maybe later'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Account Required 🛡️'), findsNothing);
+      expect(find.text('Sign in to continue'), findsNothing);
       expect(actionExecuted, isFalse);
     });
   });

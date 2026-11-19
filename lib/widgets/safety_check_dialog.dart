@@ -135,7 +135,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                   const SizedBox(height: 20),
 
                   Text(
-                    '⚠️ SAFETY CHECK',
+                    'Are you OK?',
                     style: AppText.greeting.copyWith(color: isUrgent ? AppColors.sosRed : AppColors.actionOrange, letterSpacing: 0.5),
                   ),
                   const SizedBox(height: 6),
@@ -170,7 +170,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                         const Icon(Icons.timer_outlined, size: 14, color: AppColors.sosRed),
                         const SizedBox(width: 6),
                         Flexible(child: Text(
-                          'Auto-SOS in $seconds seconds if unanswered',
+                          'SOS will be sent in $seconds s unless you answer',
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -252,7 +252,7 @@ class _SafetyCheckDialogState extends State<SafetyCheckDialog>
                             elevation: 0,
                           ),
                           child: Text(
-                            'SOS NOW',
+                            'Send SOS',
                             style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
                           ),
                         ),
@@ -411,13 +411,13 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                   const SizedBox(height: 20),
 
                   Text(
-                    '🚨 ARE YOU OK?',
+                    'Are you OK?',
                     style: AppText.greeting.copyWith(color: isUrgent ? AppColors.sosRed : AppColors.actionOrange, letterSpacing: 0.5),
                   ),
                   const SizedBox(height: 6),
 
                   Text(
-                    'Fall Impact Detected',
+                    'Possible fall detected',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(
                       fontSize: 15,
@@ -428,7 +428,7 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                   const SizedBox(height: 8),
 
                   Text(
-                    'Sudden impact and lack of movement detected.',
+                    'We noticed a sudden impact and no movement after it.',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.poppins(fontSize: 12, color: AppColors.textSecondary, height: 1.4),
                   ),
@@ -446,7 +446,7 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                         const Icon(Icons.timer_outlined, size: 14, color: AppColors.sosRed),
                         const SizedBox(width: 6),
                         Flexible(child: Text(
-                          'Auto-SOS in $seconds seconds if unanswered',
+                          'SOS will be sent in $seconds s unless you answer',
                           style: GoogleFonts.poppins(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
@@ -491,7 +491,7 @@ class _FallCheckDialogState extends State<FallCheckDialog>
                       },
                       icon: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
                       label: Text(
-                        'SEND SOS NOW',
+                        'Send SOS now',
                         style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(
@@ -574,7 +574,7 @@ class ShakeSosDialog extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                   Text(
-                    'Shake Detected',
+                    'Shake detected',
                     style: AppText.greeting.copyWith(color: AppColors.sosRed),
                   ),
                   const SizedBox(height: 6),
@@ -598,7 +598,7 @@ class ShakeSosDialog extends StatelessWidget {
                       },
                       icon: const Icon(Icons.close_rounded, color: Colors.white, size: 22),
                       label: Text(
-                        'CANCEL',
+                        'Cancel',
                         style: GoogleFonts.poppins(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(
@@ -619,7 +619,7 @@ class ShakeSosDialog extends StatelessWidget {
                       },
                       icon: const Icon(Icons.warning_amber_rounded, color: Colors.white, size: 18),
                       label: Text(
-                        'SEND SOS NOW',
+                        'Send SOS now',
                         style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: 0.5),
                       ),
                       style: ElevatedButton.styleFrom(

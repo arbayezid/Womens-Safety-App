@@ -383,7 +383,7 @@ class SosEscalationService {
     // 2. High-priority local notification on the sender's device prompting to call 999
     NotificationService.instance.showStatusNotification(
       id: 9991,
-      title: '🚨 No Guardian Has Responded',
+      title: 'No guardian has responded yet',
       body: '8 minutes have passed without a response. Tap here to call 999 Emergency Services.',
     );
 

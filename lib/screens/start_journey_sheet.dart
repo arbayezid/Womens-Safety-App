@@ -386,8 +386,8 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
               Expanded(
                 child: Text(
                   hasPin
-                      ? '🚶 Safe Journey active! Monitoring route & Dead-Man\'s switch.'
-                      : '🚶 Safe Journey active. "$destLabel" isn\'t on the map, so tap "I\'ve Arrived" when you get there.',
+                      ? "Safe Journey started. We'll check on you if you're late."
+                      : 'Safe Journey started. "$destLabel" isn\'t on the map, so tap "I\'ve Arrived" when you get there.',
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
               ),
@@ -644,7 +644,7 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
-                    '${_formatDistance(route.distanceMeters)} by road • ${formatMinutes(route.durationMinutes)}',
+                    '${_formatDistance(route.distanceMeters)} · ${formatMinutes(route.durationMinutes)} by road',
                     style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w700),
                   ),
                 ),

@@ -150,7 +150,7 @@ class _FakeCallCallerSheetState extends State<FakeCallCallerSheet> {
     messenger?.showSnackBar(
       SnackBar(
         content: Text(
-          '${caller.name} will call in ${delay.inSeconds} seconds. Act natural!',
+          '${caller.name} will call in ${delay.inSeconds} seconds.',
           style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
         ),
         backgroundColor: AppColors.actionBlue,

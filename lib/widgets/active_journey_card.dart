@@ -99,7 +99,7 @@ class ActiveJourneyCard extends StatelessWidget {
                           Flexible(
                             child: Text(
                               isFollowed
-                                  ? "⚠️ I'm Being Followed Mode"
+                                  ? 'Followed mode'
                                   : 'Safe Journey to ${journey.destinationLabel}',
                               style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                               overflow: TextOverflow.ellipsis,

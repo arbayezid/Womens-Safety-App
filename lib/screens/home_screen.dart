@@ -44,6 +44,8 @@ import '../services/inbox_service.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/ui_tone.dart';
 
 /// Root shell widget for Smart Safety.
 ///
@@ -255,7 +257,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
             const SizedBox(width: 12),
             Text(
-              '🚨 Triggering Emergency SOS...',
+              'Sending SOS…',
               style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
             ),
           ],
@@ -333,8 +335,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '⚠️ ${result.message}',
+            content: SnackContent(
+              result.message,
+              tone: UiTone.warning,
               style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
             ),
             backgroundColor: Colors.orange.shade800,
@@ -349,8 +352,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '❌ SOS Failed: ${e.toString().replaceAll('Exception: ', '')}',
+          content: SnackContent(
+            "SOS couldn't be sent. ${e.toString().replaceAll('Exception: ', '')} Try again.",
+            tone: UiTone.critical,
             style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
           ),
           backgroundColor: AppColors.sosRed,
@@ -381,16 +385,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final String text;
     if (needsManualSmsFallback) {
       text = isResend
-          ? '🔁 Guardians rung again. SMS not sent automatically; tap Send in Messages.'
-          : '🚨 Alert sent. SMS not sent automatically; tap Send in Messages.';
+          ? "Guardians alerted again. SMS wasn't sent automatically; tap Send in Messages."
+          : "Alert sent. SMS wasn't sent automatically; tap Send in Messages.";
     } else if (statusShownAbove) {
       text = isResend
-          ? '🔁 Alert re-sent. Guardians are being rung again.'
-          : '🚨 SOS sent. Live status is shown at the top.';
+          ? 'Alert sent again to your guardians.'
+          : 'SOS sent. Follow its status at the top of the screen.';
     } else {
       text = result.message.isNotEmpty
           ? result.message
-          : '✅ SOS Alert Dispatched! Location sent to ${result.contactsSentCount} contact(s).';
+          : 'SOS sent to ${result.contactsSentCount} ${result.contactsSentCount == 1 ? 'contact' : 'contacts'} with your location.';
     }
 
     final messenger = ScaffoldMessenger.of(context);
@@ -472,8 +476,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-              '⚠️ ${result.message}',
+            content: SnackContent(
+              result.message,
+              tone: UiTone.warning,
               style: GoogleFonts.poppins(fontWeight: FontWeight.w500, fontSize: 12),
             ),
             backgroundColor: Colors.orange.shade800,
@@ -488,8 +493,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '❌ Re-send failed: ${e.toString().replaceAll('Exception: ', '')}',
+          content: SnackContent(
+            "Couldn't send the alert again. ${e.toString().replaceAll('Exception: ', '')}",
+            tone: UiTone.critical,
             style: GoogleFonts.poppins(fontWeight: FontWeight.w500),
           ),
           backgroundColor: AppColors.sosRed,
@@ -548,8 +554,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            isNowPlaying ? '📢 Loud Siren Activated!' : '🔇 Loud Siren Deactivated',
+          content: SnackContent(
+            isNowPlaying ? 'Siren on' : 'Siren off',
+            tone: isNowPlaying ? UiTone.warning : UiTone.info,
+            icon: isNowPlaying ? Icons.volume_up_rounded : Icons.volume_off_rounded,
             style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
           ),
           backgroundColor: isNowPlaying ? AppColors.sosRed : AppColors.textPrimary,
@@ -849,7 +857,7 @@ class _SafetyDashboard extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  'Guardian Request (${requests.length})',
+                                  'Guardian requests (${requests.length})',
                                   style: GoogleFonts.poppins(
                                       fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
                                 ),
@@ -1123,11 +1131,11 @@ class _ActiveSosEmergencyBannerState extends State<_ActiveSosEmergencyBanner>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '🚨 SOS EMERGENCY ACTIVE',
+                      'SOS active',
                       style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.sosRed, letterSpacing: 0.3),
                     ),
                     Text(
-                      'Broadcasting live GPS tracking to guardians',
+                      'Sharing your live location with guardians',
                       style: AppText.caption.copyWith(color: AppColors.textPrimary),
                     ),
                   ],
@@ -1271,7 +1279,7 @@ class _ActiveIncomingGuardianSosBannerState
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  '✅ Confirmed: You are responding to this emergency!',
+                  "You're marked as responding.",
                   style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
                 ),
               ),
@@ -1353,11 +1361,11 @@ class _ActiveIncomingGuardianSosBannerState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '🚨 INCOMING EMERGENCY SOS',
+                      'SOS from $senderName',
                       style: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.sosRed, letterSpacing: 0.4),
                     ),
                     Text(
-                      '$senderName needs immediate assistance!',
+                      'Needs help now',
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         color: AppColors.textPrimary,
@@ -1529,7 +1537,7 @@ class _TopAppBarState extends State<_TopAppBar> {
     return ValueListenableBuilder(
       valueListenable: AuthService.instance.profileNotifier,
       builder: (context, _, __) {
-        final greeting = 'Hi, ${AuthService.instance.greetingName}! 👋';
+        final greeting = 'Hi, ${AuthService.instance.greetingName}';
         final photoUrl = AuthService.instance.photoUrl;
         final initials = AuthService.instance.initials;
         final isAuthenticated = AuthService.instance.isAuthenticated;
@@ -1582,8 +1590,8 @@ class _TopAppBarState extends State<_TopAppBar> {
                     ),
                     Text(
                       isAuthenticated
-                          ? 'Guardian Mode: Active'
-                          : 'Guest Mode: Tap to Sign In',
+                          ? 'Signed in'
+                          : 'Guest · Tap to sign in',
                       style: GoogleFonts.poppins(
                         fontSize: 12,
                         color: isAuthenticated
@@ -1660,24 +1668,24 @@ class _ESP32Badge extends StatelessWidget {
           case Esp32ConnectionStatus.connected:
             bgColor = AppColors.successBackground;
             dotColor = AppColors.successForeground;
-            label = 'ESP32 Connected';
+            label = 'Pendant connected';
             break;
           case Esp32ConnectionStatus.connecting:
           case Esp32ConnectionStatus.scanning:
             bgColor = AppColors.warningSurface;
             dotColor = AppColors.warningForeground;
-            label = 'ESP32 Connecting';
+            label = 'Connecting…';
             break;
           case Esp32ConnectionStatus.permissionDenied:
             bgColor = AppColors.dangerSurfaceAlt;
             dotColor = AppColors.sosRed;
-            label = 'Bluetooth Req';
+            label = 'Allow Bluetooth';
             break;
           case Esp32ConnectionStatus.bluetoothDisabled:
           case Esp32ConnectionStatus.disconnected:
             bgColor = AppColors.neutralSurface;
             dotColor = AppColors.textSecondary;
-            label = 'ESP32 Offline';
+            label = 'Pendant offline';
             break;
         }
 
@@ -1967,7 +1975,7 @@ class _CurrentLocationCardState extends State<CurrentLocationCard>
               ),
               const SizedBox(height: 2),
               Text(
-                'Coordinates: ${data.formattedCoordinates}',
+                data.formattedCoordinates,
                 style: GoogleFonts.poppins(
                   fontSize: 11,
                   color: AppColors.textSecondary,
@@ -3176,7 +3184,7 @@ Future<bool> _confirmMarkSafe(BuildContext context, {bool alreadyConfirmed = fal
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
           ),
           child: Text(
-            'Yes, I Am Safe',
+            "Yes, I'm safe",
             style: GoogleFonts.poppins(fontWeight: FontWeight.w700, color: Colors.white),
           ),
         ),
@@ -3197,7 +3205,7 @@ void _showMarkedSafeSnackBar(BuildContext context) {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              '✅ Marked safe! Emergency contacts notified and live tracking stopped.',
+              "You're marked safe. Guardians have been told and location sharing stopped.",
               style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 13),
             ),
           ),
@@ -3300,7 +3308,7 @@ class _ActiveRideCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    'Tracking live GPS • Tap to view dashboard',
+                    'Sharing location · Tap for details',
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       color: AppColors.textSecondary,
@@ -3398,7 +3406,7 @@ class _IncomingProtectedRideCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                   ),
                   Text(
-                    'Vehicle: ${ride.plateFormatted} • Tap to track live',
+                    'Vehicle ${ride.plateFormatted} · Tap to track',
                     style: GoogleFonts.poppins(
                       fontSize: 11,
                       color: AppColors.textSecondary,
@@ -3548,7 +3556,7 @@ class _QuickActionCard extends StatelessWidget {
     final cardBg = isSirenActive ? AppColors.sosRed.withValues(alpha: 0.12) : AppColors.surface;
     final iconBg = isSirenActive ? AppColors.sosRed : item.iconBackground;
     final iconColor = isSirenActive ? Colors.white : item.iconColor;
-    final labelText = isSirenActive ? 'STOP SIREN 🔇' : item.label;
+    final labelText = isSirenActive ? 'Stop siren' : item.label;
 
     return GestureDetector(
       onTap: () => onTap(item.label),

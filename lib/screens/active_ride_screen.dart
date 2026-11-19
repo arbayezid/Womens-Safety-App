@@ -12,6 +12,9 @@ import '../services/ride_checkin_service.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import '../widgets/ui/app_snack.dart';
+import '../widgets/ui/ui_tone.dart';
+import '../widgets/ui/battery_chip.dart';
 
 /// Active Ride tracking screen for the traveler.
 /// Displays live GPS location, elapsed duration vs expected ETA, plate card with zoomable photo,
@@ -127,7 +130,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
               const Icon(Icons.check_circle_rounded, color: Colors.white),
               const SizedBox(width: 10),
               Expanded(
-                child: Text('✅ Guardians notified: You arrived safely!', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                child: Text("You've arrived. Your guardians have been told.", style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
               ),
             ],
           ),
@@ -174,7 +177,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
     HapticFeedback.heavyImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('🚨 Triggering Emergency SOS...', style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
+        content: SnackContent('Sending SOS…', tone: UiTone.critical, style: GoogleFonts.poppins(fontWeight: FontWeight.w700)),
         backgroundColor: AppColors.sosRed,
       ),
     );
@@ -187,7 +190,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          'Active Ride Tracking',
+          'Your ride',
           style: AppText.sectionTitle,
         ),
         backgroundColor: AppColors.surface,
@@ -340,8 +343,8 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                                 const SizedBox(width: 8),
                                 Flexible(child: Text(
                                   isOverdue
-                                      ? '⚠️ RIDE OVERDUE (Dead-Man Active)'
-                                      : '🚗 Live Ride Tracking Active',
+                                      ? 'Ride overdue. Please check in'
+                                      : 'Ride in progress',
                                   style: GoogleFonts.poppins(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
@@ -356,7 +359,7 @@ class _ActiveRideScreenState extends State<ActiveRideScreen> {
                                   color: AppColors.slateSurface,
                                   borderRadius: BorderRadius.circular(AppRadius.xs),
                                 ),
-                                child: Text('🔋 ${ride.batteryLevel}%', style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700)),
+                                child: BatteryChip(ride.batteryLevel!, style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700)),
                               ),
                           ],
                         ),

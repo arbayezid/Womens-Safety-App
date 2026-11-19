@@ -845,7 +845,7 @@ class EmergencyService {
 
           // Start foreground background service
           await BackgroundServiceManager.instance.startService(
-            title: '🚨 Emergency SOS Live Tracking Active',
+            title: 'SOS active · sharing your location',
             content: 'Broadcasting live coordinates to your guardians',
           );
 
@@ -945,22 +945,22 @@ class EmergencyService {
 
     String resultSummary;
     if ((sentCount > 0 || pendingCount > 0) && cloudSent) {
-      resultSummary = 'SOS alert dispatched! $smsCountText & Cloud alert broadcast.$composerNote';
+      resultSummary = 'SOS sent. $smsCountText. Guardians alerted in the app.$composerNote';
     } else if (sentCount > 0 || pendingCount > 0) {
-      resultSummary = '$smsCountText. Cloud alert queued.$composerNote';
+      resultSummary = '$smsCountText. The app alert will send when you are online.$composerNote';
     } else if (cloudSent) {
       if (recipients.isEmpty) {
-        resultSummary = '🚨 Cloud SOS alert broadcast to guardian(s)! Add a mobile number to contact to also send SMS.';
+        resultSummary = 'Guardians alerted in the app. Add a mobile number to a contact to also send SMS.';
       } else if (!smsResult.permissionGranted) {
         resultSummary = composerOpened
-            ? '🚨 In-App alert sent to guardians! SMS permission is off, so Messages was opened; tap Send.'
-            : '🚨 In-App alert sent to guardians! (SMS skipped: allow SMS in phone Settings).';
+            ? 'Guardians alerted in the app. SMS permission is off, so Messages was opened; tap Send.'
+            : 'Guardians alerted in the app. SMS was skipped; allow SMS in phone Settings.';
       } else if (sentCount == 0 && recipients.isNotEmpty) {
         resultSummary = composerOpened
-            ? '🚨 Alert broadcast to guardians. $smsCountText.$composerNote'
-            : '🚨 Alert broadcast to guardians. (SMS not sent automatically; tap below to send via SMS app).';
+            ? 'Guardians alerted in the app. $smsCountText.$composerNote'
+            : "Guardians alerted in the app. SMS wasn't sent automatically; tap below to send it.";
       } else {
-        resultSummary = '🚨 Emergency cloud alert broadcast to all mutual guardians.';
+        resultSummary = 'All guardians alerted in the app.';
       }
     } else if (!smsResult.permissionGranted) {
       resultSummary = composerOpened
