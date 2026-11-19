@@ -900,11 +900,8 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
       } else if (escalationLevel == 0) {
         final remaining = 180 - elapsedSeconds;
         countdownText = remaining > 0 ? 'Next stage in ${remaining ~/ 60}m ${remaining % 60}s' : 'Escalating to Stage 1...';
-      } else if (escalationLevel == 1) {
-        final remaining = 480 - elapsedSeconds;
-        countdownText = remaining > 0 ? 'Next stage in ${remaining ~/ 60}m ${remaining % 60}s' : 'Escalating to Stage 2...';
       } else {
-        countdownText = 'Stage 2 Maximum Escalation Active';
+        countdownText = 'Backups alerted';
       }
     } else {
       countdownText = 'Resolved';
@@ -953,7 +950,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
             ],
           ),
           const SizedBox(height: 16),
-          // 3-step Stepper Row
+          // 2-step Stepper Row
           Row(
             children: [
               _buildStepNode(
@@ -969,15 +966,7 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 label: 'Backups',
                 sublabel: 'If no reply',
                 isActive: escalationLevel >= 1,
-                isCompleted: escalationLevel > 1,
-              ),
-              _buildStepConnector(isCompleted: escalationLevel >= 2),
-              _buildStepNode(
-                stepIndex: 2,
-                label: '999',
-                sublabel: 'Last step',
-                isActive: escalationLevel >= 2,
-                isCompleted: escalationLevel >= 2,
+                isCompleted: escalationLevel >= 1,
               ),
             ],
           ),
