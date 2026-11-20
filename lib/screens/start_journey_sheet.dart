@@ -84,7 +84,8 @@ class _StartJourneySheetState extends State<StartJourneySheet> {
             )
           : repo.allSafeZones.take(5).toList();
       setState(() {
-        _guardians = contacts;
+        // A contact whose request is not accepted yet is not told about the journey.
+        _guardians = contacts.where((c) => c.canReceiveAppAlerts).toList();
         _suggestedZones = zones;
       });
 

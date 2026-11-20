@@ -30,7 +30,8 @@ class ContactService extends ChangeNotifier {
   /// Generates the SharedPreferences key for a specific user's contact cache
   static String cacheKeyForUid(String uid) => '$_diskCachePrefix$uid';
 
-  /// Initial sample contacts for offline unit test harness only (never persisted to disk)
+  /// Initial sample contacts (accepted guardians) for the offline unit test harness only
+  /// (never persisted to disk)
   static final List<ContactModel> _defaultContacts = [
     const ContactModel(
       id: 'default_1',
@@ -39,7 +40,8 @@ class ContactService extends ChangeNotifier {
       phone: '+8801711000001',
       relationship: 'Family',
       isPrimary: true,
-      syncStatus: 'offline_only',
+      isSyncedAppUser: true,
+      syncStatus: 'synced',
     ),
     const ContactModel(
       id: 'default_2',
@@ -48,7 +50,8 @@ class ContactService extends ChangeNotifier {
       phone: '+8801933000003',
       relationship: 'Family',
       isPrimary: true,
-      syncStatus: 'offline_only',
+      isSyncedAppUser: true,
+      syncStatus: 'synced',
     ),
     const ContactModel(
       id: 'default_3',
@@ -57,7 +60,8 @@ class ContactService extends ChangeNotifier {
       phone: '+8801822000002',
       relationship: 'Best Friend',
       isPrimary: false,
-      syncStatus: 'offline_only',
+      isSyncedAppUser: true,
+      syncStatus: 'synced',
     ),
   ];
 
@@ -122,6 +126,11 @@ class ContactService extends ChangeNotifier {
     if (primary == null) return list;
     return [primary, ...list.where((c) => !identical(c, primary))];
   }
+
+  /// The contacts in [contacts] that may be alerted (see [ContactModel.canReceiveAlerts]): a
+  /// contact whose connection request is not accepted yet is left out on every channel.
+  static List<ContactModel> alertable(Iterable<ContactModel> contacts) =>
+      contacts.where((c) => c.canReceiveAlerts).toList();
 
   /// Makes [contactId] the only Primary contact (null clears it). Any previous primary is
   /// unset in the same Firestore batch. Updates memory and the disk cache first, so the
@@ -396,9 +405,11 @@ class ContactService extends ChangeNotifier {
               'contactUid': data['contactUid'] ?? data['contact_uid'] ?? doc.id,
             });
 
-            // If phone is missing and this is a registered user, attempt auto-resolution from their user profile
+            // If phone is missing and this is an accepted guardian, attempt auto-resolution from
+            // their user profile. Never before they accept: their number is not shared until then.
             final resolvedUid = c.contactUid;
             if (c.phone.trim().isEmpty &&
+                c.isSynced &&
                 resolvedUid != null &&
                 resolvedUid.isNotEmpty &&
                 !resolvedUid.startsWith('offline_')) {
@@ -710,11 +721,11 @@ class ContactService extends ChangeNotifier {
   }
 
   /// Extracts clean phone numbers for SOS SMS dispatch.
-  /// Dispatches to all emergency contacts that have a non-empty, valid phone number,
-  /// regardless of whether their sync status is Synced App User, Sync Pending, or offline.
+  /// Dispatches only to guardians who accepted the connection request and have a phone
+  /// number. Pending requests and contacts without an app account are never texted.
   /// The Primary contact's number comes first so it is texted first.
   Future<List<String>> getEmergencyPhoneNumbers({bool primaryOnly = false}) async {
-    final List<ContactModel> contacts = primaryFirst(await getContacts());
+    final List<ContactModel> contacts = primaryFirst(alertable(await getContacts()));
     if (contacts.isEmpty) return [];
 
     List<ContactModel> targetContacts = contacts;

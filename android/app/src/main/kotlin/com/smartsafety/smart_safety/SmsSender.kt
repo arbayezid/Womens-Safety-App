@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.SystemClock
 import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -135,11 +136,25 @@ object SmsSender {
         return unique.map { resultMap(it, outcomes[it] ?: Outcome("failed", "Not attempted", -1)) }
     }
 
+    /**
+     * Hands the message to the radio. If the modern SmsManager is missing or rejects the message,
+     * the classic one (what the telephony plugin used) is tried before giving up.
+     */
     private fun dispatch(context: Context, recipient: String, message: String, subscriptionId: Int): Dispatch {
+        val managers = smsManagersFor(context, subscriptionId)
+        if (managers.isEmpty()) return Dispatch.Error("SMS is not supported on this device")
+        var lastError: Dispatch = Dispatch.Error("SMS is not supported on this device")
+        for (manager in managers) {
+            val attempt = dispatchWith(context, manager, recipient, message)
+            if (attempt is Dispatch.Started) return attempt
+            lastError = attempt
+        }
+        return lastError
+    }
+
+    private fun dispatchWith(context: Context, manager: SmsManager, recipient: String, message: String): Dispatch {
         var key: String? = null
         return try {
-            val manager = smsManagerFor(context, subscriptionId)
-                ?: return Dispatch.Error("SMS is not supported on this device")
             val parts = manager.divideMessage(message)
             val trackingKey = "${SystemClock.elapsedRealtimeNanos()}_${requestCodes.incrementAndGet()}"
             key = trackingKey
@@ -193,6 +208,9 @@ object SmsSender {
                 Log.w(TAG, "Cannot list SIM cards", e)
             }
         }
+        // Without READ_PHONE_STATE, look up each SIM slot directly so the second SIM is still
+        // tried when the default one fails (for example, no SMS balance).
+        ids += subscriptionsBySlot(context)
 
         val defaultAny = SubscriptionManager.getDefaultSubscriptionId()
         if (defaultAny != SubscriptionManager.INVALID_SUBSCRIPTION_ID) ids += defaultAny
@@ -201,15 +219,50 @@ object SmsSender {
         return ids.toList()
     }
 
+    /** Subscription IDs of the inserted SIMs, read per slot (needs no permission). */
     @Suppress("DEPRECATION")
-    private fun smsManagerFor(context: Context, subscriptionId: Int): SmsManager? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val base = context.getSystemService(SmsManager::class.java) ?: return null
-            return if (subscriptionId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) base
-            else base.createForSubscriptionId(subscriptionId)
+    private fun subscriptionsBySlot(context: Context): List<Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return emptyList()
+        return try {
+            val telephony = context.getSystemService(TelephonyManager::class.java) ?: return emptyList()
+            val slots = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) telephony.activeModemCount else telephony.phoneCount
+            val subscriptions = context.getSystemService(SubscriptionManager::class.java)
+            (0 until slots).flatMap { slot ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    listOf(SubscriptionManager.getSubscriptionId(slot))
+                } else {
+                    subscriptions?.getSubscriptionIds(slot)?.toList() ?: emptyList()
+                }
+            }.filter { it != SubscriptionManager.INVALID_SUBSCRIPTION_ID }
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot read SIM slots", e)
+            emptyList()
         }
-        return if (subscriptionId == SubscriptionManager.INVALID_SUBSCRIPTION_ID) SmsManager.getDefault()
-        else SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
+    }
+
+    /**
+     * SmsManagers to try for [subscriptionId], modern first. On some phones the SmsManager system
+     * service is missing or rejects the call, while the classic SmsManager still sends.
+     */
+    @Suppress("DEPRECATION")
+    private fun smsManagersFor(context: Context, subscriptionId: Int): List<SmsManager> {
+        val anySim = subscriptionId == SubscriptionManager.INVALID_SUBSCRIPTION_ID
+        val managers = mutableListOf<SmsManager>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val base = context.getSystemService(SmsManager::class.java)
+                if (base != null) managers += if (anySim) base else base.createForSubscriptionId(subscriptionId)
+                else Log.w(TAG, "SmsManager system service unavailable; using the classic SmsManager")
+            } catch (e: Exception) {
+                Log.w(TAG, "Modern SmsManager unavailable for SIM $subscriptionId", e)
+            }
+        }
+        try {
+            managers += if (anySim) SmsManager.getDefault() else SmsManager.getSmsManagerForSubscriptionId(subscriptionId)
+        } catch (e: Exception) {
+            Log.w(TAG, "Classic SmsManager unavailable for SIM $subscriptionId", e)
+        }
+        return managers
     }
 
     private fun describe(code: Int): String = when (code) {

@@ -52,13 +52,21 @@ class ContactModel {
   /// True if waiting for the recipient to accept the connection request.
   bool get isPending => syncStatus == 'pending';
 
+  /// May be sent SOS and safety alerts at all (SMS or in-app): only guardians who accepted
+  /// the connection request. Pending requests and contacts without an app account (who
+  /// cannot accept one) get nothing, on any channel.
+  bool get canReceiveAlerts => isSynced;
+
+  /// May be sent the in-app alert: only guardians who accepted the request.
+  bool get canReceiveAppAlerts => isSynced;
+
   /// Active emergency alert channels available for this contact:
-  /// - 'SMS' if the contact has a valid phone number
+  /// - 'SMS' if the contact has a valid phone number and may be alerted
   /// - 'App' if the contact is a synced app user
-  /// - 'No alert channel' if the contact has no phone and is not a synced app user
+  /// - 'No alert channel' otherwise (including a request that was not accepted yet)
   List<String> get alertChannels {
     final channels = <String>[];
-    if (hasPhone) {
+    if (hasPhone && canReceiveAlerts) {
       channels.add('SMS');
     }
     if (isSynced) {

@@ -9,7 +9,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('Phase 4.1: Dispatch Routing Tests', () {
-    test('Phone only contact routes to SMS only', () {
+    test('Phone only contact that never accepted a request gets no alert channel', () {
       const contact = ContactModel(
         id: 'c_phone_only',
         name: 'Phone Guardian',
@@ -19,9 +19,7 @@ void main() {
       );
 
       final channels = contact.alertChannels;
-      expect(channels, contains('SMS'));
-      expect(channels, isNot(contains('App')));
-      expect(channels, isNot(contains('No alert channel')));
+      expect(channels, ['No alert channel']);
     });
 
     test('Email only synced contact routes to Cloud SOS only', () {
@@ -75,14 +73,14 @@ void main() {
 
   group('Phase 4.1: Channel Badges Tests', () {
     test('alertChannels returns correct badges for each configuration', () {
-      const smsOnly = ContactModel(
+      const notAccepted = ContactModel(
         id: '1',
         name: 'A',
         phone: '01700000000',
         email: '',
         relationship: 'Friend',
       );
-      expect(smsOnly.alertChannels, ['SMS']);
+      expect(notAccepted.alertChannels, ['No alert channel']);
 
       const appOnly = ContactModel(
         id: '2',

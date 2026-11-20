@@ -15,6 +15,7 @@ import 'auth_service.dart';
 import 'background_service.dart';
 import 'contact_service.dart';
 import 'emergency_service.dart';
+import 'sms_settings.dart';
 import 'live_tracking_service.dart';
 import 'notification_service.dart';
 import 'motion_detection_service.dart';
@@ -630,7 +631,10 @@ class JourneyService {
     // default to every emergency contact, as Safe Journey does. Empty lists = SMS only.
     if (guardianUids == null || guardianEmails == null) {
       try {
-        final contacts = await ContactService.instance.getContacts();
+        // Only guardians who accepted the request see the journey in the app.
+        final contacts = (await ContactService.instance.getContacts())
+            .where((c) => c.canReceiveAppAlerts)
+            .toList();
         guardianUids ??= contacts
             .where((c) => c.contactUid != null && c.contactUid!.isNotEmpty)
             .map((c) => c.contactUid!)
@@ -732,8 +736,9 @@ class JourneyService {
   }
 
   void _sendFollowedSms({String? mapUrl}) async {
+    if (!await SmsSettings.isEnabled()) return;
     try {
-      final contacts = await ContactService.instance.getContacts();
+      final contacts = ContactService.alertable(await ContactService.instance.getContacts());
       final name = AuthService.instance.displayName;
       final locPart = mapUrl != null ? ' Location: $mapUrl' : '';
       final message = 'ALERT: $name feels followed and activated Followed Mode! Live tracking is active.$locPart';
@@ -759,6 +764,7 @@ class JourneyService {
     String? mapUrl,
     String? customMessage,
   }) async {
+    if (!await SmsSettings.isEnabled()) return;
     final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
     if (phoneNumbers.isEmpty) return;
 
@@ -1326,7 +1332,7 @@ class JourneyService {
     if (alertId == null && previous != null) {
       LiveTrackingService.instance.mirrorJourneyId = null;
       if (journey.status == JourneyStatus.alert) {
-        // markSafe has already texted "is safe now"
+        // Ending an SOS sends no SMS, so neither does the journey it took over.
         unawaited(completeJourney(notifyContacts: false));
       } else if (journey.isActive && LiveTrackingService.instance.activeDocumentId != journey.id) {
         unawaited(() async {

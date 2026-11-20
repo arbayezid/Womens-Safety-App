@@ -18,6 +18,8 @@ import 'contact_service.dart';
 import 'journey_service.dart';
 import 'live_tracking_service.dart';
 import 'native_sms_service.dart';
+import 'sms_settings.dart';
+import 'sos_location_warmer.dart';
 import 'safety_deadline_service.dart';
 import 'siren_service.dart';
 import 'sos_cloud_dispatcher.dart';
@@ -75,6 +77,9 @@ class SosDispatchStatus {
   /// True when the default Messages app was opened for the failed recipients.
   final bool composerOpened;
 
+  /// True when SMS alerts are switched off in Settings (in-app alert only).
+  final bool smsOff;
+
   /// True for a re-send of an alert that was already live.
   final bool isResend;
   final DateTime at;
@@ -90,6 +95,7 @@ class SosDispatchStatus {
     required this.smsBody,
     required this.cloudSent,
     required this.composerOpened,
+    this.smsOff = false,
     required this.isResend,
     required this.at,
     required int reachedWithCloud,
@@ -120,6 +126,7 @@ class SosDispatchStatus {
       smsBody: smsBody,
       cloudSent: cloudSent ?? this.cloudSent,
       composerOpened: composerOpened ?? this.composerOpened,
+      smsOff: smsOff,
       isResend: isResend,
       at: at,
       reachedWithCloud: reachedWithCloud ?? _reachedWithCloud,
@@ -395,24 +402,8 @@ class EmergencyService {
     // 4. Stop siren if playing
     SirenService.instance.stopSiren();
 
-    // 5. Send one "I'm safe now" SMS to contacts with a phone number
-    final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
-    if (phoneNumbers.isNotEmpty) {
-      final userName = AuthService.instance.displayName;
-      final safeMessage = '$userName is safe now.';
-      debugPrint('[EmergencyService] ✉️ Sending "I\'m Safe" SMS to ${phoneNumbers.length} contact(s): $safeMessage');
-      for (final phone in phoneNumbers) {
-        try {
-          await _telephony.sendSms(
-            to: phone,
-            message: safeMessage,
-            isMultipart: false,
-          );
-        } catch (e) {
-          debugPrint('[EmergencyService] Failed to send safe SMS to $phone: $e');
-        }
-      }
-    }
+    // 5. No "I'm safe" SMS: only the alert itself is texted. Guardians in the app see the
+    // alert resolved through Firestore.
 
     // 6. Log activity event
     ActivityService.instance.logActivity(
@@ -569,12 +560,13 @@ class EmergencyService {
     return future;
   }
 
-  /// Tries the SMS recipients of the last round that were not reached again: direct send
-  /// first, then the Messages app (pre-filled) for anyone still left. Updates
-  /// [lastDispatchNotifier] and returns the new status (null when there was nothing to retry).
+  /// Tries the SMS recipients of the last round that were not reached again, sending directly in
+  /// the background (the Messages app is never opened). Updates [lastDispatchNotifier] and
+  /// returns the new status (null when there was nothing to retry).
   Future<SosDispatchStatus?> retryFailedSms() async {
     final status = lastDispatchNotifier.value;
     if (status == null || status.smsFailed.isEmpty) return status;
+    if (!await SmsSettings.isEnabled()) return status;
     final round = _dispatchRound;
 
     final retry = await _dispatchOfflineSms(recipients: status.smsFailed, smsBody: status.smsBody)
@@ -585,12 +577,7 @@ class EmergencyService {
               permissionGranted: true,
             ));
     final List<String> remaining = !retry.permissionGranted ? status.smsFailed : retry.failedList;
-
-    bool composerOpened = status.composerOpened;
-    if (remaining.isNotEmpty) {
-      final outcome = await NativeSmsService.instance.openComposer(remaining, status.smsBody);
-      composerOpened = outcome == 'opened' || outcome == 'notified';
-    }
+    const bool composerOpened = false;
 
     final newlyReached = retry.sentCount + retry.pendingCount;
     final updated = status.copyWith(
@@ -715,6 +702,9 @@ class EmergencyService {
     final List<({String? phone, bool inApp})> routedContacts = [];
 
     void routeContact(ContactModel contact) {
+      // A contact whose connection request is not accepted yet gets nothing, on any channel.
+      if (!contact.canReceiveAlerts) return;
+
       String? formattedPhone;
       bool inApp = false;
 
@@ -727,7 +717,11 @@ class EmergencyService {
         }
       }
 
-      // Channel 2: In-app Cloud SOS
+      // Channel 2: In-app Cloud SOS, only for guardians who accepted the request
+      if (!contact.canReceiveAppAlerts) {
+        if (formattedPhone != null) routedContacts.add((phone: formattedPhone, inApp: false));
+        return;
+      }
       final normEmail = contact.email.trim().toLowerCase();
       if (normEmail.isNotEmpty) {
         inApp = true;
@@ -765,6 +759,27 @@ class EmergencyService {
       recipients = routedSmsRecipients;
     }
 
+    // Settings > SMS alerts off: no text messages, guardians are alerted in the app only.
+    final bool smsEnabled = await SmsSettings.isEnabled();
+    if (!smsEnabled) {
+      debugPrint('[EmergencyService] SMS alerts are off in Settings; sending the in-app alert only.');
+      recipients = [];
+    }
+
+    // Contacts exist, but none has accepted a request yet: nobody may be alerted, so nothing
+    // is sent.
+    if (localContacts.isNotEmpty &&
+        !localContacts.any((c) => c.canReceiveAlerts) &&
+        _emergencyContacts.isEmpty) {
+      debugPrint('[EmergencyService] ⚠️ No contact has accepted a request yet; nothing sent.');
+      return EmergencyResult(
+        isSuccess: false,
+        message: "None of your contacts has accepted your request yet. Alerts are sent only "
+            "to contacts who accept.",
+        hasNoRecipients: true,
+      );
+    }
+
     // Step 2: Validate recipients presence
     if (recipients.isEmpty) {
       if (localContacts.isEmpty) {
@@ -781,13 +796,14 @@ class EmergencyService {
 
     debugPrint('[EmergencyService] 📋 Prepared ${recipients.length} SMS recipient(s): $recipients');
 
-    // Step 3: Extract real-time GPS Location, capped at 10 seconds in total so the SMS is never
-    // blocked on location (a pending permission dialog or a cold GPS can otherwise stall it).
+    // Step 3: Get an accurate location for the one SOS SMS without delaying it: usually the warm
+    // GPS fix (instant), at most a 1.5 s wait. Capped at 3 s in total so a pending permission
+    // dialog can never stall the SMS.
     Position? position;
     String? mapUrl;
 
     try {
-      position = await _getCurrentLocation().timeout(const Duration(seconds: 10));
+      position = await _getCurrentLocation().timeout(const Duration(seconds: 3));
       if (position != null) {
         mapUrl = generateGoogleMapsUrl(position.latitude, position.longitude);
         debugPrint('[EmergencyService] 📍 Acquired Live Location: ${position.latitude}, ${position.longitude}');
@@ -802,7 +818,7 @@ class EmergencyService {
       try {
         debugPrint('[EmergencyService] 🔄 Falling back to last known position...');
         position = await Geolocator.getLastKnownPosition()
-            .timeout(const Duration(seconds: 2), onTimeout: () => null);
+            .timeout(const Duration(seconds: 1), onTimeout: () => null);
         if (position != null) {
           mapUrl = generateGoogleMapsUrl(position.latitude, position.longitude);
           debugPrint('[EmergencyService] 📍 Fallback to Last Known Location: ${position.latitude}, ${position.longitude}');
@@ -816,14 +832,20 @@ class EmergencyService {
       debugPrint('[EmergencyService] ⚠️ GPS unavailable; proceeding with emergency message so SMS dispatch is not blocked.');
     }
 
-    // A cached position older than 2 minutes is not a live fix: contacts get a follow-up SMS
-    // as soon as a fresh fix arrives.
+    // A cached position older than 2 minutes is not a live fix, and a Wi-Fi / cell fix (used
+    // only when GPS never got precise) can be 100 m+ off: the SMS then says "Approx. location".
     final bool hasLiveFix = position != null &&
         DateTime.now().difference(position.timestamp).abs() < const Duration(minutes: 2);
+    final bool hasPreciseFix = hasLiveFix && _isPrecise(position);
+    if (position != null) {
+      debugPrint('[EmergencyService] 📍 Fix accuracy: ${position.accuracy.toStringAsFixed(0)} m '
+          '(live: $hasLiveFix, precise: $hasPreciseFix)');
+    }
     final String smsBody = buildSosSmsMessage(
       userName: AuthService.instance.displayName,
       latitude: position?.latitude,
       longitude: position?.longitude,
+      accuracyMeters: hasPreciseFix ? null : position?.accuracy,
       time: DateTime.now(),
       customMessage: customMessage,
     );
@@ -897,12 +919,43 @@ class EmergencyService {
       }));
     }
 
+    // Counts how many distinct contacts an SMS result reached (with or without the in-app alert).
+    int reachedBy(_SmsDispatchResult sms, bool withCloud) {
+      final Set<String> reachedPhones =
+          recipients.where((r) => !sms.failedList.contains(r)).toSet();
+      return routedContacts
+          .where((c) =>
+              (withCloud && c.inApp) ||
+              (c.phone != null && sms.permissionGranted && reachedPhones.contains(c.phone)))
+          .length;
+    }
+
+    // SMS confirmed after this round stopped waiting: show the real outcome. If it lands before
+    // this round's status is published, the status is simply built from it.
+    _SmsDispatchResult? confirmedSms;
+    bool statusPublished = false;
+    void applyConfirmedSms(_SmsDispatchResult confirmed) {
+      confirmedSms = confirmed;
+      if (!statusPublished) return;
+      final current = lastDispatchNotifier.value;
+      if (round != _dispatchRound || current == null) return;
+      lastDispatchNotifier.value = current.copyWith(
+        smsSent: confirmed.sentCount,
+        smsPending: confirmed.pendingCount,
+        smsFailed: confirmed.permissionGranted ? confirmed.failedList : recipients,
+        reachedWithCloud: reachedBy(confirmed, true),
+        reachedWithoutCloud: reachedBy(confirmed, false),
+      );
+    }
+
     // 2. Primary offline channel: Dispatch SMS immediately without waiting for Cloud SOS
     final _SmsDispatchResult smsResult;
     if (recipients.isNotEmpty) {
       smsResult = await _dispatchOfflineSms(
         recipients: recipients,
         smsBody: smsBody,
+        confirmWait: _smsConfirmWait,
+        onConfirmed: applyConfirmedSms,
       ).catchError((err) {
         debugPrint('[EmergencyService] ❌ SMS dispatch future error: $err');
         final bool isPermissionDenied = err.toString().contains('permission_denied') ||
@@ -923,30 +976,17 @@ class EmergencyService {
       );
     }
 
-    // SMS fallback: when direct sending is denied or failed, open the default SMS app with the
-    // recipients and message pre-filled so the user only taps Send. Never in duress mode, which
-    // must stay silent and hidden.
-    bool composerOpened = false;
-    final List<String> composerRecipients =
-        !smsResult.permissionGranted ? recipients : smsResult.failedList;
-    if (composerRecipients.isNotEmpty && !isDuress) {
-      final outcome = await NativeSmsService.instance.openComposer(composerRecipients, smsBody);
-      composerOpened = outcome == 'opened' || outcome == 'notified';
-    }
-
-    // Follow-up SMS with live coordinates once GPS gets a fix (never blocks the first SMS)
-    final List<String> reachedRecipients =
-        recipients.where((r) => !smsResult.failedList.contains(r)).toList();
-    if (!hasLiveFix && smsResult.permissionGranted && reachedRecipients.isNotEmpty) {
-      unawaited(_sendLocationFollowUp(reachedRecipients));
-    }
+    // SMS is sent in the background only: the app never switches to the Messages app on its own.
+    // Anyone not reached shows up in the alert banner with a Retry button instead.
+    const bool composerOpened = false;
 
     // 3. Evaluate Cloud SOS:
-    // If SMS was sent, check if Cloud SOS already finished fast (e.g. 500ms race or local cache);
-    // otherwise do not wait further so the UI receives immediate feedback while Cloud SOS queues in background.
+    // If SMS went out (sent or still being confirmed), check if Cloud SOS already finished fast
+    // (e.g. 500ms race or local cache); otherwise do not wait further so the UI receives
+    // immediate feedback while Cloud SOS queues in background.
     // If no SMS was sent (e.g. email-only contacts or SMS failed), wait up to 3s for Cloud SOS.
     String? cloudAlertId;
-    if (smsResult.sentCount > 0) {
+    if (smsResult.sentCount + smsResult.pendingCount > 0) {
       try {
         cloudAlertId = await cloudFuture.timeout(
           const Duration(milliseconds: 500),
@@ -974,31 +1014,28 @@ class EmergencyService {
     // e.g. "SMS sent to 2 of 3 contacts" (+ how many are still going out)
     String smsCountText = 'SMS sent to $sentCount of ${recipients.length} contact(s)';
     if (pendingCount > 0) smsCountText += ', $pendingCount still sending';
-    final String composerNote = composerOpened ? ' Messages app opened for the rest; tap Send.' : '';
 
     String resultSummary;
     if ((sentCount > 0 || pendingCount > 0) && cloudSent) {
-      resultSummary = 'SOS sent. $smsCountText. Guardians alerted in the app.$composerNote';
+      resultSummary = 'SOS sent. $smsCountText. Guardians alerted in the app.';
     } else if (sentCount > 0 || pendingCount > 0) {
-      resultSummary = '$smsCountText. The app alert will send when you are online.$composerNote';
+      resultSummary = '$smsCountText. The app alert will send when you are online.';
     } else if (cloudSent) {
-      if (recipients.isEmpty) {
+      if (!smsEnabled) {
+        resultSummary = 'Guardians alerted in the app. SMS alerts are off in Settings.';
+      } else if (recipients.isEmpty) {
         resultSummary = 'Guardians alerted in the app. Add a mobile number to a contact to also send SMS.';
       } else if (!smsResult.permissionGranted) {
-        resultSummary = composerOpened
-            ? 'Guardians alerted in the app. SMS permission is off, so Messages was opened; tap Send.'
-            : 'Guardians alerted in the app. SMS was skipped; allow SMS in phone Settings.';
+        resultSummary = 'Guardians alerted in the app. SMS was skipped; allow SMS in phone Settings.';
       } else if (sentCount == 0 && recipients.isNotEmpty) {
-        resultSummary = composerOpened
-            ? 'Guardians alerted in the app. $smsCountText.$composerNote'
-            : "Guardians alerted in the app. SMS wasn't sent automatically; tap below to send it.";
+        resultSummary = "Guardians alerted in the app. SMS wasn't sent; tap Retry to try again.";
       } else {
         resultSummary = 'All guardians alerted in the app.';
       }
+    } else if (!smsEnabled) {
+      resultSummary = 'SMS alerts are off and the in-app alert could not be sent. Check your internet connection.';
     } else if (!smsResult.permissionGranted) {
-      resultSummary = composerOpened
-          ? 'SMS permission is off, so Messages was opened with your SOS; tap Send.'
-          : 'SMS permission was denied. Please allow SMS permission in device settings.';
+      resultSummary = 'SMS permission was denied. Please allow SMS permission in device settings.';
     } else if (localContacts.isNotEmpty && recipients.isEmpty) {
       resultSummary = 'Your emergency contact has no mobile phone number configured. Please add a phone number for SMS.';
     } else if (!smsResult.hasRecipients) {
@@ -1009,26 +1046,23 @@ class EmergencyService {
 
     // Publish what this round really reached, for the home screen's status line.
     if (overallSuccess) {
-      final Set<String> reachedPhones =
-          recipients.where((r) => !failedList.contains(r)).toSet();
-      int reachedBy(bool withCloud) => routedContacts
-          .where((c) =>
-              (withCloud && c.inApp) ||
-              (c.phone != null && smsResult.permissionGranted && reachedPhones.contains(c.phone)))
-          .length;
+      // Real SMS results that arrived during the cloud wait above replace the early ones.
+      final _SmsDispatchResult sms = confirmedSms ?? smsResult;
       lastDispatchNotifier.value = SosDispatchStatus(
-        smsSent: sentCount,
-        smsPending: pendingCount,
+        smsSent: sms.sentCount,
+        smsPending: sms.pendingCount,
         smsTotal: recipients.length,
-        smsFailed: smsResult.permissionGranted ? failedList : recipients,
+        smsFailed: sms.permissionGranted ? sms.failedList : recipients,
         smsBody: smsBody,
         cloudSent: cloudSent,
         composerOpened: composerOpened,
+        smsOff: !smsEnabled,
         isResend: existingAlertId != null,
         at: DateTime.now(),
-        reachedWithCloud: reachedBy(true),
-        reachedWithoutCloud: reachedBy(false),
+        reachedWithCloud: reachedBy(sms, true),
+        reachedWithoutCloud: reachedBy(sms, false),
       );
+      statusPublished = true;
       if (!cloudSent) {
         // The cloud document can land after the 500 ms wait above: count in-app guardians then.
         unawaited(cloudFuture.then((id) {
@@ -1043,7 +1077,7 @@ class EmergencyService {
     // Log the SOS emergency event for profile activity tracking
     ActivityService.instance.logSOS(
       source: source,
-      contactsSent: sentCount > 0 ? sentCount : (cloudSent ? 1 : 0),
+      contactsSent: sentCount + pendingCount > 0 ? sentCount + pendingCount : (cloudSent ? 1 : 0),
       mapUrl: mapUrl,
       isSuccess: overallSuccess,
     );
@@ -1053,7 +1087,9 @@ class EmergencyService {
       message: resultSummary,
       position: position,
       googleMapsUrl: mapUrl,
-      contactsSentCount: sentCount,
+      // Messages still being confirmed are already with the radio: they count as sent here
+      // (the status banner shows "sending" until the network confirms them).
+      contactsSentCount: sentCount + pendingCount,
       failedContacts: failedList,
       recipientPhones: recipients,
       isPermissionDenied: !smsResult.permissionGranted,
@@ -1062,9 +1098,15 @@ class EmergencyService {
   }
 
   /// Dispatches offline background SMS messages to valid recipient phone numbers.
+  ///
+  /// With [confirmWait], waits at most that long for the network confirmations: recipients
+  /// still unconfirmed are reported as pending (the messages are already with the radio), and
+  /// [onConfirmed] receives the real results when the native sender finishes.
   Future<_SmsDispatchResult> _dispatchOfflineSms({
     required List<String> recipients,
     required String smsBody,
+    Duration? confirmWait,
+    void Function(_SmsDispatchResult confirmed)? onConfirmed,
   }) async {
     final List<String> validRecipients = recipients
         .map((r) => r.trim())
@@ -1095,8 +1137,7 @@ class EmergencyService {
       }
 
       // Primary path: native sender (explicit SIM selection, multipart, confirmed delivery to the network)
-      final nativeResults = await NativeSmsService.instance.send(validRecipients, smsBody);
-      if (nativeResults != null) {
+      _SmsDispatchResult fromNative(List<SmsSendResult> nativeResults) {
         final int sent = nativeResults.where((r) => r.isSent).length;
         final int pendingCount = nativeResults.where((r) => r.isPending).length;
         final List<String> failed = nativeResults
@@ -1112,6 +1153,32 @@ class EmergencyService {
           permissionGranted: !nativeResults.any((r) => r.isPermissionDenied),
         );
       }
+
+      final nativeFuture = NativeSmsService.instance.send(validRecipients, smsBody);
+      List<SmsSendResult>? nativeResults;
+      if (confirmWait != null) {
+        bool stillConfirming = false;
+        nativeResults = await nativeFuture.timeout(confirmWait, onTimeout: () {
+          stillConfirming = true;
+          return null;
+        });
+        if (stillConfirming) {
+          debugPrint('[EmergencyService] 📨 SMS handed to the radio; network confirmation still pending');
+          unawaited(nativeFuture.then((late) {
+            if (late != null) onConfirmed?.call(fromNative(late));
+          }).catchError((Object _) {}));
+          return _SmsDispatchResult(
+            sentCount: 0,
+            pendingCount: validRecipients.length,
+            failedList: const [],
+            hasRecipients: true,
+            permissionGranted: true,
+          );
+        }
+      } else {
+        nativeResults = await nativeFuture;
+      }
+      if (nativeResults != null) return fromNative(nativeResults);
 
       // Native sender unavailable (non-Android): telephony plugin
       int sentCount = 0;
@@ -1237,10 +1304,12 @@ class EmergencyService {
   /// `EMERGENCY! [Name] needs help. Live location: https://maps.google.com/?q=LAT,LNG  Time: [time]`
   /// A [customMessage] (fall, journey, duress...) replaces the first sentence; location and time
   /// are always appended so every SOS SMS carries a working map link.
+  /// With [accuracyMeters] (a coarse Wi-Fi / cell fix) the link is labelled as approximate.
   String buildSosSmsMessage({
     required String userName,
     double? latitude,
     double? longitude,
+    double? accuracyMeters,
     required DateTime time,
     String? customMessage,
   }) {
@@ -1248,22 +1317,29 @@ class EmergencyService {
     final intro = (customMessage != null && customMessage.trim().isNotEmpty)
         ? customMessage.trim()
         : 'EMERGENCY! $name needs help.';
-    final location = (latitude != null && longitude != null)
-        ? buildSmsMapsLink(latitude, longitude)
-        : 'Location unavailable';
-    return '$intro Live location: $location  Time: ${formatSmsTime(time)}';
+    if (latitude == null || longitude == null) {
+      return '$intro Live location: Location unavailable  Time: ${formatSmsTime(time)}';
+    }
+    final link = buildSmsMapsLink(latitude, longitude);
+    final label = (accuracyMeters != null && accuracyMeters > _preciseFixMeters)
+        ? 'Approx. location (within ${accuracyMeters.round()} m)'
+        : 'Live location';
+    return '$intro $label: $link  Time: ${formatSmsTime(time)}';
   }
 
-  /// Follow-up text sent once a live GPS fix is available after the first SOS SMS.
-  String buildSosLocationUpdateMessage({
-    required String userName,
-    required double latitude,
-    required double longitude,
-    required DateTime time,
-  }) {
-    final name = userName.trim().isNotEmpty ? userName.trim() : 'A Woman Guard user';
-    return 'EMERGENCY UPDATE: $name needs help. Live location: ${buildSmsMapsLink(latitude, longitude)}  Time: ${formatSmsTime(time)}';
-  }
+  /// A GPS fix at least this accurate is sent as the live location.
+  static const double _preciseFixMeters = 30;
+
+  /// How long the SOS waits for a precise GPS fix (only when no warm fix is ready) before
+  /// sending the best one it has. Kept short: the SMS must go out at once.
+  static const Duration _preciseFixWait = Duration(milliseconds: 1500);
+
+  /// How long an SOS round waits for the network to confirm its SMS before reporting back.
+  /// Messages still unconfirmed by then are already with the radio (Android keeps sending them):
+  /// they show as "sending" and the status updates once the real results arrive.
+  static const Duration _smsConfirmWait = Duration(milliseconds: 1500);
+
+  bool _isPrecise(Position? p) => p != null && p.accuracy > 0 && p.accuracy <= _preciseFixMeters;
 
   /// Short Google Maps link that opens on any phone (smartphone browser or Maps app).
   String buildSmsMapsLink(double latitude, double longitude) {
@@ -1277,33 +1353,6 @@ class EmergencyService {
     final minute = time.minute.toString().padLeft(2, '0');
     final period = time.hour < 12 ? 'AM' : 'PM';
     return '$hour12:$minute $period, ${time.day} ${months[time.month - 1]} ${time.year}';
-  }
-
-  /// Waits (in the background) for a live GPS fix and texts it to [recipients].
-  Future<void> _sendLocationFollowUp(List<String> recipients) async {
-    try {
-      final fix = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 90),
-        ),
-      );
-      final message = buildSosLocationUpdateMessage(
-        userName: AuthService.instance.displayName,
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        time: DateTime.now(),
-      );
-      debugPrint('[EmergencyService] 📍 Live fix acquired; sending follow-up SMS to ${recipients.length} contact(s)');
-      final results = await NativeSmsService.instance.send(recipients, message);
-      if (results == null) {
-        for (final phone in recipients) {
-          await _telephony.sendSms(to: phone, message: message, isMultipart: true);
-        }
-      }
-    } catch (e) {
-      debugPrint('[EmergencyService] No live GPS fix for follow-up SMS: $e');
-    }
   }
 
   /// Formats an ultra-concise, single-segment GSM-7 emergency SMS message.
@@ -1350,32 +1399,94 @@ class EmergencyService {
       return null;
     }
 
-    // 3. Extract location with Android 12+ Approximate accuracy fallback & strict timeout
+    // 3. Instant and accurate: GPS is kept warm while the app is open ([SosLocationWarmer]), so a
+    // precise fix is normally ready the moment SOS is pressed. Otherwise a fresh precise
+    // last-known fix is used, and only then does it wait briefly ([_preciseFixWait]) for GPS,
+    // sending the best fix it has rather than delaying the SMS.
+    final Position? warm = SosLocationWarmer.instance.latestFix;
+    if (warm != null && _isPrecise(warm) && _ageOf(warm) < const Duration(seconds: 60)) {
+      debugPrint('[EmergencyService] Using warm GPS fix (${warm.accuracy.round()} m, ${_ageOf(warm).inSeconds}s old)');
+      return warm;
+    }
+    Position? lastKnown;
     try {
-      return await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 5),
-        ),
-      ).timeout(const Duration(seconds: 5));
-    } catch (highErr) {
-      debugPrint('[EmergencyService] High-accuracy GPS notice: $highErr. Trying medium accuracy.');
-      try {
-        return await Geolocator.getCurrentPosition(
-          locationSettings: const LocationSettings(
-            accuracy: LocationAccuracy.medium,
-            timeLimit: Duration(seconds: 3),
-          ),
-        ).timeout(const Duration(seconds: 3));
-      } catch (_) {
-        return await Geolocator.getLastKnownPosition();
+      lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null && _isPrecise(lastKnown) && _ageOf(lastKnown) < const Duration(seconds: 30)) {
+        debugPrint('[EmergencyService] Using fresh last-known fix (${lastKnown.accuracy.round()} m)');
+        return lastKnown;
+      }
+    } catch (_) {}
+
+    // Best recent fix so far; the stream below can only improve on it.
+    Position? best;
+    for (final candidate in [warm, lastKnown]) {
+      if (candidate == null || _ageOf(candidate) > const Duration(minutes: 2)) continue;
+      final current = best;
+      if (current == null || candidate.accuracy < current.accuracy) best = candidate;
+    }
+    // GPS already warm (a fix in the last minute) but not precise: it has been trying for a
+    // while, so waiting longer would not help. Send now instead of waiting.
+    final bool gpsAlreadyTried = warm != null && _ageOf(warm) < const Duration(seconds: 60);
+    StreamSubscription<Position>? sub;
+    final completer = Completer<Position?>();
+    if (gpsAlreadyTried) completer.complete(null);
+    try {
+      if (!gpsAlreadyTried) {
+        sub = Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(accuracy: LocationAccuracy.best),
+        ).listen(
+          (p) {
+            final current = best;
+            if (current == null || (p.accuracy > 0 && p.accuracy < current.accuracy)) best = p;
+            if (_isPrecise(p) && !completer.isCompleted) completer.complete(p);
+          },
+          onError: (Object e) {
+            debugPrint('[EmergencyService] GPS stream notice: $e');
+            if (!completer.isCompleted) completer.complete(null);
+          },
+        );
+      }
+      final precise = await completer.future.timeout(_preciseFixWait, onTimeout: () => null);
+      if (precise != null) return precise;
+    } catch (e) {
+      debugPrint('[EmergencyService] Precise GPS notice: $e');
+    } finally {
+      await sub?.cancel();
+    }
+
+    // Indoors the live fix is a Wi-Fi / cell estimate (50-150 m). The phone's last real GPS
+    // fix, taken under open sky up to 30 min ago, is used instead when it lies inside that
+    // estimate's uncertainty circle: then it cannot be further off than the estimate itself,
+    // and is usually within a few metres.
+    final coarse = best ?? lastKnown;
+    final gps = await SosLocationWarmer.instance.lastGpsFix();
+    if (gps != null && _isPrecise(gps) && _ageOf(gps) < const Duration(minutes: 30)) {
+      final agrees = coarse == null ||
+          Geolocator.distanceBetween(coarse.latitude, coarse.longitude, gps.latitude, gps.longitude) <=
+              coarse.accuracy;
+      if (agrees) {
+        debugPrint('[EmergencyService] Using last GPS fix (${gps.accuracy.round()} m, '
+            '${_ageOf(gps).inMinutes} min old) inside the ${coarse?.accuracy.round()} m live estimate');
+        return gps;
       }
     }
+
+    final fallback = best;
+    if (fallback != null) {
+      debugPrint('[EmergencyService] No precise GPS fix${gpsAlreadyTried ? ' (GPS warm)' : ' in ${_preciseFixWait.inSeconds}s'}; '
+          'using the best one (${fallback.accuracy.round()} m)');
+      return fallback;
+    }
+    return lastKnown;
   }
+
+  Duration _ageOf(Position p) => DateTime.now().difference(p.timestamp).abs();
 
   /// Checks and requests SMS permission via [permission_handler] / [telephony].
   Future<bool> _checkAndRequestSmsPermission() async {
     if (kIsWeb) return false;
+
+    await _ensurePhoneStatePermission();
 
     try {
       final status = await Permission.sms.status;
@@ -1398,5 +1509,20 @@ class EmergencyService {
     }
 
     return false;
+  }
+
+  /// Newer Android (16+) refuses SMS from an app without READ_PHONE_STATE: SmsManager throws
+  /// "SecurityException: getSmsMmsDisabled" for every SIM. Asks for it if missing; sending is
+  /// still attempted when the user declines.
+  Future<void> _ensurePhoneStatePermission() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      final status = await Permission.phone.status;
+      if (status.isGranted || status.isPermanentlyDenied) return;
+      final result = await Permission.phone.request();
+      debugPrint('[EmergencyService] Phone permission for SMS: ${result.name}');
+    } catch (e) {
+      debugPrint('[EmergencyService] Phone permission check notice: $e');
+    }
   }
 }

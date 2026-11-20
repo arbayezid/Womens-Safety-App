@@ -579,7 +579,8 @@ class ContactSyncService {
 
   /// Saves an emergency contact whose email is not registered in the app.
   ///
-  /// This enables the contact to receive offline SMS distress alerts immediately.
+  /// Such a contact gets no alerts until they join and accept a connection request
+  /// (see [ContactModel.canReceiveAlerts]).
   Future<ContactModel> saveOfflineContact({
     required String name,
     required String email,

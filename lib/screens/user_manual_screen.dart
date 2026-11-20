@@ -443,7 +443,6 @@ const List<_ManualSection> _sections = [
         'Smart escalation',
         [
           'If no guardian taps "I\'m responding" within 3 minutes, your backup contacts are alerted and your other contacts get an SMS update.',
-          'If still no one responds after 8 minutes, a final SMS round goes out and the app asks you to call 999.',
           'Escalation stops as soon as any guardian responds or you mark yourself safe.',
           'Turn this off in Settings > Smart escalation if you do not want it.',
         ],
@@ -501,7 +500,9 @@ const List<_ManualSection> _sections = [
           'If someone forces you to unlock the app, enter your Duress PIN instead of your real PIN.',
           'The app then sends a silent SOS with no siren and no visible alert, and switches to the calculator. Your guardians are told it is a silent emergency and not to call you.',
           'Entering your real PIN here does nothing, so it is safe to show this screen to anyone.',
+          'The whole phone also goes silent: calls, SMS, WhatsApp, Messenger, imo and every other app stop ringing, so nothing gives you away. Your normal sound comes back when you leave the calculator with your real PIN.',
         ],
+        tip: 'Allow this once in Settings > Silence phone on Duress PIN. Without that permission the phone only switches to vibrate.',
       ),
     ],
   ),
@@ -759,7 +760,8 @@ const List<_ManualSection> _sections = [
     iconColor: AppColors.orangeDeep,
     iconBg: AppColors.tintOrange,
     title: 'Automatic protection',
-    summary: 'Shake, fall and low battery alerts',
+    // summary: 'Shake, fall and low battery alerts',
+    summary: 'Shake to SOS and safety switches',
     topics: [
       _Topic(
         'Shake to SOS',
@@ -769,26 +771,28 @@ const List<_ManualSection> _sections = [
           'Turn it on or off in Settings > Shake to SOS.',
         ],
       ),
-      _Topic(
-        'Fall detection',
-        [
-          'If the phone senses a hard impact followed by no movement, it shows "Possible fall detected".',
-          'You have 30 seconds to say you are fine. Otherwise an SOS is sent. If PIN protection is on, cancelling needs your PIN.',
-          'Turn it on or off in Settings > Fall detection.',
-        ],
-      ),
-      _Topic(
-        'Low battery alert',
-        [
-          'When your battery drops to 10% or lower and is not charging, your contacts get a text with your last location.',
-          'Turn it on or off in Settings > Low battery alert.',
-        ],
-      ),
+      // Fall detection and low battery alert hidden for now.
+      // _Topic(
+      //   'Fall detection',
+      //   [
+      //     'If the phone senses a hard impact followed by no movement, it shows "Possible fall detected".',
+      //     'You have 30 seconds to say you are fine. Otherwise an SOS is sent. If PIN protection is on, cancelling needs your PIN.',
+      //     'Turn it on or off in Settings > Fall detection.',
+      //   ],
+      // ),
+      // _Topic(
+      //   'Low battery alert',
+      //   [
+      //     'When your battery drops to 10% or lower and is not charging, your contacts get a text with your last location.',
+      //     'Turn it on or off in Settings > Low battery alert.',
+      //   ],
+      // ),
       _Topic(
         'Other safety switches',
         [
           'Siren on automatic SOS: plays the siren when a check-in timer runs out and an SOS is sent for you.',
           'Live location sharing: lets your emergency contacts see your location.',
+          'SMS alerts: texts your contacts from your SIM. Turn it off to alert them in the app only; no text messages are sent.',
         ],
       ),
     ],
@@ -816,7 +820,7 @@ const List<_ManualSection> _sections = [
         [
           'A second, different PIN for when someone forces you to unlock or cancel.',
           'Entering it anywhere the app asks for your PIN looks like it worked, but it sends a silent SOS and switches to the calculator.',
-          'No siren plays and nothing on screen shows that an alert was sent.',
+          'No siren plays and nothing on screen shows that an alert was sent. The phone goes fully silent for calls and messages until you exit.',
           'To come back from the calculator, type your real Security PIN and press "=".',
         ],
         tip: 'Choose a Duress PIN you can remember under stress, and make sure it is different from your Security PIN.',

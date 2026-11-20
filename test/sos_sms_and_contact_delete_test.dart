@@ -50,14 +50,24 @@ void main() {
       expect(service.formatSmsTime(DateTime(2026, 12, 31, 12, 0)), '12:00 PM, 31 Dec 2026');
     });
 
-    test('follow-up message carries the fresh live location', () {
-      final msg = service.buildSosLocationUpdateMessage(
+    test('a coarse Wi-Fi / cell fix is labelled approximate; a GPS fix is not', () {
+      final coarse = service.buildSosSmsMessage(
         userName: 'Nusrat',
-        latitude: 23.8,
-        longitude: 90.4,
+        latitude: 23.7772338,
+        longitude: 90.3486637,
+        accuracyMeters: 148.6,
         time: time,
       );
-      expect(msg, startsWith('EMERGENCY UPDATE: Nusrat needs help. Live location: https://maps.google.com/?q=23.800000,90.400000'));
+      expect(coarse, contains('needs help. Approx. location (within 149 m): https://maps.google.com/?q=23.777234,90.348664'));
+
+      final precise = service.buildSosSmsMessage(
+        userName: 'Nusrat',
+        latitude: 23.7772338,
+        longitude: 90.3486637,
+        accuracyMeters: 12,
+        time: time,
+      );
+      expect(precise, contains('needs help. Live location: https://maps.google.com/'));
     });
   });
 

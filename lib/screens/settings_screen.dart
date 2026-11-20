@@ -9,11 +9,15 @@ import '../models/activity_model.dart';
 import '../models/fake_caller.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
-import '../services/battery_alert_service.dart';
+// Low battery alert hidden for now.
+// import '../services/battery_alert_service.dart';
 import '../services/fake_call_settings_service.dart';
 import '../services/pin_security_service.dart';
-import '../services/motion_detection_service.dart';
+import '../services/phone_silence_service.dart';
+// Fall detection hidden for now.
+// import '../services/motion_detection_service.dart';
 import '../services/shake_sos_service.dart';
+import '../services/sms_settings.dart';
 import '../services/sos_escalation_service.dart';
 import '../services/esp32_ble_service.dart';
 import '../widgets/esp32_scan_sheet.dart';
@@ -39,23 +43,26 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen> with WidgetsBindingObserver {
   bool _locationSharing = true;
+  bool _smsAlerts = true;
   bool _notifications = true;
   bool _shakeToSOS = false;
-  bool _criticalBatteryAlert = true;
+  // bool _criticalBatteryAlert = true; // Low battery alert hidden for now.
   bool _sirenOnAutoSos = false;
-  bool _fallDetection = false;
+  // bool _fallDetection = false; // Fall detection hidden for now.
   bool _smartEscalation = true;
   bool _pinProtection = false;
   bool _requirePinOnOpen = false;
   bool _hasRealPin = false;
   bool _hasDuressPin = false;
+  bool _hasDndAccess = false;
   FakeCallVoiceLanguage _fakeCallLanguage = FakeCallVoiceLanguage.bangla;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
       statusBarIconBrightness: Brightness.dark,
@@ -63,32 +70,54 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadSettings();
   }
 
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Back from Android's Do Not Disturb access screen: show the new status.
+    if (state == AppLifecycleState.resumed) _refreshDndAccess();
+  }
+
+  Future<void> _refreshDndAccess() async {
+    final granted = await PhoneSilenceService.instance.hasDndAccess();
+    if (mounted && granted != _hasDndAccess) setState(() => _hasDndAccess = granted);
+  }
+
   Future<void> _loadSettings() async {
     final prefs = await SharedPreferences.getInstance();
-    final criticalBattery = await BatteryAlertService.instance.isEnabled();
-    final fallEnabled = await MotionDetectionService.instance.isFallDetectionEnabled();
+    // Low battery alert and fall detection hidden for now.
+    // final criticalBattery = await BatteryAlertService.instance.isEnabled();
+    // final fallEnabled = await MotionDetectionService.instance.isFallDetectionEnabled();
     final shakeEnabled = await ShakeSosService.instance.isShakeEnabled();
+    final smsAlerts = await SmsSettings.isEnabled();
     final escalationEnabled = await SosEscalationService.instance.isEnabled();
     final pinEnabled = await PinSecurityService.instance.isPinEnabled();
     final requireOnOpen = await PinSecurityService.instance.isPinRequiredOnOpen();
     final hasReal = await PinSecurityService.instance.isRealPinConfigured();
     final hasDuress = await PinSecurityService.instance.isDuressPinConfigured();
+    final hasDndAccess = await PhoneSilenceService.instance.hasDndAccess();
     final fakeCallLanguage = await FakeCallSettingsService.instance.loadLanguage();
     await FakeCallSettingsService.instance.loadCaller();
 
     if (!mounted) return;
     setState(() {
       _locationSharing = prefs.getBool('pref_location_sharing') ?? true;
+      _smsAlerts = smsAlerts;
       _notifications = prefs.getBool('pref_notifications') ?? true;
       _shakeToSOS = shakeEnabled;
-      _criticalBatteryAlert = criticalBattery;
+      // _criticalBatteryAlert = criticalBattery;
       _sirenOnAutoSos = prefs.getBool('pref_siren_on_auto_sos') ?? false;
-      _fallDetection = fallEnabled;
+      // _fallDetection = fallEnabled;
       _smartEscalation = escalationEnabled;
       _pinProtection = pinEnabled;
       _requirePinOnOpen = requireOnOpen;
       _hasRealPin = hasReal;
       _hasDuressPin = hasDuress;
+      _hasDndAccess = hasDndAccess;
       _fakeCallLanguage = fakeCallLanguage;
     });
   }
@@ -232,17 +261,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     },
                   ),
                   _buildToggleItem(
-                    icon: Icons.battery_alert_rounded,
-                    iconColor: AppColors.sosRed,
-                    iconBg: AppColors.tintRedStrong,
-                    label: 'Low battery alert',
-                    subtitle: 'Texts your location when battery is 10% or lower',
-                    value: _criticalBatteryAlert,
-                    onChanged: (v) {
-                      setState(() => _criticalBatteryAlert = v);
-                      BatteryAlertService.instance.setEnabled(v);
+                    icon: Icons.sms_rounded,
+                    iconColor: AppColors.actionBlue,
+                    iconBg: AppColors.tintSky,
+                    label: 'SMS alerts',
+                    subtitle: _smsAlerts
+                        ? 'Texts your contacts from your SIM'
+                        : 'Off: contacts are alerted in the app only',
+                    value: _smsAlerts,
+                    onChanged: (v) async {
+                      setState(() => _smsAlerts = v);
+                      await SmsSettings.setEnabled(v);
                     },
                   ),
+                  // Low battery alert hidden for now.
+                  // _buildToggleItem(
+                  //   icon: Icons.battery_alert_rounded,
+                  //   iconColor: AppColors.sosRed,
+                  //   iconBg: AppColors.tintRedStrong,
+                  //   label: 'Low battery alert',
+                  //   subtitle: 'Texts your location when battery is 10% or lower',
+                  //   value: _criticalBatteryAlert,
+                  //   onChanged: (v) {
+                  //     setState(() => _criticalBatteryAlert = v);
+                  //     BatteryAlertService.instance.setEnabled(v);
+                  //   },
+                  // ),
                   _buildToggleItem(
                     icon: Icons.volume_up_rounded,
                     iconColor: AppColors.actionOrange,
@@ -255,24 +299,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       _saveSetting('pref_siren_on_auto_sos', v);
                     },
                   ),
-                  _buildToggleItem(
-                    icon: Icons.personal_injury_rounded,
-                    iconColor: AppColors.sosRed,
-                    iconBg: AppColors.tintRedStrong,
-                    label: 'Fall detection',
-                    subtitle: 'Checks on you after a hard impact and no movement',
-                    value: _fallDetection,
-                    onChanged: (v) async {
-                      setState(() => _fallDetection = v);
-                      await MotionDetectionService.instance.setEnabled(v);
-                    },
-                  ),
+                  // Fall detection hidden for now.
+                  // _buildToggleItem(
+                  //   icon: Icons.personal_injury_rounded,
+                  //   iconColor: AppColors.sosRed,
+                  //   iconBg: AppColors.tintRedStrong,
+                  //   label: 'Fall detection',
+                  //   subtitle: 'Checks on you after a hard impact and no movement',
+                  //   value: _fallDetection,
+                  //   onChanged: (v) async {
+                  //     setState(() => _fallDetection = v);
+                  //     await MotionDetectionService.instance.setEnabled(v);
+                  //   },
+                  // ),
                   _buildToggleItem(
                     icon: Icons.trending_up_rounded,
                     iconColor: AppColors.primary,
                     iconBg: AppColors.tintLavender,
                     label: 'Smart escalation',
-                    subtitle: 'Backup contacts at 3 min, 999 prompt at 8 min',
+                    subtitle: 'Alerts backup contacts if no response in 3 min',
                     value: _smartEscalation,
                     onChanged: (v) async {
                       setState(() => _smartEscalation = v);
@@ -394,6 +439,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                       }
                     },
+                  ),
+                  _buildNavItem(
+                    icon: _hasDndAccess ? Icons.notifications_off_rounded : Icons.notifications_active_rounded,
+                    iconColor: AppColors.sosRed,
+                    iconBg: AppColors.tintRed,
+                    label: 'Silence phone on Duress PIN',
+                    subtitle: _hasDndAccess
+                        ? 'Allowed • Calls and messages stay silent during a silent alert'
+                        : 'Tap to allow Do Not Disturb access. Without it the phone only vibrates',
+                    onTap: () => PhoneSilenceService.instance.openDndAccessSettings(),
                   ),
                   _buildToggleItem(
                     icon: Icons.lock_outline_rounded,

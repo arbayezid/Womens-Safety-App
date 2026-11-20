@@ -10,6 +10,7 @@ import 'activity_service.dart';
 import 'auth_service.dart';
 import 'contact_service.dart';
 import 'emergency_service.dart';
+import 'sms_settings.dart';
 import 'live_tracking_service.dart';
 
 /// Singleton service monitoring device battery level to dispatch an automated
@@ -125,6 +126,7 @@ class BatteryAlertService {
 
   /// Dispatches the critical battery alert SMS and updates active cloud session documents.
   Future<void> _dispatchCriticalBatteryAlert(int batteryLevel) async {
+    if (!await SmsSettings.isEnabled()) return;
     debugPrint('[BatteryAlertService] ⚠️ Battery critical at $batteryLevel%! Dispatching alert...');
 
     // 1. Fetch live or last known location

@@ -13,6 +13,9 @@ ContactModel _contact(String id, String phone, {bool primary = false, bool backu
       relationship: 'Friend',
       isPrimary: primary,
       isBackup: backup,
+      // Accepted guardians: only they are alerted.
+      isSyncedAppUser: true,
+      syncStatus: 'synced',
     );
 
 Future<void> _useContacts(List<ContactModel> contacts) async {

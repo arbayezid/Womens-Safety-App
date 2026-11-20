@@ -11,7 +11,8 @@ import '../services/siren_service.dart';
 import '../services/auth_service.dart';
 import '../services/activity_service.dart';
 import '../services/contact_sync_service.dart';
-import '../services/battery_alert_service.dart';
+// Low battery alert hidden for now.
+// import '../services/battery_alert_service.dart';
 import '../services/notification_service.dart';
 import '../utils/auth_guard.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -31,6 +32,8 @@ import '../widgets/safety_check_dialog.dart';
 import '../widgets/pin_input_dialog.dart';
 import '../services/pin_security_service.dart';
 import '../services/motion_detection_service.dart';
+import '../services/sos_location_warmer.dart';
+import '../services/journey_card_dismissals.dart';
 import '../services/shake_sos_service.dart';
 import 'start_journey_sheet.dart';
 import '../models/ride_checkin.dart';
@@ -99,12 +102,16 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     // Restore any active SOS session, safe journey, and initialize battery & motion monitoring
     EmergencyService.instance.restoreActiveAlertId();
-    BatteryAlertService.instance.initialize();
+    // Low battery alert and fall detection are hidden for now.
+    // BatteryAlertService.instance.initialize();
     JourneyService.instance.restoreActiveJourney();
     JourneyService.instance.activeSafetyCheckNotifier.addListener(_handleSafetyCheckChange);
-    MotionDetectionService.instance.initialize();
+    // MotionDetectionService.instance.initialize();
     MotionDetectionService.instance.activeCountdownNotifier.addListener(_handleFallCheckChange);
     ShakeSosService.instance.initialize();
+    // Keeps GPS warm while the app is open so SOS texts an accurate location instantly.
+    SosLocationWarmer.instance.initialize();
+    JourneyCardDismissals.instance.load();
     ShakeSosService.instance.activeCountdownNotifier.addListener(_handleShakeCheckChange);
 
     // Initialize ESP32 BLE hardware service safely
@@ -379,6 +386,31 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   /// Short result message: the full SMS / guardian status lives in the active-alert banner, so the
   /// snackbar stays one or two lines and does not cover the Quick Actions for long.
+  /// X on a guardian journey card: hides it on this phone, with Undo. It shows again if the
+  /// contact's situation changes (for example a Safe Journey turns into an SOS).
+  void _dismissJourneyCard(JourneyModel journey) {
+    JourneyCardDismissals.instance.dismiss(journey);
+    final messenger = ScaffoldMessenger.of(context);
+    AppSnack.showOn(messenger,
+      SnackBar(
+        content: Text(
+          'Card removed. It comes back if their status changes.',
+          style: AppText.label.copyWith(color: Colors.white),
+        ),
+        action: SnackBarAction(
+          label: 'Undo',
+          textColor: Colors.amberAccent,
+          onPressed: () => JourneyCardDismissals.instance.undo(journey),
+        ),
+        persist: false,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppRadius.md)),
+        margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        duration: const Duration(seconds: 4),
+      ),
+    );
+  }
+
   void _showSosResultSnackBar(EmergencyResult result, {bool isResend = false}) {
     final emergency = EmergencyService.instance;
     final bool needsManualSmsFallback =
@@ -389,8 +421,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final String text;
     if (needsManualSmsFallback) {
       text = isResend
-          ? "Guardians alerted again. SMS wasn't sent automatically; tap Send in Messages."
-          : "Alert sent. SMS wasn't sent automatically; tap Send in Messages.";
+          ? "Guardians alerted again. SMS wasn't sent; tap Retry above or SMS App."
+          : "Alert sent. SMS wasn't sent; tap Retry above or SMS App.";
     } else if (statusShownAbove) {
       text = isResend
           ? 'Alert sent again to your guardians.'
@@ -728,6 +760,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             onQuickAction: _onQuickAction,
             onAvatarTap: _openProfile,
             onOpenContacts: () => setState(() => _selectedIndex = 2),
+            onDismissJourney: _dismissJourneyCard,
           ),
 
           // Tab 1 — Map
@@ -760,6 +793,7 @@ class _SafetyDashboard extends StatelessWidget {
   final void Function(String) onQuickAction;
   final VoidCallback onAvatarTap;
   final VoidCallback onOpenContacts;
+  final void Function(JourneyModel) onDismissJourney;
 
   const _SafetyDashboard({
     required this.pulseAnimation,
@@ -768,6 +802,7 @@ class _SafetyDashboard extends StatelessWidget {
     required this.onQuickAction,
     required this.onAvatarTap,
     required this.onOpenContacts,
+    required this.onDismissJourney,
   });
 
   @override
@@ -879,14 +914,27 @@ class _SafetyDashboard extends StatelessWidget {
               valueListenable: NotificationService.instance.incomingActiveJourneysNotifier,
               builder: (context, incomingJourneys, _) {
                 if (incomingJourneys.isEmpty) return const SizedBox.shrink();
-                return Column(
-                  children: [
-                    for (final journey in incomingJourneys)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 14),
-                        child: IncomingJourneyCard(key: ValueKey(journey.id), journey: journey),
-                      ),
-                  ],
+                return ValueListenableBuilder<List<String>>(
+                  valueListenable: JourneyCardDismissals.instance.dismissedNotifier,
+                  builder: (context, dismissed, child) {
+                    final visible = incomingJourneys
+                        .where((j) => !JourneyCardDismissals.instance.isDismissed(j))
+                        .toList();
+                    if (visible.isEmpty) return const SizedBox.shrink();
+                    return Column(
+                      children: [
+                        for (final journey in visible)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 14),
+                            child: IncomingJourneyCard(
+                              key: ValueKey(journey.id),
+                              journey: journey,
+                              onDismiss: () => onDismissJourney(journey),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
                 );
               },
             ),
@@ -2628,7 +2676,9 @@ class _SosDeliveryStatusRow extends StatelessWidget {
     final Color tone = attention ? AppColors.orangeDeep : AppColors.safeGreen;
 
     final parts = <String>[
-      if (status.smsTotal > 0)
+      if (status.smsOff)
+        'SMS off'
+      else if (status.smsTotal > 0)
         'SMS ${status.smsSent}/${status.smsTotal} sent'
             '${status.smsPending > 0 ? ' (${status.smsPending} sending)' : ''}'
       else

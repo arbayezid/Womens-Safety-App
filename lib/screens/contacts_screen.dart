@@ -1170,7 +1170,7 @@ class _ContactsScreenState extends State<ContactsScreen> {
       } else {
         AppSnack.showBar(context,
           SnackBar(
-            content: Text('User ${contact.email} is not yet registered. Offline SMS alerts remain active.'),
+            content: Text('${contact.email} is not on Woman Guard yet. They get your alerts once they join and accept your request.'),
             backgroundColor: AppColors.actionOrange,
           ),
         );

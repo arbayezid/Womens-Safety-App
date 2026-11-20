@@ -99,7 +99,8 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
 
   Future<void> _loadContacts() async {
     try {
-      final contacts = await ContactService.instance.getContacts();
+      // Contacts whose request is not accepted yet cannot be notified, so they are not offered.
+      final contacts = ContactService.alertable(await ContactService.instance.getContacts());
       if (!mounted) return;
       setState(() {
         _allContacts = contacts;
@@ -504,13 +505,14 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
           .where((c) => _selectedGuardianIds.contains(c.id))
           .toList();
 
+      // Only guardians who accepted the request are listed and alerted.
       final guardianIds = selectedContacts
-          .where((c) => c.contactUid != null && c.contactUid!.isNotEmpty)
+          .where((c) => c.canReceiveAppAlerts && c.contactUid != null && c.contactUid!.isNotEmpty)
           .map((c) => c.contactUid!)
           .toList();
 
       final guardianEmails = selectedContacts
-          .where((c) => c.email.isNotEmpty)
+          .where((c) => c.canReceiveAppAlerts && c.email.isNotEmpty)
           .map((c) => c.email.toLowerCase().trim())
           .toList();
 
@@ -1206,9 +1208,9 @@ class _RideCheckinScreenState extends State<RideCheckinScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('No emergency contacts added yet', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.sosRed)),
+                    Text('No contacts to notify yet', style: GoogleFonts.poppins(fontWeight: FontWeight.w700, fontSize: 13, color: AppColors.sosRed)),
                     const SizedBox(height: 4),
-                    Text('To send ride check-in alerts and live location, please add contacts first.', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
+                    Text('Add a contact, or wait until a contact accepts your request. Only they get ride alerts and your live location.', style: GoogleFonts.poppins(fontSize: 11, color: AppColors.textSecondary)),
                     const SizedBox(height: 8),
                     ElevatedButton(
                       onPressed: () {

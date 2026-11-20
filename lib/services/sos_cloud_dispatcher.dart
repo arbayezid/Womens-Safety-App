@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:geolocator/geolocator.dart';
+import '../models/contact_model.dart';
 import 'auth_service.dart';
 import 'contact_service.dart';
 import 'ride_checkin_service.dart';
@@ -49,30 +50,17 @@ class SosCloudDispatcher {
       double longitude = 0.0;
       double accuracy = 0.0;
 
+      // The street address is looked up after the alert is written (see below), so the
+      // network geocoder never delays guardians being alerted.
       if (position != null) {
         latitude = position.latitude;
         longitude = position.longitude;
         accuracy = position.accuracy;
         mapsUrl = 'https://www.google.com/maps/search/?api=1&query=$latitude,$longitude';
         humanAddress = 'Lat: ${latitude.toStringAsFixed(5)}, Lng: ${longitude.toStringAsFixed(5)}';
-        try {
-          final placemarks = await placemarkFromCoordinates(latitude, longitude)
-              .timeout(const Duration(seconds: 3), onTimeout: () => []);
-          if (placemarks.isNotEmpty) {
-            final p = placemarks.first;
-            final parts = [p.name, p.subLocality, p.locality, p.administrativeArea]
-                .where((s) => s != null && s.trim().isNotEmpty)
-                .toList();
-            if (parts.isNotEmpty) {
-              humanAddress = parts.join(', ');
-            }
-          }
-        } catch (geoErr) {
-          debugPrint('[SosCloud] Reverse geocoding fallback notice: $geoErr');
-        }
       }
 
-      // 2. Fetch and merge recipient emails and UIDs
+      // 2. Recipients, sender phone and battery are looked up in parallel.
       final List<String> resolvedEmails = [];
       final List<String> resolvedUids = [];
 
@@ -94,124 +82,134 @@ class SosCloudDispatcher {
         }
       }
 
-      // If either list is empty, fetch from Firestore contacts
-      if (resolvedEmails.isEmpty || resolvedUids.isEmpty) {
-        try {
-          final contactsSnap = await _firestore
-              .collection('users')
-              .doc(user.uid)
-              .collection('contacts')
-              .get(const GetOptions(source: Source.serverAndCache))
-              .timeout(const Duration(seconds: 2), onTimeout: () {
-            debugPrint('[SosCloud] ⏱️ Contacts fetch timed out after 2s');
-            throw Exception('Timeout');
-          });
+      Future<void> resolveRecipients() async {
+        // If either list is empty, fetch from Firestore contacts
+        if (resolvedEmails.isEmpty || resolvedUids.isEmpty) {
+          try {
+            final contactsSnap = await _firestore
+                .collection('users')
+                .doc(user.uid)
+                .collection('contacts')
+                .get(const GetOptions(source: Source.serverAndCache))
+                .timeout(const Duration(seconds: 2), onTimeout: () {
+              debugPrint('[SosCloud] ⏱️ Contacts fetch timed out after 2s');
+              throw Exception('Timeout');
+            });
 
-          for (final doc in contactsSnap.docs) {
-            final d = doc.data();
-            final email = (d['contact_email'] ?? d['email'] ?? '').toString().toLowerCase().trim();
-            final uid = (d['contact_uid'] ?? d['contactUid'] ?? doc.id).toString().trim();
-            if (email.isNotEmpty && !resolvedEmails.contains(email)) {
-              resolvedEmails.add(email);
+            for (final doc in contactsSnap.docs) {
+              final d = doc.data();
+              // Only guardians who accepted the request get the in-app alert.
+              if (!ContactModel.fromMap({...d, 'id': doc.id}).canReceiveAppAlerts) continue;
+              final email = (d['contact_email'] ?? d['email'] ?? '').toString().toLowerCase().trim();
+              final uid = (d['contact_uid'] ?? d['contactUid'] ?? doc.id).toString().trim();
+              if (email.isNotEmpty && !resolvedEmails.contains(email)) {
+                resolvedEmails.add(email);
+              }
+              if (uid.isNotEmpty && !uid.startsWith('offline_') && !resolvedUids.contains(uid)) {
+                resolvedUids.add(uid);
+              }
             }
-            if (uid.isNotEmpty && !uid.startsWith('offline_') && !resolvedUids.contains(uid)) {
-              resolvedUids.add(uid);
-            }
+          } catch (e) {
+            debugPrint('[SosCloud] Firestore contacts fetch notice: $e');
           }
-        } catch (e) {
-          debugPrint('[SosCloud] Firestore contacts fetch notice: $e');
         }
-      }
 
-      // Also include any locally cached contacts
-      if (resolvedEmails.isEmpty || resolvedUids.isEmpty) {
-        try {
-          final localContacts = await ContactService.instance.getContacts();
-          for (final c in localContacts) {
-            final email = c.email.toLowerCase().trim();
-            if (email.isNotEmpty && !resolvedEmails.contains(email)) {
-              resolvedEmails.add(email);
+        // Also include any locally cached contacts
+        if (resolvedEmails.isEmpty || resolvedUids.isEmpty) {
+          try {
+            final localContacts = await ContactService.instance.getContacts();
+            for (final c in localContacts) {
+              if (!c.canReceiveAppAlerts) continue;
+              final email = c.email.toLowerCase().trim();
+              if (email.isNotEmpty && !resolvedEmails.contains(email)) {
+                resolvedEmails.add(email);
+              }
+              if (c.contactUid != null && c.contactUid!.isNotEmpty && !resolvedUids.contains(c.contactUid)) {
+                resolvedUids.add(c.contactUid!);
+              }
             }
-            if (c.contactUid != null && c.contactUid!.isNotEmpty && !resolvedUids.contains(c.contactUid)) {
-              resolvedUids.add(c.contactUid!);
-            }
+          } catch (e) {
+            debugPrint('[SosCloud] Local contacts fetch notice: $e');
           }
-        } catch (e) {
-          debugPrint('[SosCloud] Local contacts fetch notice: $e');
         }
-      }
 
-      // Resolve any missing recipient UIDs from their emails in parallel
-      if (resolvedEmails.isNotEmpty) {
-        try {
-          await Future.wait(
-            resolvedEmails.map((email) async {
-              try {
-                var snap = await _firestore
-                    .collection('users')
-                    .where('email', isEqualTo: email)
-                    .limit(1)
-                    .get()
-                    .timeout(const Duration(seconds: 2));
-                if (snap.docs.isEmpty) {
-                  snap = await _firestore
+        // Resolve any missing recipient UIDs from their emails in parallel
+        if (resolvedEmails.isNotEmpty) {
+          try {
+            await Future.wait(
+              resolvedEmails.map((email) async {
+                try {
+                  var snap = await _firestore
                       .collection('users')
-                      .where('user_email', isEqualTo: email)
+                      .where('email', isEqualTo: email)
                       .limit(1)
                       .get()
                       .timeout(const Duration(seconds: 2));
-                }
-                if (snap.docs.isNotEmpty) {
-                  final foundUid = snap.docs.first.id;
-                  if (!resolvedUids.contains(foundUid)) {
-                    resolvedUids.add(foundUid);
+                  if (snap.docs.isEmpty) {
+                    snap = await _firestore
+                        .collection('users')
+                        .where('user_email', isEqualTo: email)
+                        .limit(1)
+                        .get()
+                        .timeout(const Duration(seconds: 2));
                   }
-                }
-              } catch (_) {}
-            }),
-          ).timeout(const Duration(seconds: 2), onTimeout: () => []);
-        } catch (_) {}
+                  if (snap.docs.isNotEmpty) {
+                    final foundUid = snap.docs.first.id;
+                    if (!resolvedUids.contains(foundUid)) {
+                      resolvedUids.add(foundUid);
+                    }
+                  }
+                } catch (_) {}
+              }),
+            ).timeout(const Duration(seconds: 2), onTimeout: () => []);
+          } catch (_) {}
+        }
       }
+
+      Future<String?> resolveSenderPhone() async {
+        String? phone = user.phoneNumber;
+        if (phone == null || phone.trim().isEmpty) {
+          final profilePhone = AuthService.instance.phone.trim();
+          if (profilePhone.isNotEmpty) phone = profilePhone;
+        }
+        if (phone == null || phone.trim().isEmpty) {
+          try {
+            final userDoc = await _firestore
+                .collection('users')
+                .doc(user.uid)
+                .get(const GetOptions(source: Source.serverAndCache))
+                .timeout(const Duration(seconds: 2));
+            if (userDoc.exists && userDoc.data() != null) {
+              final d = userDoc.data()!;
+              final p = (d['phone'] ?? d['phoneNumber'])?.toString().trim();
+              if (p != null && p.isNotEmpty) phone = p;
+            }
+          } catch (_) {}
+        }
+        return (phone == null || phone.trim().isEmpty) ? null : phone;
+      }
+
+      Future<int> readBattery() async {
+        try {
+          return await Battery().batteryLevel.timeout(
+            const Duration(seconds: 1),
+            onTimeout: () => 100,
+          );
+        } catch (_) {
+          return 100;
+        }
+      }
+
+      final phoneFuture = resolveSenderPhone();
+      final batteryFuture = readBattery();
+      await resolveRecipients();
+      final String? senderPhone = await phoneFuture;
+      final int batteryLevel = await batteryFuture;
 
       debugPrint('[SosCloud] 👥 Recipient emails: $resolvedEmails | UIDs: $resolvedUids');
 
       // 3. Create document in `sos_alerts`
       final senderEmail = (user.email ?? '').toLowerCase().trim();
-      String? senderPhone = user.phoneNumber;
-      if (senderPhone == null || senderPhone.trim().isEmpty) {
-        final profilePhone = AuthService.instance.phone.trim();
-        if (profilePhone.isNotEmpty) {
-          senderPhone = profilePhone;
-        }
-      }
-      if (senderPhone == null || senderPhone.trim().isEmpty) {
-        try {
-          final userDoc = await _firestore
-              .collection('users')
-              .doc(user.uid)
-              .get(const GetOptions(source: Source.serverAndCache))
-              .timeout(const Duration(seconds: 2));
-          if (userDoc.exists && userDoc.data() != null) {
-            final d = userDoc.data()!;
-            final p = (d['phone'] ?? d['phoneNumber'])?.toString().trim();
-            if (p != null && p.isNotEmpty) {
-              senderPhone = p;
-            }
-          }
-        } catch (_) {}
-      }
-      if (senderPhone != null && senderPhone.trim().isEmpty) {
-        senderPhone = null;
-      }
-
-      int batteryLevel = 100;
-      try {
-        batteryLevel = await Battery().batteryLevel.timeout(
-          const Duration(seconds: 1),
-          onTimeout: () => 100,
-        );
-      } catch (_) {}
-
       final senderName = user.displayName ?? AuthService.instance.displayName;
       final message = customNote ?? 'Emergency SOS Alert: $senderName needs immediate assistance!';
 
@@ -278,25 +276,29 @@ class SosCloudDispatcher {
         debugPrint('[SosCloud] ⏱️ Firestore write timed out after 3s (queued in local cache)');
       });
 
-      // Record initial event in events subcollection for Incident Room timeline
-      try {
-        await docRef.collection('events').add({
-          'type': 'sos_triggered',
-          'title': 'SOS Alert Dispatched',
-          'description': 'Emergency alert triggered via $source',
-          'actorName': senderName,
-          'actorUid': user.uid,
-          'timestamp': FieldValue.serverTimestamp(),
-          'metadata': {
-            'source': source,
-            'isDuress': isDuress,
-            'latitude': latitude,
-            'longitude': longitude,
-            'address': humanAddress,
-          },
-        }).timeout(const Duration(seconds: 2));
-      } catch (eventErr) {
+      // Record initial event in events subcollection for Incident Room timeline. Not awaited:
+      // the alert is already live, and its ID must reach the caller without delay.
+      docRef.collection('events').add({
+        'type': 'sos_triggered',
+        'title': 'SOS Alert Dispatched',
+        'description': 'Emergency alert triggered via $source',
+        'actorName': senderName,
+        'actorUid': user.uid,
+        'timestamp': FieldValue.serverTimestamp(),
+        'metadata': {
+          'source': source,
+          'isDuress': isDuress,
+          'latitude': latitude,
+          'longitude': longitude,
+          'address': humanAddress,
+        },
+      }).timeout(const Duration(seconds: 2)).then((_) {}, onError: (Object eventErr) {
         debugPrint('[SosCloud] Event subcollection notice: $eventErr');
+      });
+
+      // Street address for guardians, filled in once the geocoder answers.
+      if (position != null) {
+        _fillInAddress(docRef, latitude, longitude).then((_) {}, onError: (_) {});
       }
 
       debugPrint('[SosCloud] 🚨 Cloud SOS Alert logged in Firestore: $alertId '
@@ -305,6 +307,36 @@ class SosCloudDispatcher {
     } catch (e) {
       debugPrint('[SosCloud] ❌ Failed to dispatch cloud SOS: $e');
       return null;
+    }
+  }
+
+  /// Replaces the coordinates placeholder of a new alert with a street address. Skipped when
+  /// live tracking has already moved the alert to a newer position (it writes its own address).
+  Future<void> _fillInAddress(
+    DocumentReference<Map<String, dynamic>> docRef,
+    double latitude,
+    double longitude,
+  ) async {
+    try {
+      final placemarks = await placemarkFromCoordinates(latitude, longitude)
+          .timeout(const Duration(seconds: 5), onTimeout: () => []);
+      if (placemarks.isEmpty) return;
+      final p = placemarks.first;
+      final parts = [p.name, p.subLocality, p.locality, p.administrativeArea]
+          .where((s) => s != null && s.trim().isNotEmpty)
+          .toList();
+      if (parts.isEmpty) return;
+      final address = parts.join(', ');
+
+      final snap = await docRef.get().timeout(const Duration(seconds: 3));
+      final data = snap.data();
+      if (data == null || data['latitude'] != latitude || data['longitude'] != longitude) return;
+      await docRef.update({
+        'address': address,
+        'location.address': address,
+      }).timeout(const Duration(seconds: 3));
+    } catch (geoErr) {
+      debugPrint('[SosCloud] Reverse geocoding fallback notice: $geoErr');
     }
   }
 

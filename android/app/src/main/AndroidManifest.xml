@@ -20,6 +20,9 @@
     <uses-permission android:name="android.permission.CALL_PHONE" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Silent Panic: lets the duress PIN switch the phone to total silence (Do Not Disturb access,
+         granted by the user in Settings). -->
+    <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
 
     <!-- Notification Permission (>= API 33 / Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

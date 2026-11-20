@@ -15,7 +15,10 @@ import '../core/app_text.dart';
 class IncomingJourneyCard extends StatelessWidget {
   final JourneyModel journey;
 
-  const IncomingJourneyCard({super.key, required this.journey});
+  /// Removes the card from the home screen (X button). Hidden when null.
+  final VoidCallback? onDismiss;
+
+  const IncomingJourneyCard({super.key, required this.journey, this.onDismiss});
 
   static String _clock(DateTime t) {
     final hour = t.hour % 12 == 0 ? 12 : t.hour % 12;
@@ -133,6 +136,19 @@ class IncomingJourneyCard extends StatelessWidget {
                     style: GoogleFonts.poppins(fontSize: 11, fontWeight: FontWeight.w700, color: accent, letterSpacing: 0.5),
                   ),
                 ),
+                if (onDismiss != null)
+                  Semantics(
+                    button: true,
+                    label: 'Remove card',
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: onDismiss,
+                      child: const Padding(
+                        padding: EdgeInsets.fromLTRB(12, 2, 0, 2),
+                        child: Icon(Icons.close_rounded, size: 18, color: AppColors.textSecondary),
+                      ),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 10),

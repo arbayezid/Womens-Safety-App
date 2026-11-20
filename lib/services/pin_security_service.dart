@@ -9,6 +9,7 @@ import 'activity_service.dart';
 import 'auth_service.dart';
 import 'background_service.dart';
 import 'emergency_service.dart';
+import 'phone_silence_service.dart';
 
 /// Result of evaluating an entered PIN against configured hashes
 enum PinVerificationResult {
@@ -121,6 +122,10 @@ class PinSecurityService {
       } else {
         isCamouflageActiveNotifier.value = camouflageActive;
         isDuressActiveNotifier.value = prefs.getBool(prefKeyDuressActive) ?? false;
+      }
+      // Never leave the phone silenced when no duress alert is active any more.
+      if (!isDuressActiveNotifier.value) {
+        unawaited(PhoneSilenceService.instance.restorePhoneSound());
       }
     } catch (_) {}
   }
@@ -266,8 +271,13 @@ class PinSecurityService {
   /// 2. Dispatches silent SOS via [EmergencyService] with isDuress = true
   /// 3. Switches foreground service notification to neutral disguise
   /// 4. Suppresses user-visible activity logs until exited by Real PIN
+  /// 5. Puts the whole phone into total silence (calls, SMS, every app) until exited by Real PIN
   Future<void> triggerDuressPipeline() async {
     debugPrint('[PinSecurity] 🚨 SILENT DURESS EMERGENCY TRIGGERED!');
+
+    // First, before anything can ring: a call or message arriving now would give the user away.
+    final silence = await PhoneSilenceService.instance.silencePhone();
+    debugPrint('[PinSecurity] Phone silence during duress: ${silence.name}');
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(prefKeyCamouflageActive, true);
@@ -323,6 +333,9 @@ class PinSecurityService {
 
     isCamouflageActiveNotifier.value = false;
     isDuressActiveNotifier.value = false;
+
+    // Give back the user's own ringer / Do Not Disturb settings (no-op if duress never silenced it).
+    await PhoneSilenceService.instance.restorePhoneSound();
 
     // Restore background service title if still tracking
     if (EmergencyService.instance.activeAlertId != null) {

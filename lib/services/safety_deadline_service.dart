@@ -358,7 +358,7 @@ class SafetyDeadlineService {
         case SafetyDeadlineKind.sosStage1:
           return await SosEscalationService.instance.runStageFromDeadline(refId, 1);
         case SafetyDeadlineKind.sosStage2:
-          return await SosEscalationService.instance.runStageFromDeadline(refId, 2);
+          return 'skipped';
       }
     } catch (e) {
       debugPrint('[SafetyDeadline] Escalation handler error: $e');

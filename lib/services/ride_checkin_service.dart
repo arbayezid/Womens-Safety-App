@@ -17,6 +17,7 @@ import 'auth_service.dart';
 import 'background_service.dart';
 import 'contact_service.dart';
 import 'emergency_service.dart';
+import 'sms_settings.dart';
 import 'journey_service.dart';
 import 'live_tracking_service.dart';
 import 'notification_service.dart';
@@ -277,6 +278,7 @@ class RideCheckinService {
     required double lng,
   }) async {
     if (phones.isEmpty) return;
+    if (!await SmsSettings.isEnabled()) return;
     final mapUrl = 'https://maps.google.com/?q=$lat,$lng';
     final message =
         'Ride Check-in: $userName started a $rideType ride. Vehicle: $plateFormatted. Location: $mapUrl';
@@ -337,7 +339,7 @@ class RideCheckinService {
     } catch (_) {}
 
     // 4. Send Arrival SMS to guardians
-    if (currentRide != null) {
+    if (currentRide != null && await SmsSettings.isEnabled()) {
       final userName = currentRide.userName;
       final safeMessage = '$userName has arrived safely.';
       final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
@@ -539,6 +541,7 @@ class RideCheckinService {
       });
     } catch (_) {}
 
+    if (!await SmsSettings.isEnabled()) return;
     final phoneNumbers = await ContactService.instance.getEmergencyPhoneNumbers();
     final mapUrl = 'https://maps.google.com/?q=${ride.currentLat},${ride.currentLng}';
     final alertMsg =

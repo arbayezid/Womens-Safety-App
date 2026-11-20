@@ -54,6 +54,10 @@ class AppPermissionService {
     ];
 
     if (isAndroid) {
+      // Phone (READ_PHONE_STATE): newer Android refuses to send SMS from an app without it
+      // ("getSmsMmsDisabled" SecurityException), and it lets the app pick the right SIM.
+      permissionsToRequest.add(Permission.phone);
+
       // Android 13+ (API 33+) requires runtime notification permission
       permissionsToRequest.add(Permission.notification);
 

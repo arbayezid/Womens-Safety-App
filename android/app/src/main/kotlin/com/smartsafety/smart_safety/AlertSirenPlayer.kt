@@ -51,6 +51,11 @@ object AlertSirenPlayer {
     @Synchronized
     fun start(context: Context, alertId: String) {
         val app = context.applicationContext
+        if (PhoneSilencer.isActive(app)) {
+            // The user is under duress: a siren from someone else's alert would give them away.
+            Log.i(TAG, "Phone silenced for duress; siren for alert $alertId not played")
+            return
+        }
         if (player != null) {
             // A newer alert while ringing: it gets its own full 2 minutes.
             currentAlertId = alertId

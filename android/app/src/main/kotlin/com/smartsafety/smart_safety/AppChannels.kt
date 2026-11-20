@@ -1,15 +1,20 @@
 package com.smartsafety.smart_safety
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
+import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -34,12 +39,20 @@ object AppChannels {
             when (call.method) {
                 "getSdkInt" -> result.success(Build.VERSION.SDK_INT)
                 "getManufacturer" -> result.success(Build.MANUFACTURER ?: "")
+                "lastGpsFix" -> result.success(lastGpsFix(app))
                 "openAutoStartSettings" -> result.success(openAutoStartSettings(app))
                 "raiseSirenVolume" -> result.success(SirenVolume.raise(app))
                 "restoreSirenVolume" -> {
                     SirenVolume.restore(app)
                     result.success(null)
                 }
+                "silencePhone" -> result.success(PhoneSilencer.silence(app))
+                "restorePhoneSound" -> {
+                    PhoneSilencer.restore(app)
+                    result.success(null)
+                }
+                "hasDndAccess" -> result.success(PhoneSilencer.hasAccess(app))
+                "openDndAccessSettings" -> result.success(PhoneSilencer.openAccessSettings(app))
                 else -> result.notImplemented()
             }
         }
@@ -91,6 +104,32 @@ object AppChannels {
             "canScheduleExactAlarms" -> result.success(SafetyDeadlines.canScheduleExactAlarms(context))
             "openExactAlarmSettings" -> result.success(openExactAlarmSettings(context))
             else -> result.notImplemented()
+        }
+    }
+
+    /**
+     * The phone's last fix from the real GPS chip (not Wi-Fi / cell), or null. Indoors the live
+     * fix is often a 50-150 m Wi-Fi estimate while this one, taken minutes earlier under open
+     * sky, is accurate to a few metres.
+     */
+    private fun lastGpsFix(context: Context): Map<String, Any>? {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) !=
+            PackageManager.PERMISSION_GRANTED
+        ) return null
+        return try {
+            val manager = context.getSystemService(LocationManager::class.java) ?: return null
+            val fix = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER) ?: return null
+            if (!fix.hasAccuracy()) return null
+            mapOf(
+                "latitude" to fix.latitude,
+                "longitude" to fix.longitude,
+                "accuracy" to fix.accuracy.toDouble(),
+                // Real time of the fix, from elapsed-realtime so a wrong wall clock cannot skew it.
+                "ageMs" to (SystemClock.elapsedRealtimeNanos() - fix.elapsedRealtimeNanos) / 1_000_000,
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Cannot read last GPS fix", e)
+            null
         }
     }
 

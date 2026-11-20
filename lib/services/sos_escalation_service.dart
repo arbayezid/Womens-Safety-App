@@ -9,17 +9,15 @@ import '../models/activity_model.dart';
 import 'activity_service.dart';
 import 'contact_service.dart';
 import 'emergency_service.dart';
-import 'notification_service.dart';
+import 'sms_settings.dart';
 import 'safety_deadline_service.dart';
 
 /// Configuration timing and thresholds for Smart SOS Escalation.
 class EscalationConfig {
   final int stage1Seconds; // Default 180s (3 minutes)
-  final int stage2Seconds; // Default 480s (8 minutes)
 
   const EscalationConfig({
     this.stage1Seconds = 180,
-    this.stage2Seconds = 480,
   });
 }
 
@@ -27,7 +25,6 @@ class EscalationConfig {
 enum EscalationStage {
   stage0Initial,
   stage1BackupAlerted,
-  stage2EmergencyServicesPrompted,
   resolved,
 }
 
@@ -38,8 +35,6 @@ enum EscalationStage {
 /// - Stage 1 (t=3 min): If no guardian has acknowledged (`acknowledgedBy` empty),
 ///   alerts backup contacts via SMS and in-app cloud alert, and sends an SMS update
 ///   to regular contacts.
-/// - Stage 2 (t=8 min): If still unacknowledged, sends a final SMS round and prompts
-///   the sender with a high-priority notification to call 999.
 /// - Stops immediately when any guardian acknowledges or the alert is resolved.
 class SosEscalationService {
   SosEscalationService._internal();
@@ -60,10 +55,8 @@ class SosEscalationService {
 
   static const String prefKeyEscalationEnabled = 'pref_smart_escalation_enabled';
   static const String prefKeyStage1Delay = 'pref_escalation_stage1_minutes';
-  static const String prefKeyStage2Delay = 'pref_escalation_stage2_minutes';
 
   Timer? _stage1Timer;
-  Timer? _stage2Timer;
   StreamSubscription<DocumentSnapshot>? _alertSub;
 
   String? _activeAlertId;
@@ -115,15 +108,12 @@ class SosEscalationService {
 
     debugPrint('[SosEscalation] ⏳ Escalation engine started for SOS alert: $alertId');
 
-    // Load custom stage delays if configured in preferences
+    // Load custom stage delay if configured in preferences
     int stage1Sec = _config.stage1Seconds;
-    int stage2Sec = _config.stage2Seconds;
     try {
       final prefs = await SharedPreferences.getInstance();
       final custom1 = prefs.getInt(prefKeyStage1Delay);
       if (custom1 != null && custom1 > 0) stage1Sec = custom1 * 60;
-      final custom2 = prefs.getInt(prefKeyStage2Delay);
-      if (custom2 != null && custom2 > 0) stage2Sec = custom2 * 60;
     } catch (_) {}
 
     // 1. Listen reactively to the Firestore sos_alerts doc
@@ -134,24 +124,17 @@ class SosEscalationService {
       await _executeStage1(alertId);
     });
 
-    // 3. Schedule Stage 2 escalation (default 8 min)
-    _stage2Timer = Timer(Duration(seconds: stage2Sec), () async {
-      await _executeStage2(alertId);
-    });
-
-    // 4. Native exact-alarm backstops: the stages still run if the app is closed or killed
+    // 3. Native exact-alarm backstop: Stage 1 still runs if the app is closed or killed
     final uid = Firebase.apps.isNotEmpty ? FirebaseAuth.instance.currentUser?.uid ?? '' : '';
     final now = DateTime.now();
-    for (final stage in const [1, 2]) {
-      unawaited(SafetyDeadlineService.instance.arm(SafetyDeadline(
-        id: sosStageDeadlineId(alertId, stage),
-        kind: stage == 1 ? SafetyDeadlineKind.sosStage1 : SafetyDeadlineKind.sosStage2,
-        refId: alertId,
-        uid: uid,
-        fireAt: sosStageAt(startedAt: now, stageSeconds: stage == 1 ? stage1Sec : stage2Sec),
-        direct: true,
-      )));
-    }
+    unawaited(SafetyDeadlineService.instance.arm(SafetyDeadline(
+      id: sosStageDeadlineId(alertId, 1),
+      kind: SafetyDeadlineKind.sosStage1,
+      refId: alertId,
+      uid: uid,
+      fireAt: sosStageAt(startedAt: now, stageSeconds: stage1Sec),
+      direct: true,
+    )));
   }
 
   /// Native deadline for [stage] fired (the in-app timer did not run, e.g. the app was closed).
@@ -188,8 +171,6 @@ class SosEscalationService {
     try {
       if (stage == 1) {
         await _executeStage1(alertId);
-      } else {
-        await _executeStage2(alertId);
       }
     } finally {
       if (previousAlertId != alertId) {
@@ -246,15 +227,19 @@ class SosEscalationService {
     debugPrint('[SosEscalation] ⚠️ STAGE 1 ESCALATION: 3 minutes elapsed with no guardian response.');
     currentStageNotifier.value = EscalationStage.stage1BackupAlerted;
 
-    final contacts = ContactService.primaryFirst(await ContactService.instance.getContacts());
+    // Contacts whose request is not accepted yet are never alerted.
+    final contacts = ContactService.primaryFirst(
+        ContactService.alertable(await ContactService.instance.getContacts()));
     final backupContacts = contacts.where((c) => c.isBackup).toList();
     final regularContacts = contacts.where((c) => !c.isBackup).toList();
 
     final name = _senderName ?? 'User';
     final locationUrl = _mapsUrl ?? 'Location tracking active in app';
+    // Settings > SMS alerts off: backups are still added to the in-app alert below.
+    final bool smsEnabled = await SmsSettings.isEnabled();
 
     // 1. Alert Backup Contacts via SMS
-    for (final backup in backupContacts) {
+    for (final backup in backupContacts.where((_) => smsEnabled)) {
       if (backup.hasPhone) {
         final formattedPhone = EmergencyService.instance.formatRecipientPhone(backup.phone);
         if (formattedPhone.isNotEmpty) {
@@ -271,7 +256,7 @@ class SosEscalationService {
     }
 
     // 2. Resend update SMS to regular contacts
-    for (final reg in regularContacts) {
+    for (final reg in regularContacts.where((_) => smsEnabled)) {
       if (reg.hasPhone) {
         final formattedPhone = EmergencyService.instance.formatRecipientPhone(reg.phone);
         if (formattedPhone.isNotEmpty) {
@@ -289,12 +274,14 @@ class SosEscalationService {
     // 3. Update Firestore sos_alerts document with backup recipients and escalation log
     if (Firebase.apps.isNotEmpty) {
       try {
-        final backupUids = backupContacts
+        // In-app alert only for backups who accepted the request
+        final appBackups = backupContacts.where((c) => c.canReceiveAppAlerts);
+        final backupUids = appBackups
             .map((c) => c.contactUid)
             .where((uid) => uid != null && uid.isNotEmpty && !uid.startsWith('offline_'))
             .cast<String>()
             .toList();
-        final backupEmails = backupContacts
+        final backupEmails = appBackups
             .map((c) => c.email.trim().toLowerCase())
             .where((e) => e.isNotEmpty)
             .toList();
@@ -352,92 +339,12 @@ class SosEscalationService {
     );
   }
 
-  /// Stage 2 Escalation: No response after 8 minutes
-  Future<void> _executeStage2(String alertId) async {
-    if (_activeAlertId != alertId) return;
-    if (!await SafetyDeadlineService.instance.claim(sosStageDeadlineId(alertId, 2))) return;
-
-    debugPrint('[SosEscalation] 🚨 STAGE 2 ESCALATION: 8 minutes elapsed with no guardian response.');
-    currentStageNotifier.value = EscalationStage.stage2EmergencyServicesPrompted;
-
-    final contacts = ContactService.primaryFirst(await ContactService.instance.getContacts());
-    final name = _senderName ?? 'User';
-    final locationUrl = _mapsUrl ?? 'Location tracking active in app';
-
-    // 1. Final SMS round to all contacts (regular + backup)
-    for (final contact in contacts) {
-      if (contact.hasPhone) {
-        final formattedPhone = EmergencyService.instance.formatRecipientPhone(contact.phone);
-        if (formattedPhone.isNotEmpty) {
-          final urgentMsg =
-              'URGENT UPDATE: 8 minutes with no guardian response. $name needs emergency assistance immediately! Location: $locationUrl';
-          try {
-            await _telephony.sendSms(to: formattedPhone, message: urgentMsg, isMultipart: false);
-          } catch (e) {
-            debugPrint('[SosEscalation] Failed sending Stage 2 SMS to $formattedPhone: $e');
-          }
-        }
-      }
-    }
-
-    // 2. High-priority local notification on the sender's device prompting to call 999
-    NotificationService.instance.showStatusNotification(
-      id: 9991,
-      title: 'No guardian has responded yet',
-      body: '8 minutes have passed without a response. Tap here to call 999 Emergency Services.',
-    );
-
-    // 3. Update Firestore document
-    if (Firebase.apps.isNotEmpty) {
-      try {
-        await FirebaseFirestore.instance.collection('sos_alerts').doc(alertId).update({
-          'escalationLevel': 2,
-          'lastUpdatedAt': FieldValue.serverTimestamp(),
-          'escalationLog': FieldValue.arrayUnion([
-            {
-              'level': 2,
-              'timestamp': Timestamp.now(),
-              'reason': 'No guardian response within 8 minutes. Emergency services prompted.',
-            }
-          ]),
-        });
-
-        // Record Stage 2 timeline event
-        await FirebaseFirestore.instance
-            .collection('sos_alerts')
-            .doc(alertId)
-            .collection('events')
-            .add({
-          'type': 'escalation_stage_2',
-          'title': 'Escalated to Stage 2 (Emergency 999 Services)',
-          'description': '8 minutes elapsed without response. Dispatched urgent SMS round and prompted 999 emergency services.',
-          'timestamp': FieldValue.serverTimestamp(),
-        }).timeout(const Duration(seconds: 2));
-      } catch (e) {
-        debugPrint('[SosEscalation] Error updating Firestore for Stage 2: $e');
-      }
-    }
-
-    // 4. Log activity
-    ActivityService.instance.logActivity(
-      ActivityItem(
-        id: DateTime.now().millisecondsSinceEpoch.toString(),
-        type: ActivityType.sos,
-        title: 'Emergency Services Prompted (Stage 2)',
-        subtitle: 'No guardian response in 8 min. Prompted 999 emergency call.',
-        timestamp: DateTime.now(),
-      ),
-    );
-  }
-
-  /// Cancels all ongoing timers and listeners for escalation
+  /// Cancels ongoing timers and listeners for escalation
   void stopEscalation() {
     final alertId = _activeAlertId;
     if (alertId != null) unawaited(SafetyDeadlineService.instance.clearSosStages(alertId));
     _stage1Timer?.cancel();
     _stage1Timer = null;
-    _stage2Timer?.cancel();
-    _stage2Timer = null;
     _alertSub?.cancel();
     _alertSub = null;
     _activeAlertId = null;
