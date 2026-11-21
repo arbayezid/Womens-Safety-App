@@ -13,6 +13,7 @@ import '../services/siren_service.dart';
 import '../utils/duration_format.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
+import 'signal_lost_banner.dart';
 import 'ui/app_snack.dart';
 
 /// Fullscreen-style intrusive dialog displayed when an incoming high-priority
@@ -485,6 +486,9 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
       timeFormatted = '$hour:$minute $period • $relative';
     }
 
+    // Only judged from the live document: the push payload alone cannot tell when the phone last reported.
+    final Duration? signalSilence = sosSignalSilence(liveDoc);
+
     final int totalPresses = (liveDoc?['totalPresses'] as int?) ??
         (widget.data['totalPresses'] as int?) ??
         1;
@@ -501,7 +505,7 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
         backgroundColor: AppColors.surface,
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -773,6 +777,14 @@ class _IntrusiveSosDialogState extends State<IntrusiveSosDialog>
                   ),
                 ),
               ],
+
+              // Sender's phone stopped reporting (switched off, taken, or out of network)
+              if (signalSilence != null)
+                SignalLostBanner(
+                  silence: signalSilence,
+                  lastAddress: address,
+                  margin: const EdgeInsets.only(top: 12),
+                ),
 
               if (message.isNotEmpty) ...[
                 const SizedBox(height: 8),

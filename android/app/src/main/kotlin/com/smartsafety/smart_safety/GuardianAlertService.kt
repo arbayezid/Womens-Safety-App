@@ -25,6 +25,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.QuerySnapshot
+import com.google.firebase.firestore.Source
 import java.util.Date
 
 /**
@@ -64,6 +65,35 @@ class GuardianAlertService : Service() {
         private const val SYNC_WAKE_MS = 30_000L
         /** Retry delay after the service was killed or the app swiped away. */
         private const val RESTART_DELAY_MS = 60_000L
+        /**
+         * An active SOS with no location update for this long: the sender's phone has gone quiet
+         * (switched off, taken, out of network). The sender writes at least every 2 minutes.
+         * Same as sosSignalLostAfter in signal_lost_banner.dart; keep the two in step.
+         */
+        private const val SIGNAL_LOST_MS = 4 * 60 * 1000L
+        /** Next try when this phone could not reach the server to confirm the silence. */
+        private const val SIGNAL_RETRY_MS = 2 * 60 * 1000L
+        /** Longest the CPU is kept awake for the server check. */
+        private const val SIGNAL_WAKE_MS = 20_000L
+        private const val SIGNAL_NOTIFICATION_BASE = 7400
+        private const val TAG_SIGNAL_LOST = "sos_signal_lost"
+        private const val TAG_SIGNAL_BACK = "sos_signal_back"
+
+        /**
+         * Signal-check alarm: confirm with the server which active alerts went quiet. A killed
+         * service is restarted instead; its first server snapshot runs the same check.
+         */
+        fun onSignalCheckTick(context: Context) {
+            val service = instance
+            if (service != null && isRunning) {
+                service.checkSilentAlerts()
+            } else {
+                context.getSystemService(PowerManager::class.java)
+                    ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WomanGuard:GuardianRestart")
+                    ?.acquire(15_000L)
+                start(context)
+            }
+        }
 
         @Volatile
         var isRunning = false
@@ -149,6 +179,10 @@ class GuardianAlertService : Service() {
     /** Alert listeners that have not yet delivered server data since the last (re)connect. */
     private val pendingSync = mutableSetOf<String>()
     private var syncWakeLock: PowerManager.WakeLock? = null
+    private var signalWakeLock: PowerManager.WakeLock? = null
+    /** Alerts with a signal-lost notification posted by this service instance (pre-API 23 fallback). */
+    private val signalLostShown = mutableSetOf<String>()
+    private var signalCheckRunning = false
 
     private val authListener = FirebaseAuth.AuthStateListener { auth ->
         if (auth.currentUser == null) {
@@ -202,6 +236,7 @@ class GuardianAlertService : Service() {
         if (authListenerAdded) FirebaseAuth.getInstance().removeAuthStateListener(authListener)
         detachListeners()
         releaseSyncWakeLock()
+        signalWakeLock?.let { if (it.isHeld) it.release() }
         // Destroyed while still wanted (killed by the system, not signed out / stopped): come back soon.
         if (isEnabled(this) && isProtecting(this)) GuardianWatchdogReceiver.schedule(this, RESTART_DELAY_MS)
         super.onDestroy()
@@ -624,6 +659,9 @@ class GuardianAlertService : Service() {
         // Cached data may be stale (e.g. right after boot, offline); only ring on server data.
         if (fromCache) return
 
+        // Covers dismissed and acknowledged alerts too: a silent phone is new information.
+        reviewSignals(all, uid, now)
+
         // Live alerts ring; everything else (ended, or still active but older than the live window)
         // only gets an ordinary notification, never the full-screen alert or the siren.
         val live = eligible.filter { now - lastRingMillis(it, now) <= LIVE_ALERT_MS }
@@ -875,6 +913,236 @@ class GuardianAlertService : Service() {
         } catch (e: SecurityException) {
             Log.e(TAG, "Could not post alert notification", e)
         }
+    }
+
+    // ── Signal lost: the sender's phone stopped reporting during an active SOS ──────────────────
+    //
+    // A phone that is switched off sends nothing, so no snapshot ever announces it. Instead an
+    // alarm is armed for the moment each active alert would count as silent; when it fires the
+    // alert is re-read from the server (this phone's own listener may be stale) and, if it is
+    // still silent, the guardian is notified once per silence. Dismissing an alert only stops its
+    // siren; this warning still comes.
+
+    /** Active alert addressed to this guardian whose signal is worth watching. */
+    private fun isSignalWatched(doc: DocumentSnapshot, uid: String, now: Long): Boolean {
+        if (str(doc, "status")?.lowercase() != "active") return false
+        val senderId = str(doc, "senderId") ?: str(doc, "sender_uid")
+        if (senderId == uid) return false
+        if (doc.get("falseAlarm") == true) return false
+        val expiresAt = millis(doc.get("expiresAt"))
+        if (expiresAt != null && expiresAt < now) return false
+        return kotlin.math.abs(now - lastRingMillis(doc, now)) <= STALE_ALERT_MS
+    }
+
+    /** Last location write from the sender's phone, or the trigger time if tracking never wrote. */
+    private fun lastSignalMillis(doc: DocumentSnapshot): Long? =
+        millis(doc.get("liveUpdatedAt")) ?: alertTimeMillis(doc)
+
+    /** One report per silence: a phone that comes back and goes quiet again is reported again. */
+    private fun signalKey(alertId: String, lastSignal: Long) = "signal:$alertId:$lastSignal"
+
+    private fun signalNotificationId(alertId: String) = SIGNAL_NOTIFICATION_BASE + (alertId.hashCode() and 0x3FF)
+
+    private fun isSignalLostShown(alertId: String): Boolean {
+        if (Build.VERSION.SDK_INT < 23) return alertId in signalLostShown
+        val id = signalNotificationId(alertId)
+        return getSystemService(android.app.NotificationManager::class.java)
+            ?.activeNotifications?.any { it.tag == TAG_SIGNAL_LOST && it.id == id } == true
+    }
+
+    private fun isSilent(doc: DocumentSnapshot, uid: String, now: Long): Boolean {
+        if (!isSignalWatched(doc, uid, now)) return false
+        val last = lastSignalMillis(doc) ?: return false
+        return now - last >= SIGNAL_LOST_MS && !AlertRegistry.isClaimed(this, signalKey(doc.id, last))
+    }
+
+    /** Earliest moment one of [docs] turns silent, or null when none is pending. */
+    private fun nextSilenceDue(docs: List<DocumentSnapshot>, uid: String, now: Long): Long? =
+        docs.filter { isSignalWatched(it, uid, now) }
+            .mapNotNull { lastSignalMillis(it)?.plus(SIGNAL_LOST_MS) }
+            .filter { it > now }
+            .minOrNull()
+
+    private fun armSignalCheck(at: Long?) {
+        if (at == null) GuardianWatchdogReceiver.cancelSignalCheck(this)
+        else GuardianWatchdogReceiver.scheduleSignalCheck(this, at)
+    }
+
+    /** Runs on every server snapshot: tidies earlier warnings and arms (or runs) the next check. */
+    private fun reviewSignals(all: List<DocumentSnapshot>, uid: String, now: Long) {
+        for (doc in all) {
+            if (!isSignalLostShown(doc.id)) continue
+            val last = lastSignalMillis(doc)
+            when {
+                !isSignalWatched(doc, uid, now) -> cancelSignalLost(doc.id) // alert ended
+                last != null && now - last < SIGNAL_LOST_MS -> presentSignalBack(doc)
+            }
+        }
+        if (all.any { isSilent(it, uid, now) }) checkSilentAlerts() else armSignalCheck(nextSilenceDue(all, uid, now))
+    }
+
+    /** Confirms with the server which watched alerts went quiet, and reports them. */
+    fun checkSilentAlerts() {
+        val uid = listeningUid ?: return
+        if (signalCheckRunning) return
+        val now = System.currentTimeMillis()
+        val all = docsBySource.values.flatten().distinctBy { it.id }
+        val suspects = all.filter { isSilent(it, uid, now) }
+        if (suspects.isEmpty()) {
+            armSignalCheck(nextSilenceDue(all, uid, now))
+            return
+        }
+
+        signalCheckRunning = true
+        val lock = signalWakeLock
+            ?: getSystemService(PowerManager::class.java)
+                ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WomanGuard:SignalCheck")
+                ?.apply { setReferenceCounted(false) }
+                ?.also { signalWakeLock = it }
+        lock?.acquire(SIGNAL_WAKE_MS)
+
+        val suspectIds = suspects.mapTo(mutableSetOf()) { it.id }
+        val freshDue = mutableListOf<Long>()
+        var pending = suspects.size
+        var failed = false
+        val alerts = FirebaseFirestore.getInstance().collection("sos_alerts")
+        suspects.forEach { cached ->
+            alerts.document(cached.id).get(Source.SERVER)
+                .addOnSuccessListener { fresh ->
+                    val checkedAt = System.currentTimeMillis()
+                    if (isSilent(fresh, uid, checkedAt)) {
+                        val last = lastSignalMillis(fresh) ?: return@addOnSuccessListener
+                        if (AlertRegistry.tryClaim(this, signalKey(fresh.id, last))) presentSignalLost(fresh, last, checkedAt)
+                    } else {
+                        // Still reporting after all (this phone's listener was behind)
+                        nextSilenceDue(listOf(fresh), uid, checkedAt)?.let { freshDue += it }
+                    }
+                }
+                .addOnFailureListener { e ->
+                    // This phone is offline: it cannot tell a silent sender from its own lost connection.
+                    Log.w(TAG, "Signal check for ${cached.id} could not reach the server", e)
+                    failed = true
+                }
+                .addOnCompleteListener {
+                    pending--
+                    if (pending > 0) return@addOnCompleteListener
+                    signalCheckRunning = false
+                    val doneAt = System.currentTimeMillis()
+                    val others = docsBySource.values.flatten().distinctBy { it.id }.filter { it.id !in suspectIds }
+                    val candidates = listOfNotNull(
+                        nextSilenceDue(others, uid, doneAt),
+                        freshDue.minOrNull(),
+                        if (failed) doneAt + SIGNAL_RETRY_MS else null,
+                    )
+                    armSignalCheck(candidates.minOrNull())
+                    signalWakeLock?.let { if (it.isHeld) it.release() }
+                }
+        }
+    }
+
+    private fun lastLocation(doc: DocumentSnapshot): Triple<String?, Double?, Double?> {
+        val location = doc.get("liveLocation") as? Map<*, *> ?: doc.get("location") as? Map<*, *>
+        val address = (location?.get("address") ?: doc.get("address"))?.toString()
+            ?.takeIf { it.isNotBlank() && it != "Live Coordinates" && it != "Live GPS Coordinates Available" }
+        val latitude = number(location?.get("latitude")) ?: number(doc.get("latitude")) ?: number(doc.get("lat"))
+        val longitude = number(location?.get("longitude")) ?: number(doc.get("longitude")) ?: number(doc.get("lng"))
+        return Triple(address, latitude, longitude)
+    }
+
+    private fun openInboxIntent(requestCode: Int): PendingIntent = PendingIntent.getActivity(
+        this,
+        requestCode,
+        Intent(this, MainActivity::class.java)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            .putExtra(MainActivity.EXTRA_OPEN_INBOX, true),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    private fun presentSignalLost(doc: DocumentSnapshot, lastSignal: Long, now: Long) {
+        val name = senderName(doc)
+        val minutes = ((now - lastSignal) / 60_000L).coerceAtLeast(1)
+        val (address, latitude, longitude) = lastLocation(doc)
+        val notifId = signalNotificationId(doc.id)
+        Log.i(TAG, "Signal lost for SOS ${doc.id}: no location update for $minutes min")
+
+        val body = "No location update for $minutes min during an active SOS. Their phone may be off or out of network."
+        val details = buildString {
+            append(body)
+            if (address != null) append("\nLast location: ").append(address)
+            append("\nCall them, or call 999 if you cannot reach them.")
+        }
+        val builder = NotificationCompat.Builder(this, NotificationChannels.SIGNAL_LOST)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Signal lost: $name")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(details))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setColor(0xFFFF3B30.toInt())
+            .setAutoCancel(true)
+            .setContentIntent(openInboxIntent(notifId * 10 + 1))
+            .addAction(
+                0,
+                "Call 999",
+                PendingIntent.getActivity(
+                    this,
+                    notifId * 10 + 2,
+                    Intent(Intent.ACTION_DIAL, Uri.parse("tel:999")).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                ),
+            )
+        if (latitude != null && longitude != null) {
+            val mapIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=$latitude,$longitude"))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            builder.addAction(
+                0,
+                "Last location",
+                PendingIntent.getActivity(this, notifId * 10 + 3, mapIntent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT),
+            )
+        }
+        if (!canPostNotifications()) {
+            Log.w(TAG, "Notification permission denied; cannot report lost signal")
+            return
+        }
+        try {
+            val manager = NotificationManagerCompat.from(this)
+            manager.cancel(TAG_SIGNAL_BACK, notifId)
+            manager.notify(TAG_SIGNAL_LOST, notifId, builder.build())
+            signalLostShown += doc.id
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Could not post signal-lost notification", e)
+        }
+    }
+
+    /** The sender's phone reports again: replace the warning so the guardian is not left worried. */
+    private fun presentSignalBack(doc: DocumentSnapshot) {
+        val notifId = signalNotificationId(doc.id)
+        cancelSignalLost(doc.id)
+        Log.i(TAG, "Signal back for SOS ${doc.id}")
+        val address = lastLocation(doc).first
+        val body = "Their location is updating again. The SOS is still active."
+        val notification = NotificationCompat.Builder(this, NotificationChannels.SIGNAL_LOST)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("${senderName(doc)}'s phone is back online")
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body + (address?.let { "\nLocation: $it" } ?: "")))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setColor(0xFFFF3B30.toInt())
+            .setAutoCancel(true)
+            .setContentIntent(openInboxIntent(notifId * 10 + 4))
+            .build()
+        if (!canPostNotifications()) return
+        try {
+            NotificationManagerCompat.from(this).notify(TAG_SIGNAL_BACK, notifId, notification)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Could not post signal-back notification", e)
+        }
+    }
+
+    private fun cancelSignalLost(alertId: String) {
+        NotificationManagerCompat.from(this).cancel(TAG_SIGNAL_LOST, signalNotificationId(alertId))
+        signalLostShown -= alertId
     }
 
     private fun number(value: Any?): Double? = when (value) {

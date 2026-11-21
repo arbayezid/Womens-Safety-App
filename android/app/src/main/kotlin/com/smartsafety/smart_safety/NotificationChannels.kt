@@ -29,6 +29,9 @@ object NotificationChannels {
      */
     const val MISSED_ALERTS = "guardian_missed_alerts_channel"
 
+    /** An active SOS whose sender's phone stopped sending location (switched off, taken, no network). */
+    const val SIGNAL_LOST = "guardian_signal_lost_channel"
+
     /** The sender's own "are you safe?" check when a safety timer runs out while the app is closed. */
     const val SAFETY_CHECKS = "safety_deadline_checks_channel"
 
@@ -83,6 +86,17 @@ object NotificationChannels {
                 description = "SOS alerts from people you protect that reached your phone late (ended or older than 30 minutes)."
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 700, 300, 700)
+                enableLights(true)
+                lightColor = Color.RED
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+        )
+
+        manager.createNotificationChannel(
+            NotificationChannel(SIGNAL_LOST, "SOS Signal Lost", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "When the phone of someone with an active SOS stops sending its location."
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 800, 300, 800, 300, 800)
                 enableLights(true)
                 lightColor = Color.RED
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC

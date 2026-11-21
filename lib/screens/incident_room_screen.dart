@@ -20,6 +20,7 @@ import '../services/pin_security_service.dart';
 import '../services/safe_zone_repository.dart';
 import '../services/siren_service.dart';
 import '../widgets/pin_input_dialog.dart';
+import '../widgets/signal_lost_banner.dart';
 import '../models/ride_checkin.dart';
 import '../core/app_tokens.dart';
 import '../core/app_text.dart';
@@ -371,6 +372,11 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
         final bool isCurrentGuardianAcknowledged = rawAcknowledgedBy.map((e) => e.toString()).contains(currentUid);
         final bool isAnyGuardianAcknowledged = rawAcknowledgedBy.isNotEmpty;
 
+        // Sender's phone silent (switched off, taken, or out of network); re-checked every ticker second
+        // Only from the live document: initialData may lack liveUpdatedAt and would flash the banner.
+        final Duration? signalSilence =
+            isSender || !snapshot.hasData ? null : sosSignalSilence(snapshot.data?.data());
+
         // Escalation Level
         final int escalationLevel = (docData['escalationLevel'] as num?)?.toInt() ?? 0;
 
@@ -431,6 +437,14 @@ class _IncidentRoomScreenState extends State<IncidentRoomScreen>
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                   children: [
+                    // 0. Signal lost: sender's phone stopped reporting (Guardian view only)
+                    if (!isSender && signalSilence != null)
+                      SignalLostBanner(
+                        silence: signalSilence,
+                        lastAddress: (liveLoc?['address'] ?? docData['address'])?.toString(),
+                        margin: const EdgeInsets.only(bottom: 14),
+                      ),
+
                     // 1. Silent Duress Banner (Guardian view only)
                     if (!isSender && isDuress)
                       _buildDuressWarningBanner(),

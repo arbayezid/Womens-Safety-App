@@ -29,6 +29,40 @@ class GuardianWatchdogReceiver : BroadcastReceiver() {
         const val INTERVAL_MS = 10 * 60 * 1000L
         private const val REQUEST_CODE = 7310
 
+        /** One-shot check for an active SOS whose sender's phone may have gone quiet. */
+        const val ACTION_SIGNAL_CHECK = "com.smartsafety.smart_safety.GUARDIAN_SIGNAL_CHECK"
+        private const val SIGNAL_REQUEST_CODE = 7311
+
+        private fun signalPendingIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
+            context,
+            SIGNAL_REQUEST_CODE,
+            Intent(context, GuardianWatchdogReceiver::class.java).setAction(ACTION_SIGNAL_CHECK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+
+        /** (Re)arms the signal check for [triggerAt]; replaces any check already scheduled. */
+        fun scheduleSignalCheck(context: Context, triggerAt: Long) {
+            setWakeAlarm(context, triggerAt, signalPendingIntent(context))
+        }
+
+        fun cancelSignalCheck(context: Context) {
+            context.getSystemService(AlarmManager::class.java)?.cancel(signalPendingIntent(context))
+        }
+
+        private fun setWakeAlarm(context: Context, triggerAt: Long, pending: PendingIntent) {
+            val manager = context.getSystemService(AlarmManager::class.java) ?: return
+            try {
+                if (SafetyDeadlines.canScheduleExactAlarms(context)) {
+                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                } else {
+                    manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+                }
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Exact alarm refused; using inexact alarm", e)
+                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
+            }
+        }
+
         private fun pendingIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(
             context,
             REQUEST_CODE,
@@ -38,29 +72,24 @@ class GuardianWatchdogReceiver : BroadcastReceiver() {
 
         /** (Re)arms the next tick; replaces any tick already scheduled. */
         fun schedule(context: Context, delayMs: Long = INTERVAL_MS) {
-            val manager = context.getSystemService(AlarmManager::class.java) ?: return
-            val triggerAt = System.currentTimeMillis() + delayMs
-            val pending = pendingIntent(context)
-            try {
-                // Exact while-idle alarms fire in Doze and let the app restart its foreground
-                // service from the background. Not setAlarmClock: that would show an alarm icon.
-                if (SafetyDeadlines.canScheduleExactAlarms(context)) {
-                    manager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-                } else {
-                    manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-                }
-            } catch (e: SecurityException) {
-                Log.w(TAG, "Exact alarm refused; using inexact watchdog alarm", e)
-                manager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pending)
-            }
+            // Exact while-idle alarms fire in Doze and let the app restart its foreground
+            // service from the background. Not setAlarmClock: that would show an alarm icon.
+            setWakeAlarm(context, System.currentTimeMillis() + delayMs, pendingIntent(context))
         }
 
         fun cancel(context: Context) {
             context.getSystemService(AlarmManager::class.java)?.cancel(pendingIntent(context))
+            cancelSignalCheck(context)
         }
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_SIGNAL_CHECK) {
+            if (GuardianAlertService.isEnabled(context) && GuardianAlertService.isProtecting(context)) {
+                GuardianAlertService.onSignalCheckTick(context)
+            }
+            return
+        }
         if (intent.action != ACTION_TICK) return
         if (!GuardianAlertService.isEnabled(context) || !GuardianAlertService.isProtecting(context)) {
             Log.i(TAG, "Guardian alerts off; watchdog stops")
